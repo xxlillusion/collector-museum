@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\({deps:p.dependencies, dev:p.devDependencies},null,1\\)\\)\")",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/nipplejs/package.json'\\).types || require\\('./node_modules/nipplejs/package.json'\\).typings || 'none'\\)\")",
+      "Bash(sed -n '520,535p;555,570p;585,620p' node_modules/nipplejs/dist/index.d.ts)",
+      "Bash(sed -n '840,857p' node_modules/nipplejs/dist/index.d.ts)",
+      "Bash(npm ls:*)",
+      "PowerShell($conns = Get-NetTCPConnection -LocalPort 5173,5174 -State Listen -ErrorAction SilentlyContinue; $pids = $conns | ForEach-Object { $_.OwningProcess } | Sort-Object -Unique; $pids | ForEach-Object { try { Stop-Process -Id $_ -Force -Confirm:$false -ErrorAction Stop; \"killed PID $_\" } catch { \"PID $_ already gone\" } })"
+    ]
+  }
+}

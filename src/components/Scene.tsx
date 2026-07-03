@@ -211,9 +211,37 @@ export default function Scene({ cards, onManage }: SceneProps) {
     return result;
   }, [layout]);
 
+  const glCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Best-effort pointer lock. Guards: canvas may be unmounted (view switch)
+  // or replaced (context-loss remount); browsers may reject the request
+  // (Chrome's cooldown after exiting lock) — then the next click-on-empty-
+  // space simply tries again.
+  const tryLock = () => {
+    if (isTouchDevice) return;
+    try {
+      const el = glCanvasRef.current;
+      if (!el || !el.isConnected) return;
+      const result = el.requestPointerLock() as unknown;
+      if (result instanceof Promise) result.catch(() => {});
+    } catch {
+      // ignore — user can click again
+    }
+  };
+
   const handleCardClick = (url: string) => {
     document.exitPointerLock?.();
     setInspectUrl(url);
+  };
+
+  const handleCloseInspect = (relock: boolean) => {
+    setInspectUrl(null);
+    // Re-enter walk mode only when closed by click (Escape universally means
+    // "release"). Delayed so the overlay's no-lock-while-open enforcement has
+    // unmounted first.
+    if (relock) {
+      setTimeout(tryLock, 150);
+    }
   };
 
   return (
@@ -230,22 +258,34 @@ export default function Scene({ cards, onManage }: SceneProps) {
           toneMappingExposure: 1.15,
         }}
         style={{ width: '100vw', height: '100vh', background: '#0d0b0a' }}
+        onPointerMissed={() => tryLock()}
         onCreated={(state) => {
-          // When the pointer is locked, raycast from the crosshair (screen
-          // center) instead of the frozen mouse position.
-          state.setEvents({
-            compute: (event, st) => {
-              if (document.pointerLockElement) {
-                st.pointer.set(0, 0);
-              } else {
-                st.pointer.set(
-                  (event.offsetX / st.size.width) * 2 - 1,
-                  -(event.offsetY / st.size.height) * 2 + 1,
-                );
-              }
-              st.raycaster.setFromCamera(st.pointer, st.camera);
-            },
-          });
+          glCanvasRef.current = state.gl.domElement;
+          (window as unknown as Record<string, unknown>).__R3F = state;
+
+          // R3F v9 + StrictMode can leave the event system disconnected after
+          // the double-mount (no pointer listeners on the DOM at all), and the
+          // Canvas config overwrites events set during onCreated. Defer one
+          // tick, then connect explicitly and install our compute.
+          setTimeout(() => {
+            const target = state.gl.domElement.parentElement ?? state.gl.domElement;
+            state.events.connect?.(target);
+            // When the pointer is locked, raycast from the crosshair (screen
+            // center) instead of the frozen mouse position.
+            state.setEvents({
+              compute: (event, st) => {
+                if (document.pointerLockElement) {
+                  st.pointer.set(0, 0);
+                } else {
+                  st.pointer.set(
+                    (event.offsetX / st.size.width) * 2 - 1,
+                    -(event.offsetY / st.size.height) * 2 + 1,
+                  );
+                }
+                st.raycaster.setFromCamera(st.pointer, st.camera);
+              },
+            });
+          }, 0);
 
           // Auto-recover from GPU context loss (driver resets, TDR, etc.)
           state.gl.domElement.addEventListener('webglcontextlost', (e) => {
@@ -318,7 +358,7 @@ export default function Scene({ cards, onManage }: SceneProps) {
       <MobileControls />
 
       {inspectUrl && (
-        <InspectOverlay imageUrl={inspectUrl} onClose={() => setInspectUrl(null)} />
+        <InspectOverlay imageUrl={inspectUrl} onClose={handleCloseInspect} />
       )}
     </>
   );

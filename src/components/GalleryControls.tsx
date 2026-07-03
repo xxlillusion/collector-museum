@@ -91,7 +91,13 @@ export default function GalleryControls({ onLockChange }: GalleryControlsProps) 
   if (isTouchDevice) return null;
 
   return (
+    // selector matches nothing: disables drei's click-anywhere-to-lock, which
+    // raced with card clicks (the lock could land first, flipping the raycast
+    // to crosshair mode so the card click missed). Scene locks explicitly via
+    // onPointerMissed instead. Mouse-look still works: the controls track
+    // pointerlockchange on the canvas regardless of who requested the lock.
     <PointerLockControls
+      selector="#plc-no-autolock"
       onLock={() => onLockChange(true)}
       onUnlock={() => onLockChange(false)}
     />

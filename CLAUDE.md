@@ -51,7 +51,7 @@ UploadScreen (DOM)  ←→  Scene (R3F Canvas + DOM overlays)
 | `GalleryControls.tsx` | Desktop: `PointerLockControls` + WASD (velocity in `useFrame`, camera clamped to room bounds, fixed eye height 1.7). Exports `isTouchDevice`, and mutable `mobileInput`/`mobileLook` objects shared with mobile controls |
 | `MobileControls.tsx` | Touch only: nipplejs joystick (bottom-left) writes `mobileInput`; window-level touch-drag listeners write `mobileLook` deltas (consumed as yaw/pitch in `GalleryControls.useFrame`). No intercepting overlay, so taps reach the canvas for card clicks |
 | `HUD.tsx` | Control hints (different text for touch), crosshair when locked, "Manage Cards" button |
-| `InspectOverlay.tsx` | Full-screen card view; closes on Esc / click-outside / button |
+| `InspectOverlay.tsx` | Full-screen card view; any click (or Esc) closes it, and Scene then re-locks the pointer (best-effort — Chrome has a ~1s cooldown after exiting pointer lock, so it falls back to click-canvas-to-lock) |
 | `UploadScreen.tsx` | Drag-drop + browse upload, thumbnail grid with delete, "Enter Museum" |
 
 ### Layout algorithm (`computeLayout` in Scene.tsx)

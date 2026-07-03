@@ -9,7 +9,15 @@
       "Bash(sed -n '520,535p;555,570p;585,620p' node_modules/nipplejs/dist/index.d.ts)",
       "Bash(sed -n '840,857p' node_modules/nipplejs/dist/index.d.ts)",
       "Bash(npm ls:*)",
-      "PowerShell($conns = Get-NetTCPConnection -LocalPort 5173,5174 -State Listen -ErrorAction SilentlyContinue; $pids = $conns | ForEach-Object { $_.OwningProcess } | Sort-Object -Unique; $pids | ForEach-Object { try { Stop-Process -Id $_ -Force -Confirm:$false -ErrorAction Stop; \"killed PID $_\" } catch { \"PID $_ already gone\" } })"
+      "PowerShell($conns = Get-NetTCPConnection -LocalPort 5173,5174 -State Listen -ErrorAction SilentlyContinue; $pids = $conns | ForEach-Object { $_.OwningProcess } | Sort-Object -Unique; $pids | ForEach-Object { try { Stop-Process -Id $_ -Force -Confirm:$false -ErrorAction Stop; \"killed PID $_\" } catch { \"PID $_ already gone\" } })",
+      "Skill(run)",
+      "Bash(node drive.tmp.mjs)",
+      "Bash(node debug.tmp.mjs)",
+      "Bash(python -)",
+      "Bash(grep -aA30 \"R3F state\")",
+      "Bash(grep -aA45 \"R3F state\")",
+      "Bash(node debug2.tmp.mjs)",
+      "Bash(node debug3.tmp.mjs)"
     ]
   }
 }

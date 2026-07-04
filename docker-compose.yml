@@ -1,0 +1,29 @@
+services:
+  dev:
+    build:
+      context: .
+      target: development
+    ports:
+      - "5175:5175"
+    volumes:
+      # Mount source so edits on the host trigger Vite HMR inside the container
+      - .:/app
+      # Keep Linux node_modules inside Docker (don't use the host's)
+      - node_modules:/app/node_modules
+    environment:
+      DOCKER: "true"
+    stdin_open: true
+    tty: true
+
+  # Optional production preview: docker compose --profile prod up prod
+  prod:
+    profiles:
+      - prod
+    build:
+      context: .
+      target: production
+    ports:
+      - "8080:80"
+
+volumes:
+  node_modules:

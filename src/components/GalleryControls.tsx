@@ -20,7 +20,7 @@ interface GalleryControlsProps {
 }
 
 export default function GalleryControls({ onLockChange }: GalleryControlsProps) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const keys = useRef<Set<string>>(new Set());
 
   // Set initial camera position / orientation
@@ -96,7 +96,14 @@ export default function GalleryControls({ onLockChange }: GalleryControlsProps) 
     // to crosshair mode so the card click missed). Scene locks explicitly via
     // onPointerMissed instead. Mouse-look still works: the controls track
     // pointerlockchange on the canvas regardless of who requested the lock.
+    // domElement must be the canvas: Scene.tryLock() requests pointer lock on
+    // gl.domElement, and three's PointerLockControls only enables mouse-look
+    // when document.pointerLockElement === its own domElement. Without the
+    // explicit prop, drei falls back to events.connected — the canvas's parent
+    // div (Scene connects events there) — and the match fails: pointer locks,
+    // cursor vanishes, but the camera never rotates.
     <PointerLockControls
+      domElement={gl.domElement}
       selector="#plc-no-autolock"
       onLock={() => onLockChange(true)}
       onUnlock={() => onLockChange(false)}

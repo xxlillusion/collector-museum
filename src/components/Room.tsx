@@ -35,7 +35,7 @@ export default function Room() {
         <planeGeometry args={[ROOM.width, ROOM.depth]} />
         <MeshReflectorMaterial
           blur={[400, 100]}
-          resolution={isTouchDevice ? 512 : 1024}
+          resolution={isTouchDevice ? 384 : 640}
           mixBlur={1}
           mixStrength={12}
           roughness={0.85}

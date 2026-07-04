@@ -456,7 +456,14 @@ export default function Binder({
       applyCover(0);
     }
 
-    // Sheet resting angles + active flip
+    // While the binder moves it needs fresh shadows (maps are otherwise
+    // rendered on demand — see Scene onCreated)
+    if (phase === 'opening' || phase === 'closing') {
+      gl.shadowMap.needsUpdate = true;
+    }
+
+    // Sheet resting angles + active flip. Sheets are fully hidden inside the
+    // closed covers — skip rendering them (and their reflection-pass copies).
     const k = spreadRef.current;
     const flip = flipRef.current;
     if (flip) {
@@ -466,6 +473,7 @@ export default function Binder({
     for (let i = 0; i < numSheets; i++) {
       const g = sheetRefs.current[i];
       if (!g) continue;
+      g.visible = phase !== 'closed';
       if (flip && flip.sheet === i) {
         g.rotation.y = flip.from + (flip.to - flip.from) * easeInOutCubic(flip.t);
       } else {

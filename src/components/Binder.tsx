@@ -21,6 +21,10 @@ const CARDS_PER_SHEET = 18;
 const OPEN_DURATION = 0.6;  // lift + cover swing (seconds)
 const FLIP_DURATION = 0.4;  // one sheet turn
 const VIEW_DISTANCE = 0.6;  // binder distance in front of the camera
+// Scale applied at the view pose so the spread fills the screen. Scaling
+// (rather than moving closer) keeps the mid-swing cover clear of the 0.1
+// near plane: worst case tip ≈ 0.6 − 0.30·scale ≈ 0.13.
+const VIEW_SCALE = 1.55;
 const FAN = 0.006;          // stacking fan angle between resting sheets
 
 const PROMPT_DISTANCE = 2.2;
@@ -49,12 +53,10 @@ function SleeveCard({
   card,
   pocketW,
   pocketH,
-  onInspect,
 }: {
   card: CardWithUrl;
   pocketW: number;
   pocketH: number;
-  onInspect: (url: string) => void;
 }) {
   const texture = useTexture(card.imageUrl);
 
@@ -74,16 +76,8 @@ function SleeveCard({
   }
 
   return (
-    <mesh
-      position={[0, 0, 0.0012]}
-      onClick={(e: ThreeEvent<MouseEvent>) => {
-        e.stopPropagation();
-        if (e.delta > 8) return;
-        onInspect(card.imageUrl);
-      }}
-      onPointerEnter={() => { document.body.style.cursor = 'pointer'; }}
-      onPointerLeave={() => { document.body.style.cursor = 'default'; }}
-    >
+    // Visual only — the pocket's sleeve plane handles clicks (bigger target)
+    <mesh position={[0, 0, 0.0012]} raycast={() => null}>
       <planeGeometry args={[w, h]} />
       <meshStandardMaterial map={texture} roughness={0.5} />
     </mesh>
@@ -126,11 +120,24 @@ function PocketGrid({
           </mesh>
 
           {p.card && (
-            <SleeveCard card={p.card} pocketW={pocketW} pocketH={pocketH} onInspect={onInspect} />
+            <SleeveCard card={p.card} pocketW={pocketW} pocketH={pocketH} />
           )}
 
-          {/* Plastic sleeve sheen over the pocket */}
-          <mesh position={[0, 0, 0.0022]}>
+          {/* Plastic sleeve sheen over the pocket — also the click target
+              for the card inside (frontmost, full pocket size). userData
+              lets the native-click fallback raycast identify the card. */}
+          <mesh
+            position={[0, 0, 0.0022]}
+            userData={{ cardUrl: p.card?.imageUrl }}
+            onClick={(e: ThreeEvent<MouseEvent>) => {
+              if (!p.card) return;
+              e.stopPropagation();
+              if (e.delta > 8) return;
+              onInspect(p.card.imageUrl);
+            }}
+            onPointerEnter={() => { if (p.card) document.body.style.cursor = 'pointer'; }}
+            onPointerLeave={() => { document.body.style.cursor = 'default'; }}
+          >
             <planeGeometry args={[pocketW, pocketH]} />
             <meshPhysicalMaterial
               color="#ffffff"
@@ -213,7 +220,7 @@ export default function Binder({
   onInspect,
   onClosed,
 }: BinderProps) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
 
   const rootRef = useRef<THREE.Group>(null);
   const coverRef = useRef<THREE.Group>(null);
@@ -335,6 +342,52 @@ export default function Binder({
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  // Native click fallback while open: R3F's synthetic click dispatch has
+  // proven unreliable for some desktop pointer setups (trackpad after
+  // pointer-lock exit), so raycast manually from the real mouse coordinates.
+  // If R3F's own onClick also fires, onInspect is idempotent — harmless.
+  useEffect(() => {
+    if (!open) return;
+    let downX = 0;
+    let downY = 0;
+    const onDown = (e: PointerEvent) => {
+      downX = e.clientX;
+      downY = e.clientY;
+    };
+    const onClick = (e: MouseEvent) => {
+      if (phaseRef.current !== 'open' || suspendedRef.current) return;
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 8) return; // drag
+      const canvas = gl.domElement;
+      const t = e.target as Node | null;
+      if (t !== canvas && t !== canvas.parentElement) return; // DOM UI click
+      const root = rootRef.current;
+      if (!root) return;
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(ndc, camera);
+      const hits = raycaster.intersectObjects(root.children, true);
+      // Nearest few hits: the sleeve sheen is frontmost, but the thin weld
+      // seam strip can edge in front of it — look a little past the surface.
+      for (const h of hits.slice(0, 4)) {
+        const url = (h.object.userData as { cardUrl?: string }).cardUrl;
+        if (url) {
+          callbacksRef.current.onInspect(url);
+          return;
+        }
+      }
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('click', onClick, true);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('click', onClick, true);
+    };
+  }, [open, camera, gl]);
+
   // Mobile DOM buttons communicate via window CustomEvents
   useEffect(() => {
     const onFlip = (e: Event) => startFlipRef.current((e as CustomEvent<1 | -1>).detail);
@@ -385,6 +438,7 @@ export default function Binder({
       const e = smoothstep(phase === 'opening' ? raw : 1 - raw);
       root.position.lerpVectors(tablePose.pos, viewPos.current, e);
       root.quaternion.slerpQuaternions(tablePose.quat, viewQuat.current, e);
+      root.scale.setScalar(1 + (VIEW_SCALE - 1) * e);
       applyCover(e);
       if (raw >= 1) {
         phaseRef.current = phase === 'opening' ? 'open' : 'closed';
@@ -393,10 +447,12 @@ export default function Binder({
     } else if (phase === 'open') {
       root.position.copy(viewPos.current);
       root.quaternion.copy(viewQuat.current);
+      root.scale.setScalar(VIEW_SCALE);
       applyCover(1);
     } else {
       root.position.copy(tablePose.pos);
       root.quaternion.copy(tablePose.quat);
+      root.scale.setScalar(1);
       applyCover(0);
     }
 

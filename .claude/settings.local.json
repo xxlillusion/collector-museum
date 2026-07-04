@@ -22,7 +22,8 @@
       "Bash(curl -sS -o /dev/null -w '%{http_code}\\\\n' http://localhost:5176/)",
       "Bash(npm --version)",
       "mcp__claude-in-chrome__tabs_context_mcp",
-      "Bash(curl -sS -o /dev/null -w 'http %{http_code}\\\\n' http://localhost:5176/)"
+      "Bash(curl -sS -o /dev/null -w 'http %{http_code}\\\\n' http://localhost:5176/)",
+      "Bash(mkdir -p /Users/jasondale/.claude/plans)"
     ]
   }
 }

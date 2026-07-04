@@ -11,6 +11,19 @@ export const ROOM = {
 // Distance of the ceiling light track from each display wall
 export const TRACK_OFFSET = 1.7;
 
+// Vendor table against the east wall (lives here, not in Table.tsx, so
+// GalleryControls can import it without a circular Table → Room →
+// GalleryControls → Table dependency).
+export const TABLE = {
+  x: ROOM.width / 2 - 0.7,  // 9.3 — table center, top ~0.38 off the wall
+  topW: 1.83,               // 6 ft folding table
+  topD: 0.76,
+  topH: 0.74,
+};
+
+// Where the closed binder rests (world space), on top of the tablecloth
+export const BINDER_REST: [number, number, number] = [TABLE.x, TABLE.topH + 0.03, 0];
+
 const WALL_COLOR = '#dcd6ca';
 const TRIM_COLOR = '#f0ece3';
 

@@ -7,11 +7,20 @@ export interface CardRecord {
   addedAt: number;
 }
 
+export interface SettingRecord {
+  key: string;
+  blob: Blob;
+}
+
 interface MuseumDB extends DBSchema {
   cards: {
     key: string;
     value: CardRecord;
     indexes: { addedAt: number };
+  };
+  settings: {
+    key: string;
+    value: SettingRecord;
   };
 }
 
@@ -19,10 +28,15 @@ let dbPromise: Promise<IDBPDatabase<MuseumDB>> | null = null;
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<MuseumDB>('vendor-museum', 1, {
-      upgrade(db) {
-        const store = db.createObjectStore('cards', { keyPath: 'id' });
-        store.createIndex('addedAt', 'addedAt');
+    dbPromise = openDB<MuseumDB>('vendor-museum', 2, {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          const store = db.createObjectStore('cards', { keyPath: 'id' });
+          store.createIndex('addedAt', 'addedAt');
+        }
+        if (oldVersion < 2) {
+          db.createObjectStore('settings', { keyPath: 'key' });
+        }
       },
     });
   }
@@ -80,4 +94,24 @@ export async function getCards(): Promise<CardRecord[]> {
 export async function deleteCard(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('cards', id);
+}
+
+const BANNER_KEY = 'tableclothBanner';
+
+export async function saveBanner(file: File): Promise<Blob> {
+  const db = await getDB();
+  const blob = await downscaleImage(file);
+  await db.put('settings', { key: BANNER_KEY, blob });
+  return blob;
+}
+
+export async function getBanner(): Promise<Blob | undefined> {
+  const db = await getDB();
+  const record = await db.get('settings', BANNER_KEY);
+  return record?.blob;
+}
+
+export async function deleteBanner(): Promise<void> {
+  const db = await getDB();
+  await db.delete('settings', BANNER_KEY);
 }

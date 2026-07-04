@@ -9,6 +9,8 @@ import GalleryControls, { isTouchDevice } from './GalleryControls';
 import MobileControls from './MobileControls';
 import HUD from './HUD';
 import InspectOverlay from './InspectOverlay';
+import Table from './Table';
+import Binder from './Binder';
 import type { CardWithUrl } from '../lib/useCards';
 
 // Layout constants — gallery style: consistent row height, variable widths
@@ -20,6 +22,7 @@ const WALL_MARGIN = 1.2;         // keep-clear zone at wall ends
 
 interface SceneProps {
   cards: CardWithUrl[];
+  bannerUrl: string | null;
   onManage: () => void;
 }
 
@@ -187,9 +190,12 @@ function LoadingOverlay() {
   );
 }
 
-export default function Scene({ cards, onManage }: SceneProps) {
+export default function Scene({ cards, bannerUrl, onManage }: SceneProps) {
   const [locked, setLocked] = useState(false);
   const [inspectUrl, setInspectUrl] = useState<string | null>(null);
+  // "open or animating" — Binder owns the phase machine internally
+  const [binderOpen, setBinderOpen] = useState(false);
+  const [binderPrompt, setBinderPrompt] = useState(false);
   // Bumping this key remounts the Canvas — our recovery path if the GPU
   // driver kills the WebGL context (black canvas, DOM still alive).
   const [glKey, setGlKey] = useState(0);
@@ -238,7 +244,20 @@ export default function Scene({ cards, onManage }: SceneProps) {
     setInspectUrl(null);
     // Re-enter walk mode only when closed by click (Escape universally means
     // "release"). Delayed so the overlay's no-lock-while-open enforcement has
-    // unmounted first.
+    // unmounted first. Never relock while the binder is still up — its own
+    // no-lock enforcement would fight it, and the user returns to the binder.
+    if (relock && !binderOpen) {
+      setTimeout(tryLock, 150);
+    }
+  };
+
+  const handleBinderOpen = () => {
+    document.exitPointerLock?.();
+    setBinderOpen(true);
+  };
+
+  const handleBinderClosed = (relock: boolean) => {
+    setBinderOpen(false);
     if (relock) {
       setTimeout(tryLock, 150);
     }
@@ -300,6 +319,17 @@ export default function Scene({ cards, onManage }: SceneProps) {
         <Suspense fallback={null}>
           <Room />
 
+          <Table bannerUrl={bannerUrl} />
+          <Binder
+            cards={cards}
+            open={binderOpen}
+            suspended={!!inspectUrl}
+            onOpenRequest={handleBinderOpen}
+            onPromptChange={setBinderPrompt}
+            onInspect={handleCardClick}
+            onClosed={handleBinderClosed}
+          />
+
           {layout.map(({ position, rotation, width, height, card }) => (
             <CardFrame
               key={card.id}
@@ -342,7 +372,7 @@ export default function Scene({ cards, onManage }: SceneProps) {
             />
           </Environment>
 
-          <GalleryControls onLockChange={setLocked} />
+          <GalleryControls onLockChange={setLocked} frozen={binderOpen} />
         </Suspense>
 
         {!isTouchDevice && (
@@ -354,8 +384,13 @@ export default function Scene({ cards, onManage }: SceneProps) {
       </Canvas>
 
       <LoadingOverlay />
-      <HUD locked={locked} onUpload={onManage} />
-      <MobileControls />
+      <HUD
+        locked={locked}
+        onUpload={onManage}
+        binderPrompt={binderPrompt && locked && !binderOpen}
+        binderOpen={binderOpen}
+      />
+      <MobileControls hidden={binderOpen} />
 
       {inspectUrl && (
         <InspectOverlay imageUrl={inspectUrl} onClose={handleCloseInspect} />

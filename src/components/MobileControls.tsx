@@ -2,12 +2,17 @@ import { useEffect, useRef } from 'react';
 import { create as createJoystick } from 'nipplejs';
 import { mobileInput, mobileLook, isTouchDevice } from './GalleryControls';
 
-export default function MobileControls() {
+interface MobileControlsProps {
+  /** true while the binder is open — joystick and look-drag are disabled */
+  hidden: boolean;
+}
+
+export default function MobileControls({ hidden }: MobileControlsProps) {
   const joystickRef = useRef<HTMLDivElement>(null);
 
   // Joystick (bottom-left) → movement
   useEffect(() => {
-    if (!isTouchDevice || !joystickRef.current) return;
+    if (!isTouchDevice || hidden || !joystickRef.current) return;
 
     const manager = createJoystick({
       zone: joystickRef.current,
@@ -34,12 +39,12 @@ export default function MobileControls() {
       mobileInput.x = 0;
       mobileInput.z = 0;
     };
-  }, []);
+  }, [hidden]);
 
   // Touch-drag anywhere outside the joystick → camera look.
   // Listeners are on window so taps still reach the canvas for card clicks.
   useEffect(() => {
-    if (!isTouchDevice) return;
+    if (!isTouchDevice || hidden) return;
 
     let touchId: number | null = null;
     let lastX = 0;
@@ -84,9 +89,9 @@ export default function MobileControls() {
       window.removeEventListener('touchend', onEnd);
       window.removeEventListener('touchcancel', onEnd);
     };
-  }, []);
+  }, [hidden]);
 
-  if (!isTouchDevice) return null;
+  if (!isTouchDevice || hidden) return null;
 
   return (
     <div

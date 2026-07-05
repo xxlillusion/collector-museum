@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { PointerLockControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { ROOM } from './Room';
+import { ROOM, TABLE } from './Room';
 
 const MOVE_SPEED = 4; // units per second
 const PLAYER_HEIGHT = 1.7;
@@ -17,9 +17,11 @@ export const mobileLook = { dx: 0, dy: 0 };
 
 interface GalleryControlsProps {
   onLockChange: (locked: boolean) => void;
+  /** true while the binder is open — movement and look are frozen */
+  frozen: boolean;
 }
 
-export default function GalleryControls({ onLockChange }: GalleryControlsProps) {
+export default function GalleryControls({ onLockChange, frozen }: GalleryControlsProps) {
   const { camera, gl } = useThree();
   const keys = useRef<Set<string>>(new Set());
 
@@ -41,6 +43,14 @@ export default function GalleryControls({ onLockChange }: GalleryControlsProps) 
   }, []);
 
   useFrame((_, delta) => {
+    // Binder open: drain queued look deltas so the camera doesn't jump on
+    // resume, then skip all movement/look.
+    if (frozen) {
+      mobileLook.dx = 0;
+      mobileLook.dy = 0;
+      return;
+    }
+
     // Touch look: apply accumulated drag deltas as yaw/pitch
     if (isTouchDevice && (mobileLook.dx !== 0 || mobileLook.dy !== 0)) {
       camera.rotation.y -= mobileLook.dx * TOUCH_LOOK_SPEED;
@@ -85,6 +95,13 @@ export default function GalleryControls({ onLockChange }: GalleryControlsProps) 
     camera.position.x = Math.max(-halfW, Math.min(halfW, camera.position.x));
     camera.position.z = Math.max(-halfD, Math.min(halfD, camera.position.z));
     camera.position.y = PLAYER_HEIGHT;
+
+    // Don't walk through the vendor table (east wall). Simple AABB push-out.
+    const tableEdgeX = TABLE.x - TABLE.topD / 2 - 0.35;
+    const tableHalfZ = TABLE.topW / 2 + 0.35;
+    if (Math.abs(camera.position.z) < tableHalfZ && camera.position.x > tableEdgeX) {
+      camera.position.x = tableEdgeX;
+    }
   });
 
   // Pointer lock is not supported on mobile — touch look handles it instead

@@ -1,4 +1,4 @@
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { Environment, Lightformer, useProgress } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { Suspense, useState, useMemo, useRef, useEffect } from 'react';
@@ -9,6 +9,8 @@ import GalleryControls, { isTouchDevice } from './GalleryControls';
 import MobileControls from './MobileControls';
 import HUD from './HUD';
 import InspectOverlay from './InspectOverlay';
+import Table from './Table';
+import Binder from './Binder';
 import type { CardWithUrl } from '../lib/useCards';
 
 // Layout constants — gallery style: consistent row height, variable widths
@@ -20,6 +22,7 @@ const WALL_MARGIN = 1.2;         // keep-clear zone at wall ends
 
 interface SceneProps {
   cards: CardWithUrl[];
+  bannerUrl: string | null;
   onManage: () => void;
 }
 
@@ -134,7 +137,7 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
       <spotLight
         ref={lightRef}
         position={[x, ROOM.height - 0.18, fixtureZ]}
-        angle={0.52}
+        angle={0.7}
         penumbra={0.85}
         intensity={60}
         decay={2}
@@ -162,6 +165,28 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
   );
 }
 
+/**
+ * Shadow maps are rendered on demand (gl.shadowMap.autoUpdate = false in
+ * onCreated) since the room is static — this saves a full shadow render pass
+ * every frame. Re-render shadows for a while whenever `trigger` changes
+ * (layout/textures streaming in); the binder requests its own updates while
+ * it animates.
+ */
+function ShadowRefresh({ trigger }: { trigger: unknown }) {
+  const { gl } = useThree();
+  const frames = useRef(0);
+  useEffect(() => {
+    frames.current = 0;
+  }, [trigger]);
+  useFrame(() => {
+    if (frames.current < 120) {
+      gl.shadowMap.needsUpdate = true;
+      frames.current++;
+    }
+  });
+  return null;
+}
+
 /** DOM overlay shown while textures stream in (useProgress is a global store). */
 function LoadingOverlay() {
   const { active, progress } = useProgress();
@@ -187,9 +212,12 @@ function LoadingOverlay() {
   );
 }
 
-export default function Scene({ cards, onManage }: SceneProps) {
+export default function Scene({ cards, bannerUrl, onManage }: SceneProps) {
   const [locked, setLocked] = useState(false);
   const [inspectUrl, setInspectUrl] = useState<string | null>(null);
+  // "open or animating" — Binder owns the phase machine internally
+  const [binderOpen, setBinderOpen] = useState(false);
+  const [binderPrompt, setBinderPrompt] = useState(false);
   // Bumping this key remounts the Canvas — our recovery path if the GPU
   // driver kills the WebGL context (black canvas, DOM still alive).
   const [glKey, setGlKey] = useState(0);
@@ -205,8 +233,22 @@ export default function Scene({ cards, onManage }: SceneProps) {
       byWall.get(wallZ)!.push(p.position[0]);
     }
     const result: { x: number; wallZ: number }[] = [];
+    // Cap the light count: every spotlight multiplies per-pixel shading cost
+    // (twice, since the reflector re-renders the scene). With many cards the
+    // 1.5-gap clustering produces one spot per frame — when it exceeds the
+    // cap, wash the wall with evenly spaced spots across the span instead.
+    const MAX_SPOTS_PER_WALL = 5;
     for (const [wallZ, xs] of byWall) {
-      for (const x of clusterXs(xs)) result.push({ x, wallZ });
+      let clusters = clusterXs(xs);
+      if (clusters.length > MAX_SPOTS_PER_WALL) {
+        const min = Math.min(...xs);
+        const max = Math.max(...xs);
+        clusters = Array.from(
+          { length: MAX_SPOTS_PER_WALL },
+          (_, i) => min + ((i + 0.5) * (max - min)) / MAX_SPOTS_PER_WALL,
+        );
+      }
+      for (const x of clusters) result.push({ x, wallZ });
     }
     return result;
   }, [layout]);
@@ -238,7 +280,20 @@ export default function Scene({ cards, onManage }: SceneProps) {
     setInspectUrl(null);
     // Re-enter walk mode only when closed by click (Escape universally means
     // "release"). Delayed so the overlay's no-lock-while-open enforcement has
-    // unmounted first.
+    // unmounted first. Never relock while the binder is still up — its own
+    // no-lock enforcement would fight it, and the user returns to the binder.
+    if (relock && !binderOpen) {
+      setTimeout(tryLock, 150);
+    }
+  };
+
+  const handleBinderOpen = () => {
+    document.exitPointerLock?.();
+    setBinderOpen(true);
+  };
+
+  const handleBinderClosed = (relock: boolean) => {
+    setBinderOpen(false);
     if (relock) {
       setTimeout(tryLock, 150);
     }
@@ -249,7 +304,7 @@ export default function Scene({ cards, onManage }: SceneProps) {
       <Canvas
         key={glKey}
         shadows={{ enabled: true, type: THREE.PCFShadowMap }}
-        dpr={[1, 1.75]}
+        dpr={[1, 1.5]}
         camera={{ fov: 72, near: 0.1, far: 100 }}
         gl={{
           antialias: true,
@@ -262,6 +317,11 @@ export default function Scene({ cards, onManage }: SceneProps) {
         onCreated={(state) => {
           glCanvasRef.current = state.gl.domElement;
           (window as unknown as Record<string, unknown>).__R3F = state;
+
+          // Static scene → shadows on demand (ShadowRefresh / Binder set
+          // needsUpdate when something actually moves)
+          state.gl.shadowMap.autoUpdate = false;
+          state.gl.shadowMap.needsUpdate = true;
 
           // R3F v9 + StrictMode can leave the event system disconnected after
           // the double-mount (no pointer listeners on the DOM at all), and the
@@ -299,6 +359,17 @@ export default function Scene({ cards, onManage }: SceneProps) {
 
         <Suspense fallback={null}>
           <Room />
+
+          <Table bannerUrl={bannerUrl} />
+          <Binder
+            cards={cards}
+            open={binderOpen}
+            suspended={!!inspectUrl}
+            onOpenRequest={handleBinderOpen}
+            onPromptChange={setBinderPrompt}
+            onInspect={handleCardClick}
+            onClosed={handleBinderClosed}
+          />
 
           {layout.map(({ position, rotation, width, height, card }) => (
             <CardFrame
@@ -342,7 +413,8 @@ export default function Scene({ cards, onManage }: SceneProps) {
             />
           </Environment>
 
-          <GalleryControls onLockChange={setLocked} />
+          <GalleryControls onLockChange={setLocked} frozen={binderOpen} />
+          <ShadowRefresh trigger={cards} />
         </Suspense>
 
         {!isTouchDevice && (
@@ -354,8 +426,13 @@ export default function Scene({ cards, onManage }: SceneProps) {
       </Canvas>
 
       <LoadingOverlay />
-      <HUD locked={locked} onUpload={onManage} />
-      <MobileControls />
+      <HUD
+        locked={locked}
+        onUpload={onManage}
+        binderPrompt={binderPrompt && locked && !binderOpen}
+        binderOpen={binderOpen}
+      />
+      <MobileControls hidden={binderOpen} />
 
       {inspectUrl && (
         <InspectOverlay imageUrl={inspectUrl} onClose={handleCloseInspect} />

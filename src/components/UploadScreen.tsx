@@ -6,10 +6,22 @@ interface UploadScreenProps {
   loading: boolean;
   onAdd: (file: File) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
+  bannerUrl: string | null;
+  onSetBanner: (file: File) => Promise<void>;
+  onRemoveBanner: () => Promise<void>;
   onEnter: () => void;
 }
 
-export default function UploadScreen({ cards, loading, onAdd, onRemove, onEnter }: UploadScreenProps) {
+export default function UploadScreen({
+  cards,
+  loading,
+  onAdd,
+  onRemove,
+  bannerUrl,
+  onSetBanner,
+  onRemoveBanner,
+  onEnter,
+}: UploadScreenProps) {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -142,6 +154,82 @@ export default function UploadScreen({ cards, loading, onAdd, onRemove, onEnter 
           No cards yet. Add some above.
         </p>
       )}
+
+      {/* Tablecloth banner */}
+      <div style={{ width: '100%', maxWidth: '560px', marginBottom: '32px' }}>
+        <div style={{ fontSize: '13px', letterSpacing: '0.1em', color: '#888', marginBottom: '10px' }}>
+          TABLECLOTH BANNER
+        </div>
+        <div
+          onClick={() => document.getElementById('banner-input')?.click()}
+          style={{
+            position: 'relative',
+            border: '2px dashed #555',
+            borderRadius: '12px',
+            padding: bannerUrl ? '10px' : '24px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            background: 'rgba(255,255,255,0.03)',
+            transition: 'all 0.2s',
+          }}
+        >
+          {bannerUrl ? (
+            <>
+              <img
+                src={bannerUrl}
+                alt="Tablecloth banner"
+                style={{
+                  width: '100%',
+                  maxHeight: '140px',
+                  objectFit: 'contain',
+                  borderRadius: '6px',
+                  display: 'block',
+                }}
+              />
+              <button
+                onClick={(e) => { e.stopPropagation(); onRemoveBanner(); }}
+                title="Remove banner"
+                style={{
+                  position: 'absolute',
+                  top: '6px',
+                  right: '6px',
+                  background: 'rgba(0,0,0,0.75)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '22px',
+                  height: '22px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  lineHeight: '22px',
+                  textAlign: 'center',
+                  padding: 0,
+                }}
+              >
+                ✕
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: '14px', marginBottom: '6px' }}>Add a banner image</div>
+              <div style={{ fontSize: '12px', color: '#666' }}>
+                Displayed on the front of the vendor table — plain cloth if empty
+              </div>
+            </>
+          )}
+          <input
+            id="banner-input"
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file && file.type.startsWith('image/')) onSetBanner(file);
+              e.target.value = '';
+            }}
+          />
+        </div>
+      </div>
 
       {/* Enter museum button */}
       <button

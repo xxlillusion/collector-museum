@@ -197,7 +197,9 @@ export default function VendorSetupScreen({
 
   return (
     <div style={{
-      minHeight: '100vh',
+      height: '100vh',
+      overflowY: 'auto',
+      boxSizing: 'border-box',
       background: '#1a1614',
       color: '#e8e4dc',
       fontFamily: 'Georgia, serif',

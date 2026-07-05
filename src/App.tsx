@@ -5,15 +5,15 @@ import { useBanner } from './lib/useBanner';
 import { useVendorPlan } from './lib/useVendorPlan';
 import { useVendorBanners } from './lib/useVendorBanners';
 import { useSavedPlans } from './lib/useSavedPlans';
-import UploadScreen from './components/UploadScreen';
+import HomeScreen from './components/HomeScreen';
 import Scene from './components/Scene';
 import VendorSetupScreen from './components/VendorSetupScreen';
 import VendorScene from './components/VendorScene';
 
-type View = 'upload' | 'gallery' | 'vendorSetup' | 'vendorWalk';
+type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk';
 
 export default function App() {
-  const [view, setView] = useState<View>('upload');
+  const [view, setView] = useState<View>('home');
   const { cards, loading, addCard, removeCard } = useCards();
   const { bannerUrl, setBanner, removeBanner } = useBanner();
   const vendorPlan = useVendorPlan();
@@ -49,7 +49,7 @@ export default function App() {
       <Scene
         cards={cards}
         bannerUrl={bannerUrl}
-        onManage={() => setView('upload')}
+        onManage={() => setView('home')}
       />
     );
   }
@@ -70,7 +70,7 @@ export default function App() {
         onLoadPlan={handleLoadPlan}
         onDeletePlan={savedPlans.deletePlan}
         onGenerate={() => setView('vendorWalk')}
-        onBack={() => setView('upload')}
+        onBack={() => setView('home')}
       />
     );
   }
@@ -88,7 +88,7 @@ export default function App() {
   }
 
   return (
-    <UploadScreen
+    <HomeScreen
       cards={cards}
       loading={loading}
       onAdd={addCard}
@@ -96,6 +96,11 @@ export default function App() {
       bannerUrl={bannerUrl}
       onSetBanner={setBanner}
       onRemoveBanner={removeBanner}
+      savedPlans={savedPlans.savedPlans}
+      onWalkPlan={async (id) => {
+        await handleLoadPlan(id);
+        setView('vendorWalk');
+      }}
       onEnter={() => setView('gallery')}
       onVendor={() => setView('vendorSetup')}
     />

@@ -12,6 +12,19 @@ export interface SettingRecord {
   blob: Blob;
 }
 
+/** A complete, self-contained snapshot of a Vendor View plan. */
+export interface SavedPlanRecord {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  planBlob: Blob;
+  /** JSON.stringify(VendorPlanMeta) — rects (rotation, bannerIds), scale, start */
+  metaJson: string;
+  /** Banner blobs snapshotted with the plan — no refs into live slots */
+  banners: { id: string; blob: Blob }[];
+}
+
 interface MuseumDB extends DBSchema {
   cards: {
     key: string;
@@ -22,13 +35,18 @@ interface MuseumDB extends DBSchema {
     key: string;
     value: SettingRecord;
   };
+  plans: {
+    key: string;
+    value: SavedPlanRecord;
+    indexes: { updatedAt: number };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<MuseumDB>> | null = null;
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<MuseumDB>('vendor-museum', 2, {
+    dbPromise = openDB<MuseumDB>('vendor-museum', 3, {
       upgrade(db, oldVersion) {
         if (oldVersion < 1) {
           const store = db.createObjectStore('cards', { keyPath: 'id' });
@@ -36,6 +54,10 @@ function getDB() {
         }
         if (oldVersion < 2) {
           db.createObjectStore('settings', { keyPath: 'key' });
+        }
+        if (oldVersion < 3) {
+          const plans = db.createObjectStore('plans', { keyPath: 'id' });
+          plans.createIndex('updatedAt', 'updatedAt');
         }
       },
     });
@@ -143,6 +165,46 @@ export async function deleteFloorPlan(): Promise<void> {
   await db.delete('settings', PLANMETA_KEY);
 }
 
+// Per-vendor banner images, one settings slot per banner: `vendorBanner:<id>`.
+// Rects reference them by id (VendorRect.bannerId).
+
+const VENDOR_BANNER_PREFIX = 'vendorBanner:';
+
+export async function saveVendorBanner(file: File): Promise<string> {
+  const db = await getDB();
+  const id = crypto.randomUUID();
+  const blob = await downscaleImage(file);
+  await db.put('settings', { key: VENDOR_BANNER_PREFIX + id, blob });
+  return id;
+}
+
+export async function putVendorBanner(id: string, blob: Blob): Promise<void> {
+  const db = await getDB();
+  await db.put('settings', { key: VENDOR_BANNER_PREFIX + id, blob });
+}
+
+export async function getVendorBanners(): Promise<Map<string, Blob>> {
+  const db = await getDB();
+  const records = await db.getAll(
+    'settings',
+    IDBKeyRange.bound(VENDOR_BANNER_PREFIX, VENDOR_BANNER_PREFIX + '￿'),
+  );
+  return new Map(records.map((r) => [r.key.slice(VENDOR_BANNER_PREFIX.length), r.blob]));
+}
+
+export async function deleteVendorBanner(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('settings', VENDOR_BANNER_PREFIX + id);
+}
+
+export async function deleteAllVendorBanners(): Promise<void> {
+  const db = await getDB();
+  await db.delete(
+    'settings',
+    IDBKeyRange.bound(VENDOR_BANNER_PREFIX, VENDOR_BANNER_PREFIX + '￿'),
+  );
+}
+
 export async function savePlanMeta(meta: unknown): Promise<void> {
   const db = await getDB();
   const blob = new Blob([JSON.stringify(meta)], { type: 'application/json' });
@@ -158,4 +220,28 @@ export async function getPlanMetaBlob(): Promise<Blob | undefined> {
 export async function deletePlanMeta(): Promise<void> {
   const db = await getDB();
   await db.delete('settings', PLANMETA_KEY);
+}
+
+/** Raw put into the working floor-plan slot — no re-downscale (snapshot restore). */
+export async function putFloorPlanBlob(blob: Blob): Promise<void> {
+  const db = await getDB();
+  await db.put('settings', { key: FLOORPLAN_KEY, blob });
+}
+
+// Saved plan snapshots (`plans` store, schema v3)
+
+export async function savePlanRecord(record: SavedPlanRecord): Promise<void> {
+  const db = await getDB();
+  await db.put('plans', record);
+}
+
+export async function getPlanRecords(): Promise<SavedPlanRecord[]> {
+  const db = await getDB();
+  const records = await db.getAllFromIndex('plans', 'updatedAt');
+  return records.reverse(); // newest first
+}
+
+export async function deletePlanRecord(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('plans', id);
 }

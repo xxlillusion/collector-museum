@@ -57,5 +57,5 @@ export function useVendorPlan() {
     await load();
   }, [load]);
 
-  return { planUrl, planMeta, setPlan, saveMeta, clearPlan, loading };
+  return { planUrl, planMeta, setPlan, saveMeta, clearPlan, loading, reload: load };
 }

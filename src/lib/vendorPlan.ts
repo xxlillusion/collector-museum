@@ -4,15 +4,24 @@
 /** A table box drawn/detected on the floor plan, in stored-image pixels. */
 export interface VendorRect {
   id: string;
-  x: number; // left
+  x: number; // left (of the unrotated footprint)
   y: number; // top
   w: number;
   h: number;
+  // SVG rotate() convention: degrees clockwise on the y-down image, about the
+  // rect center. Absent/0 = axis-aligned (all detected rects).
+  rotationDeg?: number;
+  // Per-vendor banner (settings slot `vendorBanner:<id>`); absent = global banner
+  bannerId?: string;
 }
 
 export interface VendorPlanMeta {
   rects: VendorRect[];
   pxPerMeter: number;
+  // 'manual' = user calibrated; Re-detect must not overwrite it
+  pxPerMeterSource?: 'inferred' | 'manual';
+  // Player start position in stored-image px; absent = default spawn
+  startPx?: { x: number; y: number };
   imgW: number;
   imgH: number;
   updatedAt: number;
@@ -27,6 +36,7 @@ export interface HallDims {
 export interface TablePlacement {
   position: [number, number, number];
   rotationY: number;
+  bannerId?: string;
 }
 
 // Standard 6 ft folding table — must match TABLE in Room.tsx
@@ -51,6 +61,10 @@ export function tablesInLength(lengthM: number): number {
 export function planToLayout(meta: VendorPlanMeta): {
   hall: HallDims;
   tables: TablePlacement[];
+  /** The clamped scale/extents actually used — the px↔world mapping basis. */
+  pxPerMeter: number;
+  planW: number;
+  planD: number;
 } {
   const { imgW, imgH, rects } = meta;
 
@@ -84,21 +98,34 @@ export function planToLayout(meta: VendorPlanMeta): {
     const k = tablesInLength(long);
     const run = k * TABLE_W;
 
+    // Image-space rotate(d) (clockwise, y-down) equals world rotationY of
+    // −d: both maps agree on cos and differ in sin sign (X↔image x, Z↔image y)
+    const theta = -((r.rotationDeg ?? 0) * Math.PI) / 180;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+
     // Front drape faces the hall centerline: tables on the far half along
-    // their short axis get flipped so their fronts look inward.
+    // their short axis get flipped so their fronts look inward. The rect
+    // center is rotation-invariant, so the heuristic ignores theta.
     for (let i = 0; i < k; i++) {
       const offset = -run / 2 + (i + 0.5) * TABLE_W;
-      if (alongX) {
-        const rotationY = cz > 0 ? Math.PI : 0;
-        tables.push({ position: [cx + offset, 0, cz], rotationY });
+      // Local offset along the unrotated long axis, base heading as today
+      const [ox, oz, baseRotY] = alongX
+        ? [offset, 0, cz > 0 ? Math.PI : 0]
+        : [0, offset, cx > 0 ? -Math.PI / 2 : Math.PI / 2];
+      if (theta === 0) {
+        tables.push({ position: [cx + ox, 0, cz + oz], rotationY: baseRotY, bannerId: r.bannerId });
       } else {
-        const rotationY = cx > 0 ? -Math.PI / 2 : Math.PI / 2;
-        tables.push({ position: [cx, 0, cz + offset], rotationY });
+        tables.push({
+          position: [cx + ox * cosT + oz * sinT, 0, cz - ox * sinT + oz * cosT],
+          rotationY: baseRotY + theta,
+          bannerId: r.bannerId,
+        });
       }
     }
   }
 
-  return { hall, tables };
+  return { hall, tables, pxPerMeter, planW, planD };
 }
 
 /** Parse + validate a stored meta blob; undefined when missing/corrupt. */

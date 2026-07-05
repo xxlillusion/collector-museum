@@ -23,6 +23,17 @@ export interface AABB {
   maxZ: number;
 }
 
+/** Rotated collision box: center + half-extents in its local frame. */
+export interface RotatedBox {
+  cx: number;
+  cz: number;
+  hx: number;
+  hz: number;
+  rotY: number; // same convention as the table's rotationY
+}
+
+export type Collider = AABB | RotatedBox;
+
 // Museum defaults — the original hardcoded behavior. Computed lazily: this
 // module and Room.tsx import each other (Room needs isTouchDevice), so ROOM
 // isn't initialized yet at our module-evaluation time.
@@ -44,7 +55,7 @@ interface GalleryControlsProps {
   /** Walkable half-extents; defaults to the museum room. */
   bounds?: { halfW: number; halfD: number };
   /** Collision boxes; defaults to the museum vendor table. */
-  colliders?: AABB[];
+  colliders?: Collider[];
   initialPosition?: [number, number, number];
 }
 
@@ -135,10 +146,33 @@ export default function GalleryControls({
     camera.position.z = Math.max(-bounds.halfD, Math.min(bounds.halfD, camera.position.z));
     camera.position.y = PLAYER_HEIGHT;
 
-    // Don't walk through tables. AABB push-out along the axis of least
+    // Don't walk through tables. Push-out along the axis of least
     // penetration (boxes with an Infinity side push out one way only).
     for (const box of colliders) {
       const { x, z } = camera.position;
+      if ('rotY' in box) {
+        // Rotated box: same test in the box's local frame. world→local is
+        // the inverse of three's rotationY map (lx·c + lz·s, −lx·s + lz·c).
+        const c = Math.cos(box.rotY);
+        const s = Math.sin(box.rotY);
+        const wx = x - box.cx;
+        const wz = z - box.cz;
+        let lx = wx * c - wz * s;
+        let lz = wx * s + wz * c;
+        if (Math.abs(lx) >= box.hx || Math.abs(lz) >= box.hz) continue;
+        const dxMin = lx + box.hx;
+        const dxMax = box.hx - lx;
+        const dzMin = lz + box.hz;
+        const dzMax = box.hz - lz;
+        const m = Math.min(dxMin, dxMax, dzMin, dzMax);
+        if (m === dxMin) lx = -box.hx;
+        else if (m === dxMax) lx = box.hx;
+        else if (m === dzMin) lz = -box.hz;
+        else lz = box.hz;
+        camera.position.x = box.cx + lx * c + lz * s;
+        camera.position.z = box.cz - lx * s + lz * c;
+        continue;
+      }
       if (x <= box.minX || x >= box.maxX || z <= box.minZ || z >= box.maxZ) continue;
       const dxMin = x - box.minX;
       const dxMax = box.maxX - x;

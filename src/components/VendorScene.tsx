@@ -6,17 +6,21 @@ import * as THREE from 'three';
 import VendorRoom from './VendorRoom';
 import VendorTables from './VendorTables';
 import GalleryControls, { isTouchDevice } from './GalleryControls';
-import type { AABB } from './GalleryControls';
+import type { Collider } from './GalleryControls';
 import MobileControls from './MobileControls';
 import HUD from './HUD';
 import { ShadowRefresh, LoadingOverlay } from './sceneCommon';
+import { Minimap, MinimapTracker } from './Minimap';
+import type { MinimapMapping } from './Minimap';
 import { TABLE } from './Room';
 import { planToLayout } from '../lib/vendorPlan';
 import type { VendorPlanMeta, TablePlacement } from '../lib/vendorPlan';
 
 interface VendorSceneProps {
   planMeta: VendorPlanMeta;
+  planUrl: string | null;
   bannerUrl: string | null;
+  vendorBannerUrls: Map<string, string>;
   onBack: () => void;
 }
 
@@ -123,40 +127,69 @@ function computeSpotGrid(width: number, depth: number): [number, number][] {
   return out;
 }
 
-function tableColliders(tables: TablePlacement[]): AABB[] {
+function tableColliders(tables: TablePlacement[]): Collider[] {
+  const halfL = TABLE.topW / 2 + TABLE_PAD;
+  const halfS = TABLE.topD / 2 + TABLE_PAD;
   return tables.map((t) => {
+    const [x, , z] = t.position;
+    // Multiples of π/2 stay axis-aligned AABBs (the pre-rotation behavior);
+    // anything else gets a rotated box resolved in its local frame.
+    const quarterTurns = t.rotationY / (Math.PI / 2);
+    if (Math.abs(quarterTurns - Math.round(quarterTurns)) > 1e-6) {
+      return { cx: x, cz: z, hx: halfL, hz: halfS, rotY: t.rotationY };
+    }
     // rotationY of 0/π keeps the long axis on X; ±π/2 puts it on Z
     const alongX = Math.abs(Math.sin(t.rotationY)) < 0.5;
-    const halfL = TABLE.topW / 2 + TABLE_PAD;
-    const halfS = TABLE.topD / 2 + TABLE_PAD;
-    const [x, , z] = t.position;
     return alongX
       ? { minX: x - halfL, maxX: x + halfL, minZ: z - halfS, maxZ: z + halfS }
       : { minX: x - halfS, maxX: x + halfS, minZ: z - halfL, maxZ: z + halfL };
   });
 }
 
-export default function VendorScene({ planMeta, bannerUrl, onBack }: VendorSceneProps) {
+export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, onBack }: VendorSceneProps) {
   const [locked, setLocked] = useState(false);
   // Bumping this key remounts the Canvas — our recovery path if the GPU
   // driver kills the WebGL context (black canvas, DOM still alive).
   const [glKey, setGlKey] = useState(0);
 
-  const { hall, tables } = useMemo(() => planToLayout(planMeta), [planMeta]);
+  const { hall, tables, pxPerMeter, planW, planD } = useMemo(
+    () => planToLayout(planMeta),
+    [planMeta],
+  );
   const colliders = useMemo(() => tableColliders(tables), [tables]);
   const spots = useMemo(() => computeSpotGrid(hall.width, hall.depth), [hall.width, hall.depth]);
 
-  // Spawn near the south wall, nudged off any table that happens to be there
+  // Spawn at the user's start marker when set, else near the south wall —
+  // either way nudged off any table that happens to be there
   const spawn = useMemo<[number, number, number]>(() => {
+    // Rotated boxes use their circumscribed AABB — conservative is fine here
+    const inside = (xx: number, zz: number) =>
+      colliders.some((b) => {
+        if ('rotY' in b) {
+          const r = Math.hypot(b.hx, b.hz);
+          return Math.abs(xx - b.cx) < r && Math.abs(zz - b.cz) < r;
+        }
+        return xx > b.minX && xx < b.maxX && zz > b.minZ && zz < b.maxZ;
+      });
+    let x = 0;
     let z = hall.depth / 2 - 2;
-    const inside = (zz: number) =>
-      colliders.some((b) => 0 > b.minX && 0 < b.maxX && zz > b.minZ && zz < b.maxZ);
+    if (planMeta.startPx) {
+      const clampX = hall.width / 2 - WALL_MARGIN;
+      const clampZ = hall.depth / 2 - WALL_MARGIN;
+      x = Math.max(-clampX, Math.min(clampX, planMeta.startPx.x / pxPerMeter - planW / 2));
+      z = Math.max(-clampZ, Math.min(clampZ, planMeta.startPx.y / pxPerMeter - planD / 2));
+    }
     let guard = 0;
-    while (inside(z) && guard++ < 50) z -= 1;
-    return [0, PLAYER_HEIGHT, z];
-  }, [hall.depth, colliders]);
+    while (inside(x, z) && guard++ < 50) z -= 1;
+    return [x, PLAYER_HEIGHT, z];
+  }, [hall.width, hall.depth, colliders, planMeta.startPx, pxPerMeter, planW, planD]);
 
   const glCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const minimapMarkerRef = useRef<HTMLDivElement | null>(null);
+  const minimapMapping = useMemo<MinimapMapping>(
+    () => ({ pxPerMeter, planW, planD, imgW: planMeta.imgW, imgH: planMeta.imgH }),
+    [pxPerMeter, planW, planD, planMeta.imgW, planMeta.imgH],
+  );
 
   const tryLock = () => {
     if (isTouchDevice) return;
@@ -229,7 +262,7 @@ export default function VendorScene({ planMeta, bannerUrl, onBack }: VendorScene
 
         <Suspense fallback={null}>
           <VendorRoom width={hall.width} depth={hall.depth} height={hall.height} />
-          <VendorTables tables={tables} bannerUrl={bannerUrl} />
+          <VendorTables tables={tables} bannerUrl={bannerUrl} vendorBannerUrls={vendorBannerUrls} />
 
           {/* One shadow-casting light for the whole hall — skylight banks.
               Per-table shadow spots are a non-starter at this scale. */}
@@ -287,6 +320,7 @@ export default function VendorScene({ planMeta, bannerUrl, onBack }: VendorScene
             initialPosition={spawn}
           />
           <ShadowRefresh trigger={tables} />
+          <MinimapTracker mapping={minimapMapping} markerRef={minimapMarkerRef} />
         </Suspense>
 
         {!isTouchDevice && (
@@ -298,6 +332,7 @@ export default function VendorScene({ planMeta, bannerUrl, onBack }: VendorScene
       </Canvas>
 
       <LoadingOverlay label="SETTING UP THE SHOW…" />
+      {planUrl && <Minimap planUrl={planUrl} mapping={minimapMapping} markerRef={minimapMarkerRef} />}
       <HUD
         locked={locked}
         onUpload={onBack}

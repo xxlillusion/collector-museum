@@ -116,6 +116,92 @@ function acceptCandidate(c: Candidate, maxDim: number): boolean {
   return true;
 }
 
+/**
+ * Re-join pass-A fragments of one outlined box that a label split apart.
+ * When digits touch the box outline, the enclosed interior splits into stacked
+ * fragments. Genuine neighbours are separated by a shared wall — a gap band
+ * with fully-dark rows — while a text gap is only partially dark, so merging
+ * is gated on no near-solid line crossing the gap.
+ */
+function mergeSplitFragments(
+  cands: Candidate[],
+  mask: Uint8Array,
+  w: number,
+  maxDim: number,
+): Candidate[] {
+  const gapMax = Math.max(8, 0.025 * maxDim);
+  const tol = 3;
+
+  // Is any row (or column) of the gap band near-solid dark? Inset the shared
+  // extent so the box's own side borders don't count toward the coverage.
+  const solidLineInGap = (a: Candidate, b: Candidate, vertical: boolean): boolean => {
+    if (vertical) {
+      const x0 = Math.max(a.x, b.x) + 2;
+      const x1 = Math.min(a.x + a.w, b.x + b.w) - 2;
+      if (x1 <= x0) return true;
+      for (let y = a.y + a.h; y < b.y; y++) {
+        let dark = 0;
+        for (let x = x0; x < x1; x++) dark += mask[y * w + x];
+        if (dark / (x1 - x0) >= 0.95) return true;
+      }
+    } else {
+      const y0 = Math.max(a.y, b.y) + 2;
+      const y1 = Math.min(a.y + a.h, b.y + b.h) - 2;
+      if (y1 <= y0) return true;
+      for (let x = a.x + a.w; x < b.x; x++) {
+        let dark = 0;
+        for (let y = y0; y < y1; y++) dark += mask[y * w + x];
+        if (dark / (y1 - y0) >= 0.95) return true;
+      }
+    }
+    return false;
+  };
+
+  const merged = [...cands];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    outer: for (let i = 0; i < merged.length; i++) {
+      for (let j = 0; j < merged.length; j++) {
+        if (i === j) continue;
+        const a = merged[i];
+        const b = merged[j];
+        let vertical: boolean;
+        if (
+          Math.abs(a.x - b.x) <= tol &&
+          Math.abs(a.x + a.w - (b.x + b.w)) <= tol &&
+          b.y > a.y + a.h && b.y - (a.y + a.h) <= gapMax
+        ) {
+          vertical = true;
+        } else if (
+          Math.abs(a.y - b.y) <= tol &&
+          Math.abs(a.y + a.h - (b.y + b.h)) <= tol &&
+          b.x > a.x + a.w && b.x - (a.x + a.w) <= gapMax
+        ) {
+          vertical = false;
+        } else {
+          continue;
+        }
+        if (solidLineInGap(a, b, vertical)) continue;
+        const x = Math.min(a.x, b.x);
+        const y = Math.min(a.y, b.y);
+        const bw = Math.max(a.x + a.w, b.x + b.w) - x;
+        const bh = Math.max(a.y + a.h, b.y + b.h) - y;
+        // The text gap is part of the box, so count it as filled
+        const gapArea = vertical
+          ? (b.y - (a.y + a.h)) * Math.min(a.w, b.w)
+          : (b.x - (a.x + a.w)) * Math.min(a.h, b.h);
+        const fillArea = a.fill * a.w * a.h + b.fill * b.w * b.h + gapArea;
+        merged[i] = { x, y, w: bw, h: bh, fill: Math.min(1, fillArea / (bw * bh)) };
+        merged.splice(j, 1);
+        changed = true;
+        break outer;
+      }
+    }
+  }
+  return merged;
+}
+
 function iou(a: Candidate, b: Candidate): number {
   const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
   const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
@@ -202,18 +288,34 @@ export async function detectTables(blob: Blob): Promise<DetectionResult> {
   bmp.close();
   const data = ctx.getImageData(0, 0, w, h).data;
 
-  // Luma + histogram → Otsu → dark mask (lines/fills = 1)
+  // Luma + histogram → Otsu → dark mask (lines/fills = 1). Strongly saturated
+  // mid/bright pixels (colored decoration, highlight zones) count as background:
+  // plan linework is near-black, so chroma there is ~0, while e.g. a red banner
+  // region has mid luma that would otherwise land under the Otsu threshold and
+  // become a giant fake table. The luma guard keeps dark colored fills (navy
+  // filled tables) detectable.
   const n = w * h;
   const mask = new Uint8Array(n);
+  const sat = new Uint8Array(n);
   const hist = new Uint32Array(256);
+  let satCount = 0;
   for (let i = 0; i < n; i++) {
     const o = i * 4;
-    const luma = (0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2]) | 0;
+    const r = data[o];
+    const g = data[o + 1];
+    const b = data[o + 2];
+    const luma = (0.299 * r + 0.587 * g + 0.114 * b) | 0;
+    const chroma = Math.max(r, g, b) - Math.min(r, g, b);
     mask[i] = luma; // temporarily store luma
-    hist[luma]++;
+    if (chroma > 60 && luma > 50) {
+      sat[i] = 1;
+      satCount++;
+    } else {
+      hist[luma]++;
+    }
   }
-  const threshold = otsu(hist, n);
-  for (let i = 0; i < n; i++) mask[i] = mask[i] <= threshold ? 1 : 0;
+  const threshold = otsu(hist, n - satCount);
+  for (let i = 0; i < n; i++) mask[i] = sat[i] === 0 && mask[i] <= threshold ? 1 : 0;
 
   const labels = new Int32Array(n);
 
@@ -249,7 +351,9 @@ export async function detectTables(blob: Blob): Promise<DetectionResult> {
   const darkBlobs = connectedComponents(mask, darkLabels, w, h, 1, 0);
 
   const maxDim = Math.max(w, h);
-  const passA = enclosed.map(componentToCandidate).filter((c) => acceptCandidate(c, maxDim));
+  // Merge before filtering so a thin text-split sliver isn't dropped first
+  const passA = mergeSplitFragments(enclosed.map(componentToCandidate), mask, w, maxDim)
+    .filter((c) => acceptCandidate(c, maxDim));
   const passB = darkBlobs.map(componentToCandidate).filter((c) => acceptCandidate(c, maxDim));
 
   // Merge: pass A wins on overlap (an outlined table also produces a dark
@@ -266,9 +370,17 @@ export async function detectTables(blob: Blob): Promise<DetectionResult> {
 
   const pxPerMeterDetect = inferScale(pruned, w);
 
+  // Physical size floor: icon-sized blobs (figures, ⓘ markers) survive the
+  // pixel filters but no real table is under ~half a table-depth on a side
+  const sane = pruned.filter(
+    (c) =>
+      Math.max(c.w, c.h) / pxPerMeterDetect >= 0.5 &&
+      Math.min(c.w, c.h) / pxPerMeterDetect >= 0.2,
+  );
+
   // Scale rects (and the scale itself) back to stored-image pixels
   const inv = 1 / scale;
-  const rects: VendorRect[] = pruned.map((c) => ({
+  const rects: VendorRect[] = sane.map((c) => ({
     id: crypto.randomUUID(),
     x: Math.round(c.x * inv),
     y: Math.round(c.y * inv),

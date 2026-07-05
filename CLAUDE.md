@@ -110,14 +110,17 @@ to the editor on return.
 
 | File | Role |
 | ---- | ---- |
-| `lib/vendorPlan.ts` | Data model (`VendorRect` in stored-image px, `VendorPlanMeta`) + pure math: `planToLayout(meta)` → hall dims + `TablePlacement[]`. px→m via `pxPerMeter`; image y-down → world +Z; hall = plan extent + 2m margin, height 6, axes clamped to 8–80m. A box spawns `max(1, floor(long/1.83 + 0.25))` 6-ft tables centered along its run; fronts face the hall centerline |
-| `lib/planDetect.ts` | Dependency-free detection: downsample ≤1000px → luma → Otsu → Pass A (flood-fill light mask from borders; remaining enclosed light components = outlined tables) + Pass B (dark connected components = filled tables) → bbox filters (min side, ≤40% of image, fill ratio ≥0.7, aspect ≤14) → IoU merge → containment prune. `inferScale`: modal short side of table-aspect boxes / 0.76m, cross-checked vs long side / 1.83m. Main thread is fine at this size |
-| `lib/useVendorPlan.ts` | `useBanner`-style hook: `{ planUrl, planMeta, setPlan, saveMeta, clearPlan, loading }`; new image clears stale rects |
-| `PlanEditor.tsx` | `<img>` + SVG overlay, `viewBox` = stored-image px (browser scales; zero resize math). Select/move/resize (corner handles)/delete (✕ or Backspace), “Add table” draw mode (click = default 1-table box), pointer capture guarded in try/catch. Controlled; parent debounce-persists (500ms) |
-| `VendorSetupScreen.tsx` | Upload/detect/edit wrapper; scale readout (“hall ≈ W×D m · N boxes → M tables”), Re-detect, Replace image |
+| `lib/vendorPlan.ts` | Data model (`VendorRect` in stored-image px — optional `rotationDeg` (SVG rotate() convention, clockwise about center) and `bannerId`; `VendorPlanMeta` — optional `pxPerMeterSource: 'inferred'\|'manual'` and `startPx`) + pure math: `planToLayout(meta)` → hall dims + `TablePlacement[]` + the **clamped** `pxPerMeter/planW/planD` it used (minimap/spawn mapping basis). px→m via `pxPerMeter`; image y-down → world +Z; image rotate(d) ⇒ world rotationY −d·π/180 (sin sign flips, cos agrees). Hall = plan extent + 2m margin, height 6, axes clamped to 8–80m. A box spawns `max(1, floor(long/1.83 + 0.25))` 6-ft tables centered along its (rotated) run; fronts face the hall centerline (center is rotation-invariant) |
+| `lib/planDetect.ts` | Dependency-free detection: downsample ≤1000px → luma → Otsu (saturated mid/bright pixels count as background so colored decoration ≠ tables; dark colored fills still detect) → Pass A (flood-fill light mask from borders; remaining enclosed light components = outlined tables, then `mergeSplitFragments` re-joins boxes that label digits touching the outline split apart — merge gated on the gap band NOT containing a near-solid dark line, which distinguishes text gaps from shared booth walls) + Pass B (dark connected components = filled tables) → bbox filters (min side, ≤40% of image, fill ratio ≥0.7, aspect ≤14) → IoU merge → containment prune → physical size floor (long ≥0.5m, short ≥0.2m — kills icons/figures). `inferScale`: modal short side of table-aspect boxes / 0.76m, cross-checked vs long side / 1.83m. Main thread is fine at this size |
+| `lib/useVendorPlan.ts` | `useBanner`-style hook: `{ planUrl, planMeta, setPlan, saveMeta, clearPlan, loading, reload }`; new image clears stale rects |
+| `lib/useVendorBanners.ts` | Per-vendor banner blobs (settings slots `vendorBanner:<id>`) → `Map<id, objectURL>`; `{ bannerUrls, addVendorBanner, removeVendorBanner, reload }`. Owned by App, wiped on plan replace/clear; VendorSetupScreen sweep-deletes unreferenced blobs on debounced persist |
+| `lib/useSavedPlans.ts` | Named plan snapshots (`plans` store, db v3): `SavedPlanRecord` bundles plan image blob + metaJson + referenced banner blobs (self-contained, no ref-counting). Save = working→snapshot; Load = snapshot→working slots (raw `putFloorPlanBlob`, no re-downscale), then App reloads useVendorPlan + useVendorBanners |
+| `PlanEditor.tsx` | `<img>` + SVG overlay, `viewBox` = stored-image px (browser scales; zero resize math). Modes: select / add / calibrate / setStart. Select/move/resize (corner handles)/delete (✕ or Backspace)/**rotate** (handle above the box, 15° snap, Shift = free; whole `<g>` gets `transform=rotate(deg cx cy)` so handles ride along; resize runs in the rect's local frame then re-anchors the fixed corner in world space), “Add table” draw mode, calibration line drag (→ `onCalibrateLine(px)`), start-marker click (→ `onStartChange`), `onSelectionChange` feeds the banner panel. Pointer capture guarded in try/catch. Controlled; parent debounce-persists (500ms) |
+| `VendorSetupScreen.tsx` | Upload/detect/edit wrapper; scale readout (“hall ≈ W×D m · N boxes → M tables”, “· calibrated” when manual), Re-detect (**preserves manual scale**), Replace image, calibration popover (m/ft → pxPerMeter), per-box vendor-banner panel, Saved Plans section (save/load/delete; flushes the debounce before snapshotting) |
 | `VendorRoom.tsx` | Parameterized `{width, depth, height}` hall shell (reflector floor 512/256, walls, baseboards, hemi+ambient). Room.tsx deliberately untouched |
-| `VendorTables.tsx` | **Instanced**: one `instancedMesh` per part (board, merged legs, cloth top, front/back/side drapes) = 7 draw calls for any table count. Matrices = table world transform × part local offset, set in `useLayoutEffect` (+ `computeBoundingSphere`). Banner texture composited once, applied to all fronts |
-| `VendorScene.tsx` | Duplicates Scene.tsx’s Canvas props + `onCreated` **verbatim, on purpose** (see gotcha 9-adjacent comment in file). Hall lighting: 1 shadow directional (ortho fit to hall) + ≤6 warm aisle spots + emissive ceiling panels (bloom, zero light cost) = 9 lights total |
+| `VendorTables.tsx` | **Instanced**: 6 shared parts (board, merged legs, cloth top, back/side drapes) = one `instancedMesh` each over all tables, plus **one front-drape `instancedMesh` per unique banner** (per-vendor → global → plain cloth fallback). Draw calls = 6 + unique banners — grows with vendors, never with tables. Matrices = table world transform × part local offset, set in `useLayoutEffect` (+ `computeBoundingSphere`) — deps are `[tables, spec]` **on purpose**: a material change makes R3F recreate the mesh via `args`, and the fresh mesh needs its matrices re-set (drapes silently vanish otherwise) |
+| `VendorScene.tsx` | Duplicates Scene.tsx’s Canvas props + `onCreated` **verbatim, on purpose** (see gotcha 9-adjacent comment in file). Hall lighting: 1 shadow directional (ortho fit to hall) + ≤6 warm aisle spots + emissive ceiling panels (bloom, zero light cost) = 9 lights total. Spawn = `meta.startPx` when set (clamped into hall, collider-nudged), else south wall. `tableColliders`: AABB for rotationY multiples of π/2, `RotatedBox` otherwise |
+| `Minimap.tsx` | Plan-image minimap, top-right under the Floor Plan button (`pointerEvents: none` — pointer-lock clicks pass through). `Minimap` (DOM, outside Canvas) + `MinimapTracker` (inside Canvas): `useFrame` writes the marker div's `style.transform` directly via a shared ref — zero React state per frame. u = (worldX + planW/2)·pxPerMeter/imgW (use planToLayout's clamped values); marker rotation = **−yaw** (camera faces (−sin yaw, −cos yaw) in image axes) |
 | `tableGeometry.ts` | Extracted cloth recipes (`makeTopGeometry`, `makeDrapeGeometry(width, phase)`, CLOTH_* constants), lazy shared singletons `getTableGeometries()` (incl. back drape phase 3.1 + `mergeGeometries` legs), `getClothMaterial()`, `makeBannerTexture(img)`. Table.tsx consumes these — museum visuals unchanged |
 | `sceneCommon.tsx` | `ShadowRefresh` + `LoadingOverlay` shared by both scenes |
 
@@ -126,7 +129,16 @@ to the editor on return.
 - Never per-table lights or shadow spots — the budget is hemi + ambient + 1 shadow
   directional + ≤6 spots. Visual density comes from emissive panels via bloom.
 - All tables share geometry; keep new per-table decoration instanced or it will multiply
-  draw calls by table count (reflector renders the scene twice).
+  draw calls by table count (reflector renders the scene twice). Per-vendor banners are
+  the sanctioned exception: one extra instanced draw per *unique banner* (not per table).
+
+### Collision (GalleryControls)
+
+`Collider = AABB | RotatedBox` ({cx,cz,hx,hz,rotY}). The AABB branch is the original
+code verbatim — the museum's lazy defaults flow through it unchanged (push-out still
+stops at x=8.57). Rotated boxes: transform the player into the box's local frame
+(world→local = rotate by −rotY), run the same axis-of-least-penetration push-out
+against ±hx/±hz, transform back.
 
 ## Gotchas (hard-won, don't rediscover)
 
@@ -172,14 +184,23 @@ to the editor on return.
   hybrid detect+edit → generate instanced hall → walk with per-table collision. Verified
   end-to-end on a synthetic plan (14 boxes → 16 tables, correct scale inference, ~120fps,
   9 lights, museum regression clean — old table push-out reproduces exactly at x=8.57).
-- `floorplan_example.png` (repo root) is the user’s real example plan — **detection has
-  not been run against it yet**; that’s the first thing to try (Replace image in Vendor
-  View; a synthetic test plan currently occupies the IndexedDB slot).
-- Candidate next steps (discussed, not built): rotated tables in editor + layout; editor
-  undo / zoom / multi-select; manual scale nudge control; per-vendor banners & booth
-  labels (would need per-instance UVs or texture atlas — mind the draw-call rule); walk-in
-  entrance/doors on the hall; bundle code-splitting (~1.4MB); card metadata in inspect
-  view; deploy setup (any static host).
+- `floorplan_example.png` (repo root) is the user’s real example plan — detection tuned
+  against it and verified end-to-end (50 boxes → 61 tables, hall ≈ 29×20 m, ~60ms;
+  colored decoration / icons / label-split booths all handled; walkable hall renders
+  clean). Note IndexedDB is origin-scoped: each dev-server *port* has its own plan slot,
+  so the user may still need “Replace image” on their usual port.
+- `VendorSetupScreen` now auto-runs detection when a stored plan has no meta (refresh
+  mid-detection previously left a dead-end blank screen).
+- **Second feature wave shipped** (this branch, all browser-verified end-to-end):
+  rotated table boxes (editor rotate handle + rotated layout/collision), calibration-line
+  manual scale (m/ft, survives Re-detect), per-vendor banners (per-box upload, grouped
+  instanced front drapes), multiple named saved plans (IndexedDB v3 `plans` store,
+  self-contained snapshots), and the in-hall minimap with live player marker +
+  user-defined start position. DB is now version 3.
+- Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
+  export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
+  the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup
+  (any static host).
 - Museum-side known gaps: east/west walls unused by card layout (overflow silently
   dropped); pre-downscale images in old IndexedDBs stay full-res until re-uploaded.
 

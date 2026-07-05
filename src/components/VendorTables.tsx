@@ -48,7 +48,9 @@ function InstancedPart({
     }
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
-  }, [tables, spec.local]);
+    // `spec` (not just spec.local): a material/geometry change makes R3F
+    // recreate the mesh via args, and the fresh mesh needs its matrices again
+  }, [tables, spec]);
 
   return (
     <instancedMesh
@@ -63,33 +65,69 @@ function InstancedPart({
 interface VendorTablesProps {
   tables: TablePlacement[];
   bannerUrl: string | null;
+  /** Per-vendor banner object URLs by banner id (VendorRect.bannerId). */
+  vendorBannerUrls?: Map<string, string>;
 }
 
-export default function VendorTables({ tables, bannerUrl }: VendorTablesProps) {
-  const geos = useMemo(getTableGeometries, []);
-
-  // Banner texture shared by every front drape (one material, one draw call)
-  const [bannerTex, setBannerTex] = useState<THREE.CanvasTexture | null>(null);
+/** Load banner textures for each unique URL; dispose replaced ones. */
+function useBannerTextures(urls: string[]): Map<string, THREE.CanvasTexture> {
+  const [textures, setTextures] = useState<Map<string, THREE.CanvasTexture>>(new Map());
+  const key = urls.join('\n');
   useEffect(() => {
-    if (!bannerUrl) {
-      setBannerTex(null);
+    let cancelled = false;
+    const loaded = new Map<string, THREE.CanvasTexture>();
+    if (urls.length === 0) {
+      setTextures(new Map());
       return;
     }
-    let cancelled = false;
-    let tex: THREE.CanvasTexture | null = null;
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      tex = makeBannerTexture(img);
-      if (tex) setBannerTex(tex);
-    };
-    img.src = bannerUrl;
+    let pending = urls.length;
+    for (const url of urls) {
+      const img = new Image();
+      img.onload = () => {
+        if (!cancelled) {
+          const tex = makeBannerTexture(img);
+          if (tex) loaded.set(url, tex);
+        }
+        if (--pending === 0 && !cancelled) setTextures(new Map(loaded));
+      };
+      img.onerror = () => {
+        if (--pending === 0 && !cancelled) setTextures(new Map(loaded));
+      };
+      img.src = url;
+    }
     return () => {
       cancelled = true;
-      tex?.dispose();
+      for (const tex of loaded.values()) tex.dispose();
     };
-  }, [bannerUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return textures;
+}
 
+export default function VendorTables({ tables, bannerUrl, vendorBannerUrls }: VendorTablesProps) {
+  const geos = useMemo(getTableGeometries, []);
+
+  // Tables grouped by the front-drape texture they resolve to: their vendor
+  // banner when it exists, else the global banner, else plain cloth. One
+  // instanced front drape per group — draw calls grow with unique banners
+  // (a handful), never with table count.
+  const groups = useMemo(() => {
+    const byUrl = new Map<string | null, TablePlacement[]>();
+    for (const t of tables) {
+      const url =
+        (t.bannerId ? vendorBannerUrls?.get(t.bannerId) : undefined) ?? bannerUrl ?? null;
+      const arr = byUrl.get(url);
+      if (arr) arr.push(t);
+      else byUrl.set(url, [t]);
+    }
+    return byUrl;
+  }, [tables, bannerUrl, vendorBannerUrls]);
+
+  const textures = useBannerTextures(
+    useMemo(() => [...groups.keys()].filter((u): u is string => u !== null), [groups]),
+  );
+
+  // Shared parts (everything except the front drape) — one draw call each
   const parts = useMemo<PartSpec[]>(() => {
     const cloth = getClothMaterial();
     const boardMat = new THREE.MeshStandardMaterial({ color: '#d8d4cb', roughness: 0.6 });
@@ -98,25 +136,6 @@ export default function VendorTables({ tables, bannerUrl }: VendorTablesProps) {
       roughness: 0.35,
       metalness: 0.8,
     });
-    const frontMat = bannerTex
-      ? new THREE.MeshStandardMaterial({
-          map: bannerTex,
-          roughness: CLOTH_ROUGHNESS,
-          side: THREE.DoubleSide,
-        })
-      : cloth;
-
-    const compose = (
-      x: number,
-      y: number,
-      z: number,
-      rx = 0,
-      ry = 0,
-    ): THREE.Matrix4 => {
-      const m = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, ry, 0));
-      m.setPosition(x, y, z);
-      return m;
-    };
 
     return [
       // Laminate board under the cloth
@@ -130,13 +149,7 @@ export default function VendorTables({ tables, bannerUrl }: VendorTablesProps) {
       { geometry: geos.legs, local: new THREE.Matrix4(), material: legMat, castShadow: true },
       // Sagging cloth top
       { geometry: geos.top, local: compose(0, CLOTH_TOP_Y, 0, -Math.PI / 2), material: cloth },
-      // Drapes: front (+Z, banner side), back, and both ends
-      {
-        geometry: geos.front,
-        local: compose(0, CLOTH_TOP_Y - DRAPE_H / 2, CLOTH_D / 2),
-        material: frontMat,
-        castShadow: true,
-      },
+      // Drapes: back and both ends (front is per banner group below)
       {
         geometry: geos.back,
         local: compose(0, CLOTH_TOP_Y - DRAPE_H / 2, -CLOTH_D / 2, 0, Math.PI),
@@ -154,13 +167,47 @@ export default function VendorTables({ tables, bannerUrl }: VendorTablesProps) {
         material: cloth,
       },
     ];
-  }, [geos, bannerTex]);
+  }, [geos]);
+
+  const frontLocal = useMemo(() => compose(0, CLOTH_TOP_Y - DRAPE_H / 2, CLOTH_D / 2), []);
+  const frontMats = useMemo(() => {
+    const mats = new Map<string, THREE.MeshStandardMaterial>();
+    for (const [url, tex] of textures) {
+      mats.set(url, new THREE.MeshStandardMaterial({
+        map: tex,
+        roughness: CLOTH_ROUGHNESS,
+        side: THREE.DoubleSide,
+      }));
+    }
+    return mats;
+  }, [textures]);
+  useEffect(() => () => {
+    for (const m of frontMats.values()) m.dispose();
+  }, [frontMats]);
 
   return (
     <group>
       {parts.map((spec, i) => (
         <InstancedPart key={i} spec={spec} tables={tables} />
       ))}
+      {[...groups.entries()].map(([url, group]) => (
+        <InstancedPart
+          key={url ?? '__cloth__'}
+          spec={{
+            geometry: geos.front,
+            local: frontLocal,
+            material: (url !== null && frontMats.get(url)) || getClothMaterial(),
+            castShadow: true,
+          }}
+          tables={group}
+        />
+      ))}
     </group>
   );
+}
+
+function compose(x: number, y: number, z: number, rx = 0, ry = 0): THREE.Matrix4 {
+  const m = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, ry, 0));
+  m.setPosition(x, y, z);
+  return m;
 }

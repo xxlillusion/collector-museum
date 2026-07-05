@@ -13,14 +13,43 @@ interface PlanEditorProps {
   rects: VendorRect[];
   pxPerMeter: number;
   onChange: (rects: VendorRect[]) => void;
+  /** Calibration line finished: length in image px. Parent asks for the real length. */
+  onCalibrateLine?: (lengthPx: number) => void;
+  onSelectionChange?: (id: string | null) => void;
+  /** Player start marker (image px). Provide both to enable the tool. */
+  startPx?: { x: number; y: number } | null;
+  onStartChange?: (p: { x: number; y: number }) => void;
 }
+
+type EditorMode = 'select' | 'add' | 'calibrate' | 'setStart';
 
 type DragState =
   | { kind: 'move'; id: string; startX: number; startY: number; orig: VendorRect }
   | { kind: 'resize'; id: string; corner: number; orig: VendorRect }
-  | { kind: 'draw'; id: string; anchorX: number; anchorY: number };
+  | { kind: 'rotate'; id: string; cx: number; cy: number }
+  | { kind: 'draw'; id: string; anchorX: number; anchorY: number }
+  | { kind: 'calibrate'; x0: number; y0: number };
+
+interface CalLine {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
 
 const GOLD = '#d4af37';
+
+const ROTATE_SNAP = 15; // degrees; hold Shift for free rotation
+
+/** Rotate point (px, py) by deg degrees (SVG clockwise) about (cx, cy). */
+function rotatePoint(px: number, py: number, cx: number, cy: number, deg: number) {
+  const rad = (deg * Math.PI) / 180;
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  const dx = px - cx;
+  const dy = py - cy;
+  return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c };
+}
 
 export default function PlanEditor({
   planUrl,
@@ -29,11 +58,22 @@ export default function PlanEditor({
   rects,
   pxPerMeter,
   onChange,
+  onCalibrateLine,
+  onSelectionChange,
+  startPx,
+  onStartChange,
 }: PlanEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [addMode, setAddMode] = useState(false);
+  const [mode, setMode] = useState<EditorMode>('select');
+  const [calLine, setCalLine] = useState<CalLine | null>(null);
+  const calLineRef = useRef<CalLine | null>(null);
   const drag = useRef<DragState | null>(null);
+  const addMode = mode === 'add';
+
+  useEffect(() => {
+    onSelectionChange?.(selected);
+  }, [selected, onSelectionChange]);
 
   const minSize = Math.max(4, 0.3 * pxPerMeter);
   // Handle/stroke sizes live in viewBox units — keep them readable regardless
@@ -78,6 +118,23 @@ export default function PlanEditor({
   }, [selected, rects, onChange]);
 
   const onPointerDownEmpty = (e: React.PointerEvent) => {
+    if (mode === 'setStart') {
+      const { x, y } = toImage(e);
+      onStartChange?.({
+        x: Math.max(0, Math.min(imgW, x)),
+        y: Math.max(0, Math.min(imgH, y)),
+      });
+      setMode('select');
+      return;
+    }
+    if (mode === 'calibrate') {
+      const { x, y } = toImage(e);
+      drag.current = { kind: 'calibrate', x0: x, y0: y };
+      calLineRef.current = { x0: x, y0: y, x1: x, y1: y };
+      setCalLine(calLineRef.current);
+      capture(e);
+      return;
+    }
     if (!addMode) {
       setSelected(null);
       return;
@@ -91,7 +148,7 @@ export default function PlanEditor({
   };
 
   const onPointerDownRect = (e: React.PointerEvent, r: VendorRect) => {
-    if (addMode) return;
+    if (mode !== 'select') return;
     e.stopPropagation();
     const { x, y } = toImage(e);
     drag.current = { kind: 'move', id: r.id, startX: x, startY: y, orig: r };
@@ -105,26 +162,69 @@ export default function PlanEditor({
     capture(e);
   };
 
+  const onPointerDownRotate = (e: React.PointerEvent, r: VendorRect) => {
+    e.stopPropagation();
+    drag.current = { kind: 'rotate', id: r.id, cx: r.x + r.w / 2, cy: r.y + r.h / 2 };
+    capture(e);
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
     const { x, y } = toImage(e);
+    if (d.kind === 'calibrate') {
+      calLineRef.current = { x0: d.x0, y0: d.y0, x1: x, y1: y };
+      setCalLine(calLineRef.current);
+      return;
+    }
     if (d.kind === 'move') {
-      const nx = Math.max(0, Math.min(imgW - d.orig.w, d.orig.x + (x - d.startX)));
-      const ny = Math.max(0, Math.min(imgH - d.orig.h, d.orig.y + (y - d.startY)));
-      updateRect(d.id, { x: nx, y: ny });
+      const deg = d.orig.rotationDeg ?? 0;
+      if (deg === 0) {
+        const nx = Math.max(0, Math.min(imgW - d.orig.w, d.orig.x + (x - d.startX)));
+        const ny = Math.max(0, Math.min(imgH - d.orig.h, d.orig.y + (y - d.startY)));
+        updateRect(d.id, { x: nx, y: ny });
+      } else {
+        // Rotated corners may poke past the image edge; clamp the center only
+        const nx = Math.max(-d.orig.w / 2, Math.min(imgW - d.orig.w / 2, d.orig.x + (x - d.startX)));
+        const ny = Math.max(-d.orig.h / 2, Math.min(imgH - d.orig.h / 2, d.orig.y + (y - d.startY)));
+        updateRect(d.id, { x: nx, y: ny });
+      }
+    } else if (d.kind === 'rotate') {
+      const raw = (Math.atan2(y - d.cy, x - d.cx) * 180) / Math.PI + 90;
+      const snapped = (e.shiftKey ? raw : Math.round(raw / ROTATE_SNAP) * ROTATE_SNAP) % 360;
+      // Normalize to (−180, 180]; store 0 as undefined so detected rects stay lean
+      const deg = snapped > 180 ? snapped - 360 : snapped <= -180 ? snapped + 360 : snapped;
+      updateRect(d.id, { rotationDeg: deg === 0 ? undefined : deg });
     } else if (d.kind === 'resize') {
-      // Corners: 0=NW 1=NE 2=SE 3=SW — opposite corner stays fixed
+      // Corners: 0=NW 1=NE 2=SE 3=SW — opposite corner stays fixed.
+      // Rotated rects: run the same math in the rect's local (unrotated)
+      // frame, then re-anchor so the fixed corner keeps its on-screen spot.
       const { orig, corner } = d;
+      const deg = orig.rotationDeg ?? 0;
+      const cx0 = orig.x + orig.w / 2;
+      const cy0 = orig.y + orig.h / 2;
+      const local = deg === 0 ? { x, y } : rotatePoint(x, y, cx0, cy0, -deg);
       const fixedX = corner === 0 || corner === 3 ? orig.x + orig.w : orig.x;
       const fixedY = corner === 0 || corner === 1 ? orig.y + orig.h : orig.y;
-      const cx = Math.max(0, Math.min(imgW, x));
-      const cy = Math.max(0, Math.min(imgH, y));
-      const nx = Math.min(fixedX, cx);
-      const ny = Math.min(fixedY, cy);
-      const nw = Math.max(minSize, Math.abs(cx - fixedX));
-      const nh = Math.max(minSize, Math.abs(cy - fixedY));
-      updateRect(d.id, { x: nx, y: ny, w: nw, h: nh });
+      const px = Math.max(0, Math.min(imgW, local.x));
+      const py = Math.max(0, Math.min(imgH, local.y));
+      const nx = Math.min(fixedX, px);
+      const ny = Math.min(fixedY, py);
+      const nw = Math.max(minSize, Math.abs(px - fixedX));
+      const nh = Math.max(minSize, Math.abs(py - fixedY));
+      if (deg === 0) {
+        updateRect(d.id, { x: nx, y: ny, w: nw, h: nh });
+      } else {
+        const worldFixed = rotatePoint(fixedX, fixedY, cx0, cy0, deg);
+        // New center in the old local frame → offset of the fixed corner from
+        // it → subtract that offset (rotated) from the fixed corner's world spot
+        const localCx = nx + nw / 2;
+        const localCy = ny + nh / 2;
+        const off = rotatePoint(fixedX - localCx, fixedY - localCy, 0, 0, deg);
+        const centerX = worldFixed.x - off.x;
+        const centerY = worldFixed.y - off.y;
+        updateRect(d.id, { x: centerX - nw / 2, y: centerY - nh / 2, w: nw, h: nh });
+      }
     } else {
       const cx = Math.max(0, Math.min(imgW, x));
       const cy = Math.max(0, Math.min(imgH, y));
@@ -140,6 +240,20 @@ export default function PlanEditor({
   const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
+    if (d?.kind === 'calibrate') {
+      const line = calLineRef.current;
+      const len = line ? Math.hypot(line.x1 - line.x0, line.y1 - line.y0) : 0;
+      if (len < ui * 2) {
+        // Accidental click, not a measurement
+        calLineRef.current = null;
+        setCalLine(null);
+        return;
+      }
+      // The line stays visible as reference while the parent asks for length
+      setMode('select');
+      onCalibrateLine?.(len);
+      return;
+    }
     if (d?.kind !== 'draw') return;
     // A click without a real drag drops a default one-table rect
     const r = rects.find((rr) => rr.id === d.id);
@@ -177,7 +291,7 @@ export default function PlanEditor({
           width: '100%',
           height: '100%',
           touchAction: 'none',
-          cursor: addMode ? 'crosshair' : 'default',
+          cursor: mode !== 'select' ? 'crosshair' : 'default',
         }}
         onPointerDown={onPointerDownEmpty}
         onPointerMove={onPointerMove}
@@ -186,6 +300,8 @@ export default function PlanEditor({
         {rects.map((r) => {
           const isSel = r.id === selected;
           const k = tablesForRect(r);
+          const rcx = r.x + r.w / 2;
+          const rcy = r.y + r.h / 2;
           const corners: [number, number][] = [
             [r.x, r.y],
             [r.x + r.w, r.y],
@@ -193,7 +309,9 @@ export default function PlanEditor({
             [r.x, r.y + r.h],
           ];
           return (
-            <g key={r.id}>
+            // Rotation on the group: rect, label, and every handle render in
+            // the rotated frame for free
+            <g key={r.id} transform={`rotate(${r.rotationDeg ?? 0} ${rcx} ${rcy})`}>
               <rect
                 x={r.x}
                 y={r.y}
@@ -203,7 +321,7 @@ export default function PlanEditor({
                 fillOpacity={isSel ? 0.4 : 0.22}
                 stroke={GOLD}
                 strokeWidth={isSel ? ui * 0.35 : ui * 0.2}
-                style={{ cursor: addMode ? 'crosshair' : 'move' }}
+                style={{ cursor: mode !== 'select' ? 'crosshair' : 'move' }}
                 onPointerDown={(e) => onPointerDownRect(e, r)}
               />
               <text
@@ -220,8 +338,27 @@ export default function PlanEditor({
               >
                 {k > 1 ? `${k} tables` : '1 table'}
               </text>
-              {isSel && !addMode && (
+              {isSel && mode === 'select' && (
                 <>
+                  {/* Rotate handle above the top edge */}
+                  <line
+                    x1={rcx}
+                    y1={r.y}
+                    x2={rcx}
+                    y2={r.y - ui * 2.5}
+                    stroke={GOLD}
+                    strokeWidth={ui * 0.15}
+                  />
+                  <circle
+                    cx={rcx}
+                    cy={r.y - ui * 2.5}
+                    r={ui * 0.8}
+                    fill={GOLD}
+                    stroke="#fff"
+                    strokeWidth={ui * 0.2}
+                    style={{ cursor: 'grab' }}
+                    onPointerDown={(e) => onPointerDownRotate(e, r)}
+                  />
                   {corners.map(([cx, cy], i) => (
                     <circle
                       key={i}
@@ -261,27 +398,97 @@ export default function PlanEditor({
             </g>
           );
         })}
+
+        {startPx && (
+          <g style={{ pointerEvents: 'none' }}>
+            <circle cx={startPx.x} cy={startPx.y} r={ui * 0.9} fill="#e33" stroke="#fff" strokeWidth={ui * 0.2} />
+            <text
+              x={startPx.x}
+              y={startPx.y - ui * 1.4}
+              textAnchor="middle"
+              fill="#fff"
+              stroke="#000"
+              strokeWidth={ui * 0.08}
+              paintOrder="stroke"
+              fontSize={ui * 1.6}
+              style={{ fontFamily: 'Georgia, serif' }}
+            >
+              🚩 start
+            </text>
+          </g>
+        )}
+
+        {calLine && (
+          <g style={{ pointerEvents: 'none' }}>
+            <line
+              x1={calLine.x0}
+              y1={calLine.y0}
+              x2={calLine.x1}
+              y2={calLine.y1}
+              stroke="#ff5544"
+              strokeWidth={ui * 0.25}
+              strokeDasharray={`${ui * 0.8} ${ui * 0.5}`}
+            />
+            {[[calLine.x0, calLine.y0], [calLine.x1, calLine.y1]].map(([px, py], i) => (
+              <circle key={i} cx={px} cy={py} r={ui * 0.5} fill="#ff5544" />
+            ))}
+            <text
+              x={(calLine.x0 + calLine.x1) / 2}
+              y={(calLine.y0 + calLine.y1) / 2 - ui}
+              textAnchor="middle"
+              fill="#fff"
+              stroke="#000"
+              strokeWidth={ui * 0.08}
+              paintOrder="stroke"
+              fontSize={ui * 1.6}
+              style={{ fontFamily: 'Georgia, serif' }}
+            >
+              {(Math.hypot(calLine.x1 - calLine.x0, calLine.y1 - calLine.y0) / pxPerMeter).toFixed(2)} m
+            </text>
+          </g>
+        )}
       </svg>
 
-      {/* Mode toggle lives with the canvas so it reads as a tool */}
-      <button
-        onClick={() => setAddMode((m) => !m)}
-        style={{
-          position: 'absolute',
-          top: '10px',
-          left: '10px',
-          background: addMode ? GOLD : 'rgba(0,0,0,0.7)',
-          color: addMode ? '#1a1614' : '#e8e4dc',
-          border: `1px solid ${GOLD}`,
-          borderRadius: '6px',
-          padding: '6px 12px',
-          fontSize: '13px',
-          cursor: 'pointer',
-          fontFamily: 'Georgia, serif',
-        }}
-      >
-        {addMode ? '✓ Drawing tables — click to finish' : '+ Add table'}
-      </button>
+      {/* Mode toggles live with the canvas so they read as tools */}
+      <div style={{ position: 'absolute', top: '10px', left: '10px', display: 'flex', gap: '8px' }}>
+        <button
+          onClick={() => setMode((m) => (m === 'add' ? 'select' : 'add'))}
+          style={toolButton(mode === 'add')}
+        >
+          {mode === 'add' ? '✓ Drawing tables — click to finish' : '+ Add table'}
+        </button>
+        {onCalibrateLine && (
+          <button
+            onClick={() => {
+              calLineRef.current = null;
+              setCalLine(null);
+              setMode((m) => (m === 'calibrate' ? 'select' : 'calibrate'));
+            }}
+            style={toolButton(mode === 'calibrate')}
+          >
+            {mode === 'calibrate' ? '✓ Drag a line over a known length' : '📏 Calibrate'}
+          </button>
+        )}
+        {onStartChange && (
+          <button
+            onClick={() => setMode((m) => (m === 'setStart' ? 'select' : 'setStart'))}
+            style={toolButton(mode === 'setStart')}
+          >
+            {mode === 'setStart' ? '✓ Click where you want to start' : '🚩 Set start'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
+
+const toolButton = (active: boolean): React.CSSProperties => ({
+  background: active ? GOLD : 'rgba(0,0,0,0.7)',
+  color: active ? '#1a1614' : '#e8e4dc',
+  border: `1px solid ${GOLD}`,
+  borderRadius: '6px',
+  padding: '6px 12px',
+  fontSize: '13px',
+  cursor: 'pointer',
+  fontFamily: 'Georgia, serif',
+});

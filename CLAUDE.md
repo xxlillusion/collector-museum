@@ -38,13 +38,15 @@ npm run build    # tsc -b && vite build — USE THIS to type-check (see gotchas)
 Four top-level views, switched in `src/App.tsx` (plain state union, no router):
 
 ```
-UploadScreen (DOM) ←→ Scene (museum, R3F Canvas + DOM overlays)
+HomeScreen (DOM) ←→ Scene (museum, R3F Canvas + DOM overlays)
         ↕
 VendorSetupScreen (DOM: upload / detect / edit) ←→ VendorScene (hall, R3F Canvas)
 ```
 
-`type View = 'upload' | 'gallery' | 'vendorSetup' | 'vendorWalk'` — `vendorWalk` guards on
-`planMeta` existing and falls back to setup.
+`type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk'` — `vendorWalk` guards on
+`planMeta` existing and falls back to setup. DOM screens are their own scroll containers
+(`height: 100vh; overflow-y: auto`) because `html/body/#root` keep `overflow: hidden`
+for the fullscreen canvases.
 
 ### Data flow
 
@@ -69,7 +71,7 @@ All uploads pass through `downscaleImage()` (≤1600px, WebP 0.92).
 | `MobileControls.tsx`  | Touch only: nipplejs joystick (bottom-left) writes `mobileInput`; window-level touch-drag listeners write `mobileLook` deltas (consumed as yaw/pitch in `GalleryControls.useFrame`). No intercepting overlay, so taps reach the canvas for card clicks                   |
 | `HUD.tsx`             | Control hints (different text for touch), crosshair when locked, "Manage Cards" button                                                                                                                                                                                   |
 | `InspectOverlay.tsx`  | Full-screen card view; any click (or Esc) closes it, and Scene then re-locks the pointer (best-effort — Chrome has a ~1s cooldown after exiting pointer lock, so it falls back to click-canvas-to-lock)                                                                  |
-| `UploadScreen.tsx`    | Drag-drop + browse upload, thumbnail grid with delete, "Enter Museum"                                                                                                                                                                                                    |
+| `HomeScreen.tsx`      | Museum-styled home (“Museum Refined” design, replaced the old UploadScreen 2026-07): card upload dropzone, framed collection grid with delete, tablecloth banner slot, saved-plan list with “Walk →” (loads snapshot via `onWalkPlan` then jumps straight to `vendorWalk`), Enter Gallery / Walk a Card Show CTAs |
 
 
 ### Layout algorithm (`computeLayout` in Scene.tsx)
@@ -101,10 +103,11 @@ reflector resolution 512 (vs 1024). Movement/look come from the shared mutable o
 
 ## Vendor View (floor plan → walkable convention hall)
 
-Flow: UploadScreen “Vendor View” button → `VendorSetupScreen` (drop plan image →
+Flow: HomeScreen “Walk a Card Show” button → `VendorSetupScreen` (drop plan image →
 auto-detect → `PlanEditor` fix-up → Generate) → `VendorScene` (first-person hall).
 Plan image + edited boxes persist in the `settings` store; a saved plan skips straight
-to the editor on return.
+to the editor on return. HomeScreen’s saved-plan “Walk →” shortcut bypasses the editor:
+it loads the snapshot into the working slots and goes directly to `vendorWalk`.
 
 ### Files
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { PointerLockControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -15,20 +15,72 @@ export const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in 
 export const mobileInput = { x: 0, z: 0 };
 export const mobileLook = { dx: 0, dy: 0 };
 
+/** Axis-aligned collision box the camera is pushed out of. */
+export interface AABB {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/** Rotated collision box: center + half-extents in its local frame. */
+export interface RotatedBox {
+  cx: number;
+  cz: number;
+  hx: number;
+  hz: number;
+  rotY: number; // same convention as the table's rotationY
+}
+
+export type Collider = AABB | RotatedBox;
+
+// Museum defaults — the original hardcoded behavior. Computed lazily: this
+// module and Room.tsx import each other (Room needs isTouchDevice), so ROOM
+// isn't initialized yet at our module-evaluation time.
+const museumBounds = () => ({ halfW: ROOM.width / 2 - MARGIN, halfD: ROOM.depth / 2 - MARGIN });
+// The vendor table backs the east wall, so a one-sided push-out (from -X
+// only) matches the original clamp exactly.
+const museumTableAABB = (): AABB => ({
+  minX: TABLE.x - TABLE.topD / 2 - 0.35,
+  maxX: Infinity,
+  minZ: -(TABLE.topW / 2 + 0.35),
+  maxZ: TABLE.topW / 2 + 0.35,
+});
+const museumSpawn = (): [number, number, number] => [0, PLAYER_HEIGHT, ROOM.depth / 2 - 1.5];
+
 interface GalleryControlsProps {
   onLockChange: (locked: boolean) => void;
   /** true while the binder is open — movement and look are frozen */
   frozen: boolean;
+  /** Walkable half-extents; defaults to the museum room. */
+  bounds?: { halfW: number; halfD: number };
+  /** Collision boxes; defaults to the museum vendor table. */
+  colliders?: Collider[];
+  initialPosition?: [number, number, number];
 }
 
-export default function GalleryControls({ onLockChange, frozen }: GalleryControlsProps) {
+export default function GalleryControls({
+  onLockChange,
+  frozen,
+  bounds: boundsProp,
+  colliders: collidersProp,
+  initialPosition: initialPositionProp,
+}: GalleryControlsProps) {
   const { camera, gl } = useThree();
   const keys = useRef<Set<string>>(new Set());
 
+  const bounds = useMemo(() => boundsProp ?? museumBounds(), [boundsProp]);
+  const colliders = useMemo(() => collidersProp ?? [museumTableAABB()], [collidersProp]);
+  const initialPosition = useMemo(
+    () => initialPositionProp ?? museumSpawn(),
+    [initialPositionProp],
+  );
+
   // Set initial camera position / orientation
   useEffect(() => {
-    camera.position.set(0, PLAYER_HEIGHT, ROOM.depth / 2 - 1.5);
+    camera.position.set(...initialPosition);
     camera.rotation.order = 'YXZ';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera]);
 
   useEffect(() => {
@@ -90,17 +142,47 @@ export default function GalleryControls({ onLockChange, frozen }: GalleryControl
     }
 
     // Clamp to room bounds
-    const halfW = ROOM.width / 2 - MARGIN;
-    const halfD = ROOM.depth / 2 - MARGIN;
-    camera.position.x = Math.max(-halfW, Math.min(halfW, camera.position.x));
-    camera.position.z = Math.max(-halfD, Math.min(halfD, camera.position.z));
+    camera.position.x = Math.max(-bounds.halfW, Math.min(bounds.halfW, camera.position.x));
+    camera.position.z = Math.max(-bounds.halfD, Math.min(bounds.halfD, camera.position.z));
     camera.position.y = PLAYER_HEIGHT;
 
-    // Don't walk through the vendor table (east wall). Simple AABB push-out.
-    const tableEdgeX = TABLE.x - TABLE.topD / 2 - 0.35;
-    const tableHalfZ = TABLE.topW / 2 + 0.35;
-    if (Math.abs(camera.position.z) < tableHalfZ && camera.position.x > tableEdgeX) {
-      camera.position.x = tableEdgeX;
+    // Don't walk through tables. Push-out along the axis of least
+    // penetration (boxes with an Infinity side push out one way only).
+    for (const box of colliders) {
+      const { x, z } = camera.position;
+      if ('rotY' in box) {
+        // Rotated box: same test in the box's local frame. world→local is
+        // the inverse of three's rotationY map (lx·c + lz·s, −lx·s + lz·c).
+        const c = Math.cos(box.rotY);
+        const s = Math.sin(box.rotY);
+        const wx = x - box.cx;
+        const wz = z - box.cz;
+        let lx = wx * c - wz * s;
+        let lz = wx * s + wz * c;
+        if (Math.abs(lx) >= box.hx || Math.abs(lz) >= box.hz) continue;
+        const dxMin = lx + box.hx;
+        const dxMax = box.hx - lx;
+        const dzMin = lz + box.hz;
+        const dzMax = box.hz - lz;
+        const m = Math.min(dxMin, dxMax, dzMin, dzMax);
+        if (m === dxMin) lx = -box.hx;
+        else if (m === dxMax) lx = box.hx;
+        else if (m === dzMin) lz = -box.hz;
+        else lz = box.hz;
+        camera.position.x = box.cx + lx * c + lz * s;
+        camera.position.z = box.cz - lx * s + lz * c;
+        continue;
+      }
+      if (x <= box.minX || x >= box.maxX || z <= box.minZ || z >= box.maxZ) continue;
+      const dxMin = x - box.minX;
+      const dxMax = box.maxX - x;
+      const dzMin = z - box.minZ;
+      const dzMax = box.maxZ - z;
+      const m = Math.min(dxMin, dxMax, dzMin, dzMax);
+      if (m === dxMin) camera.position.x = box.minX;
+      else if (m === dxMax) camera.position.x = box.maxX;
+      else if (m === dzMin) camera.position.z = box.minZ;
+      else camera.position.z = box.maxZ;
     }
   });
 

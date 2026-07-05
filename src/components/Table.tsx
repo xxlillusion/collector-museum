@@ -1,61 +1,24 @@
 import { useMemo, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { ROOM, TABLE } from './Room';
+import {
+  CLOTH_COLOR,
+  CLOTH_ROUGHNESS,
+  CLOTH_W,
+  CLOTH_D,
+  CLOTH_TOP_Y,
+  DRAPE_H,
+  makeTopGeometry,
+  makeDrapeGeometry,
+  makeBannerTexture,
+} from './tableGeometry';
 
 // Vendor table against the east wall. Local +Z faces into the room (-X world)
-// after the group's -90° Y rotation. Dimensions live in Room.tsx (TABLE).
-
-const CLOTH_COLOR = '#6b1d1d';
-const CLOTH_ROUGHNESS = 0.92;
-
-// Drape measurements (cloth overhangs the top by a small margin, then falls
-// to just above the floor)
-const OVERHANG = 0.06;
-const CLOTH_W = TABLE.topW + OVERHANG * 2;
-const CLOTH_D = TABLE.topD + OVERHANG * 2;
-const CLOTH_TOP_Y = TABLE.topH + 0.006;
-const DRAPE_H = CLOTH_TOP_Y - 0.015; // stops just off the floor
-
-/** Gentle sagging cloth top — vertices displaced once, normals recomputed. */
-function makeTopGeometry(): THREE.PlaneGeometry {
-  const geo = new THREE.PlaneGeometry(CLOTH_W, CLOTH_D, 24, 12);
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const u = pos.getX(i) / CLOTH_W + 0.5;
-    const v = pos.getY(i) / CLOTH_D + 0.5;
-    // Sag toward the middle (plane is later rotated flat, so displace Z)
-    const sag = 0.008 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
-    pos.setZ(i, pos.getZ(i) - sag);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
-
-/**
- * Hanging drape with soft vertical folds that deepen toward the floor.
- * Width is the cloth edge it hangs from; the same recipe is used for the
- * front and both sides so folds match at the corners.
- */
-function makeDrapeGeometry(width: number, phase: number): THREE.PlaneGeometry {
-  const geo = new THREE.PlaneGeometry(width, DRAPE_H, 48, 16);
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const u = pos.getX(i) / width + 0.5;
-    const v = 0.5 - pos.getY(i) / DRAPE_H; // 0 at the table edge, 1 at the floor
-    const grow = v * v * (3 - 2 * v);       // smoothstep — folds grow downward
-    const fold =
-      0.028 * Math.sin(u * Math.PI * 7 + phase) * grow +
-      0.012 * Math.sin(u * Math.PI * 13 + phase * 1.7) * grow;
-    pos.setZ(i, pos.getZ(i) + fold);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
+// after the group's -90° Y rotation. Dimensions live in Room.tsx (TABLE);
+// cloth geometry recipes are shared with VendorTables in tableGeometry.ts.
 
 /**
  * Banner image letterboxed on the front drape, sharing its fold geometry.
- * The image is composited onto a cloth-colored canvas (UV letterbox tricks
- * smear the image's clamped edge pixels across the rest of the drape).
  */
 function BannerDrape({ url, geometry }: { url: string; geometry: THREE.PlaneGeometry }) {
   const [texture, setTexture] = useState<THREE.CanvasTexture | null>(null);
@@ -66,26 +29,8 @@ function BannerDrape({ url, geometry }: { url: string; geometry: THREE.PlaneGeom
     const img = new Image();
     img.onload = () => {
       if (cancelled) return;
-      const canvas = document.createElement('canvas');
-      canvas.width = 1024;
-      canvas.height = Math.round(1024 * (DRAPE_H / CLOTH_W));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.fillStyle = CLOTH_COLOR;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      // Fit the image centered with a margin, preserving aspect
-      const fit = 0.82;
-      const scale = Math.min(
-        (canvas.width * fit) / img.width,
-        (canvas.height * fit) / img.height,
-      );
-      const w = img.width * scale;
-      const h = img.height * scale;
-      ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
-      tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 8;
-      setTexture(tex);
+      tex = makeBannerTexture(img);
+      if (tex) setTexture(tex);
     };
     img.src = url;
     return () => {

@@ -10,6 +10,7 @@ interface UploadScreenProps {
   onSetBanner: (file: File) => Promise<void>;
   onRemoveBanner: () => Promise<void>;
   onEnter: () => void;
+  onVendor: () => void;
 }
 
 export default function UploadScreen({
@@ -21,6 +22,7 @@ export default function UploadScreen({
   onSetBanner,
   onRemoveBanner,
   onEnter,
+  onVendor,
 }: UploadScreenProps) {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -255,6 +257,29 @@ export default function UploadScreen({
           Add at least one card to enter
         </p>
       )}
+
+      {/* Vendor View */}
+      <button
+        onClick={onVendor}
+        style={{
+          background: 'transparent',
+          color: '#d4af37',
+          border: '1px solid #d4af37',
+          padding: '12px 32px',
+          fontSize: '14px',
+          letterSpacing: '0.1em',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontFamily: 'Georgia, serif',
+          marginTop: '28px',
+          transition: 'all 0.2s',
+        }}
+      >
+        VENDOR VIEW — WALK A CARD SHOW →
+      </button>
+      <p style={{ color: '#555', fontSize: '12px', marginTop: '8px' }}>
+        Upload a convention floor plan and explore it in 3D
+      </p>
     </div>
   );
 }

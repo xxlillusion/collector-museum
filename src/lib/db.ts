@@ -115,3 +115,47 @@ export async function deleteBanner(): Promise<void> {
   const db = await getDB();
   await db.delete('settings', BANNER_KEY);
 }
+
+// Vendor View — convention floor plan image + its table-rectangle metadata.
+// Both live in the settings store: the image as a downscaled blob, the
+// metadata as JSON serialized into a Blob (the store's value shape is
+// { key, blob }, so no schema bump is needed).
+
+const FLOORPLAN_KEY = 'vendorFloorPlan';
+const PLANMETA_KEY = 'vendorPlanMeta';
+
+export async function saveFloorPlan(file: File): Promise<Blob> {
+  const db = await getDB();
+  const blob = await downscaleImage(file);
+  await db.put('settings', { key: FLOORPLAN_KEY, blob });
+  return blob;
+}
+
+export async function getFloorPlan(): Promise<Blob | undefined> {
+  const db = await getDB();
+  const record = await db.get('settings', FLOORPLAN_KEY);
+  return record?.blob;
+}
+
+export async function deleteFloorPlan(): Promise<void> {
+  const db = await getDB();
+  await db.delete('settings', FLOORPLAN_KEY);
+  await db.delete('settings', PLANMETA_KEY);
+}
+
+export async function savePlanMeta(meta: unknown): Promise<void> {
+  const db = await getDB();
+  const blob = new Blob([JSON.stringify(meta)], { type: 'application/json' });
+  await db.put('settings', { key: PLANMETA_KEY, blob });
+}
+
+export async function getPlanMetaBlob(): Promise<Blob | undefined> {
+  const db = await getDB();
+  const record = await db.get('settings', PLANMETA_KEY);
+  return record?.blob;
+}
+
+export async function deletePlanMeta(): Promise<void> {
+  const db = await getDB();
+  await db.delete('settings', PLANMETA_KEY);
+}

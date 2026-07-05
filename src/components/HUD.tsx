@@ -8,6 +8,8 @@ interface HUDProps {
   binderPrompt: boolean;
   /** binder is open or animating — swaps hints, shows mobile controls */
   binderOpen: boolean;
+  /** top-right button label; defaults to the museum's card manager */
+  uploadLabel?: string;
 }
 
 const pillStyle: CSSProperties = {
@@ -23,7 +25,13 @@ const pillStyle: CSSProperties = {
   border: '1px solid rgba(255,255,255,0.2)',
 };
 
-export default function HUD({ locked, onUpload, binderPrompt, binderOpen }: HUDProps) {
+export default function HUD({
+  locked,
+  onUpload,
+  binderPrompt,
+  binderOpen,
+  uploadLabel = '⬆ Manage Cards',
+}: HUDProps) {
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10, fontFamily: 'sans-serif' }}>
       {/* Controls prompt */}
@@ -95,7 +103,7 @@ export default function HUD({ locked, onUpload, binderPrompt, binderOpen }: HUDP
             backdropFilter: 'blur(4px)',
           }}
         >
-          ⬆ Manage Cards
+          {uploadLabel}
         </button>
       )}
 

@@ -1,5 +1,5 @@
-import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { Environment, Lightformer, useProgress } from '@react-three/drei';
+import { Canvas } from '@react-three/fiber';
+import { Environment, Lightformer } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { Suspense, useState, useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
@@ -11,6 +11,7 @@ import HUD from './HUD';
 import InspectOverlay from './InspectOverlay';
 import Table from './Table';
 import Binder from './Binder';
+import { ShadowRefresh, LoadingOverlay } from './sceneCommon';
 import type { CardWithUrl } from '../lib/useCards';
 
 // Layout constants — gallery style: consistent row height, variable widths
@@ -162,53 +163,6 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
         </mesh>
       </group>
     </group>
-  );
-}
-
-/**
- * Shadow maps are rendered on demand (gl.shadowMap.autoUpdate = false in
- * onCreated) since the room is static — this saves a full shadow render pass
- * every frame. Re-render shadows for a while whenever `trigger` changes
- * (layout/textures streaming in); the binder requests its own updates while
- * it animates.
- */
-function ShadowRefresh({ trigger }: { trigger: unknown }) {
-  const { gl } = useThree();
-  const frames = useRef(0);
-  useEffect(() => {
-    frames.current = 0;
-  }, [trigger]);
-  useFrame(() => {
-    if (frames.current < 120) {
-      gl.shadowMap.needsUpdate = true;
-      frames.current++;
-    }
-  });
-  return null;
-}
-
-/** DOM overlay shown while textures stream in (useProgress is a global store). */
-function LoadingOverlay() {
-  const { active, progress } = useProgress();
-  if (!active) return null;
-  return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: '#0d0b0a',
-      color: '#d4af37',
-      fontFamily: 'Georgia, serif',
-      letterSpacing: '0.1em',
-      zIndex: 50,
-      gap: '12px',
-    }}>
-      <div style={{ fontSize: '15px' }}>LIGHTING THE GALLERY…</div>
-      <div style={{ fontSize: '12px', color: '#8a7a55' }}>{Math.round(progress)}%</div>
-    </div>
   );
 }
 

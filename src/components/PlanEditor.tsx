@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import type { VendorRect } from '../lib/vendorPlan';
-import { TABLE_W, TABLE_D, tablesInLength } from '../lib/vendorPlan';
+import { TABLE_D, boxGrid, standardTableW } from '../lib/vendorPlan';
 
 // 2D floor-plan editor: the plan image with an SVG overlay whose viewBox is
 // the stored-image pixel space — all rect math happens in image px and the
@@ -12,6 +12,8 @@ interface PlanEditorProps {
   imgH: number;
   rects: VendorRect[];
   pxPerMeter: number;
+  /** Show-standard table length; drives the grid preview. Absent = 6 ft. */
+  tableLengthFt?: 6 | 8;
   onChange: (rects: VendorRect[]) => void;
   /** Calibration line finished: length in image px. Parent asks for the real length. */
   onCalibrateLine?: (lengthPx: number) => void;
@@ -57,12 +59,14 @@ export default function PlanEditor({
   imgH,
   rects,
   pxPerMeter,
+  tableLengthFt,
   onChange,
   onCalibrateLine,
   onSelectionChange,
   startPx,
   onStartChange,
 }: PlanEditorProps) {
+  const tableW = standardTableW(tableLengthFt);
   const svgRef = useRef<SVGSVGElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [mode, setMode] = useState<EditorMode>('select');
@@ -259,7 +263,7 @@ export default function PlanEditor({
     const r = rects.find((rr) => rr.id === d.id);
     if (!r) return;
     if (r.w < minSize || r.h < minSize) {
-      const w = TABLE_W * pxPerMeter;
+      const w = tableW * pxPerMeter;
       const h = TABLE_D * pxPerMeter;
       updateRect(d.id, {
         x: Math.max(0, Math.min(imgW - w, d.anchorX - w / 2)),
@@ -270,8 +274,14 @@ export default function PlanEditor({
     }
   };
 
-  const tablesForRect = (r: VendorRect) =>
-    tablesInLength(Math.max(r.w, r.h) / pxPerMeter);
+  // Grid mapped onto image axes: divisions across the rect's width/height.
+  // Mirrors planToLayout via the shared boxGrid so the preview can't drift.
+  const gridForRect = (r: VendorRect) => {
+    const wM = r.w / pxPerMeter;
+    const hM = r.h / pxPerMeter;
+    const g = boxGrid(Math.max(wM, hM), Math.min(wM, hM), tableW);
+    return wM >= hM ? { nw: g.cols, nh: g.rows } : { nw: g.rows, nh: g.cols };
+  };
 
   return (
     <div style={{ position: 'relative', width: '100%', userSelect: 'none' }}>
@@ -299,7 +309,8 @@ export default function PlanEditor({
       >
         {rects.map((r) => {
           const isSel = r.id === selected;
-          const k = tablesForRect(r);
+          const { nw, nh } = gridForRect(r);
+          const k = nw * nh;
           const rcx = r.x + r.w / 2;
           const rcy = r.y + r.h / 2;
           const corners: [number, number][] = [
@@ -324,6 +335,37 @@ export default function PlanEditor({
                 style={{ cursor: mode !== 'select' ? 'crosshair' : 'move' }}
                 onPointerDown={(e) => onPointerDownRect(e, r)}
               />
+              {/* Subdivision preview: how the box splits into tables in 3D */}
+              {nw > 1 &&
+                Array.from({ length: nw - 1 }, (_, i) => (
+                  <line
+                    key={`v${i}`}
+                    x1={r.x + ((i + 1) / nw) * r.w}
+                    y1={r.y}
+                    x2={r.x + ((i + 1) / nw) * r.w}
+                    y2={r.y + r.h}
+                    stroke={GOLD}
+                    strokeOpacity={0.75}
+                    strokeWidth={ui * 0.1}
+                    strokeDasharray={`${ui * 0.4} ${ui * 0.3}`}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                ))}
+              {nh > 1 &&
+                Array.from({ length: nh - 1 }, (_, j) => (
+                  <line
+                    key={`h${j}`}
+                    x1={r.x}
+                    y1={r.y + ((j + 1) / nh) * r.h}
+                    x2={r.x + r.w}
+                    y2={r.y + ((j + 1) / nh) * r.h}
+                    stroke={GOLD}
+                    strokeOpacity={0.75}
+                    strokeWidth={ui * 0.1}
+                    strokeDasharray={`${ui * 0.4} ${ui * 0.3}`}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                ))}
               <text
                 x={r.x + r.w / 2}
                 y={r.y + r.h / 2}
@@ -336,7 +378,11 @@ export default function PlanEditor({
                 fontSize={Math.min(ui * 2.2, Math.max(r.h * 0.6, ui * 1.2))}
                 style={{ pointerEvents: 'none', fontFamily: 'Georgia, serif' }}
               >
-                {k > 1 ? `${k} tables` : '1 table'}
+                {nw > 1 && nh > 1
+                  ? `${nh}×${nw} · ${k} tables`
+                  : k > 1
+                    ? `${k} tables`
+                    : '1 table'}
               </text>
               {isSel && mode === 'select' && (
                 <>

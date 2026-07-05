@@ -128,9 +128,10 @@ function computeSpotGrid(width: number, depth: number): [number, number][] {
 }
 
 function tableColliders(tables: TablePlacement[]): Collider[] {
-  const halfL = TABLE.topW / 2 + TABLE_PAD;
-  const halfS = TABLE.topD / 2 + TABLE_PAD;
   return tables.map((t) => {
+    // Half-extents follow the per-table stretch-to-fit scale
+    const halfL = ((t.sx ?? 1) * TABLE.topW) / 2 + TABLE_PAD;
+    const halfS = ((t.sz ?? 1) * TABLE.topD) / 2 + TABLE_PAD;
     const [x, , z] = t.position;
     // Multiples of π/2 stay axis-aligned AABBs (the pre-rotation behavior);
     // anything else gets a rotated box resolved in its local frame.

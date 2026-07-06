@@ -5,22 +5,27 @@ import { Suspense, useState, useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import VendorRoom from './VendorRoom';
 import VendorTables from './VendorTables';
+import type { VendorDrapeInfo } from './VendorTables';
+import VendorHallBinders from './VendorHallBinders';
 import GalleryControls, { isTouchDevice } from './GalleryControls';
 import type { Collider } from './GalleryControls';
 import MobileControls from './MobileControls';
 import HUD from './HUD';
+import InspectOverlay from './InspectOverlay';
 import { ShadowRefresh, LoadingOverlay } from './sceneCommon';
 import { Minimap, MinimapTracker } from './Minimap';
 import type { MinimapMapping } from './Minimap';
 import { TABLE } from './Room';
 import { planToLayout } from '../lib/vendorPlan';
 import type { VendorPlanMeta, TablePlacement } from '../lib/vendorPlan';
+import type { VendorSummary } from '../lib/useVendors';
 
 interface VendorSceneProps {
   planMeta: VendorPlanMeta;
   planUrl: string | null;
   bannerUrl: string | null;
   vendorBannerUrls: Map<string, string>;
+  vendors: VendorSummary[];
   onBack: () => void;
 }
 
@@ -147,8 +152,11 @@ function tableColliders(tables: TablePlacement[]): Collider[] {
   });
 }
 
-export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, onBack }: VendorSceneProps) {
+export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, onBack }: VendorSceneProps) {
   const [locked, setLocked] = useState(false);
+  const [binderOpen, setBinderOpen] = useState(false);
+  const [binderPrompt, setBinderPrompt] = useState(false);
+  const [inspect, setInspect] = useState<{ url: string; caption?: string } | null>(null);
   // Bumping this key remounts the Canvas — our recovery path if the GPU
   // driver kills the WebGL context (black canvas, DOM still alive).
   const [glKey, setGlKey] = useState(0);
@@ -156,6 +164,16 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
   const { hall, tables, pxPerMeter, planW, planD } = useMemo(
     () => planToLayout(planMeta),
     [planMeta],
+  );
+
+  const vendorDrapes = useMemo(() => {
+    const map = new Map<string, VendorDrapeInfo>();
+    for (const v of vendors) map.set(v.id, { name: v.name, bannerUrl: v.bannerUrl });
+    return map;
+  }, [vendors]);
+  const inventoryCounts = useMemo(
+    () => new Map(vendors.map((v) => [v.id, v.inventoryCount])),
+    [vendors],
   );
   const colliders = useMemo(() => tableColliders(tables), [tables]);
   const spots = useMemo(() => computeSpotGrid(hall.width, hall.depth), [hall.width, hall.depth]);
@@ -201,6 +219,26 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
       if (result instanceof Promise) result.catch(() => {});
     } catch {
       // ignore — user can click again
+    }
+  };
+
+  const handleInspect = (url: string, caption?: string) => {
+    document.exitPointerLock?.();
+    setInspect({ url, caption });
+  };
+
+  const handleCloseInspect = (relock: boolean) => {
+    setInspect(null);
+    // Same rules as the museum: relock only on click-close, never while the
+    // binder is still up (its no-lock enforcement would fight it)
+    if (relock && !binderOpen) {
+      setTimeout(tryLock, 150);
+    }
+  };
+
+  const handleBinderClosed = (relock: boolean) => {
+    if (relock) {
+      setTimeout(tryLock, 150);
     }
   };
 
@@ -263,7 +301,21 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
 
         <Suspense fallback={null}>
           <VendorRoom width={hall.width} depth={hall.depth} height={hall.height} />
-          <VendorTables tables={tables} bannerUrl={bannerUrl} vendorBannerUrls={vendorBannerUrls} />
+          <VendorTables
+            tables={tables}
+            bannerUrl={bannerUrl}
+            vendorBannerUrls={vendorBannerUrls}
+            vendors={vendorDrapes}
+          />
+          <VendorHallBinders
+            tables={tables}
+            inventoryCounts={inventoryCounts}
+            suspended={!!inspect}
+            onPromptChange={setBinderPrompt}
+            onOpenChange={setBinderOpen}
+            onInspect={handleInspect}
+            onClosed={handleBinderClosed}
+          />
 
           {/* One shadow-casting light for the whole hall — skylight banks.
               Per-table shadow spots are a non-starter at this scale. */}
@@ -315,7 +367,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
 
           <GalleryControls
             onLockChange={setLocked}
-            frozen={false}
+            frozen={binderOpen}
             bounds={{ halfW: hall.width / 2 - WALL_MARGIN, halfD: hall.depth / 2 - WALL_MARGIN }}
             colliders={colliders}
             initialPosition={spawn}
@@ -333,15 +385,21 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
       </Canvas>
 
       <LoadingOverlay label="SETTING UP THE SHOW…" />
-      {planUrl && <Minimap planUrl={planUrl} mapping={minimapMapping} markerRef={minimapMarkerRef} />}
+      {planUrl && !binderOpen && (
+        <Minimap planUrl={planUrl} mapping={minimapMapping} markerRef={minimapMarkerRef} />
+      )}
       <HUD
         locked={locked}
         onUpload={onBack}
-        binderPrompt={false}
-        binderOpen={false}
+        binderPrompt={binderPrompt && locked && !binderOpen}
+        binderOpen={binderOpen}
         uploadLabel="🗺 Floor Plan"
       />
-      <MobileControls hidden={false} />
+      <MobileControls hidden={binderOpen} />
+
+      {inspect && (
+        <InspectOverlay imageUrl={inspect.url} caption={inspect.caption} onClose={handleCloseInspect} />
+      )}
     </>
   );
 }

@@ -1,16 +1,20 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { deleteAllVendorBanners } from './lib/db';
 import { useCards } from './lib/useCards';
+import type { CardWithUrl } from './lib/useCards';
 import { useBanner } from './lib/useBanner';
 import { useVendorPlan } from './lib/useVendorPlan';
 import { useVendorBanners } from './lib/useVendorBanners';
 import { useSavedPlans } from './lib/useSavedPlans';
+import { useVendors } from './lib/useVendors';
+import { useVendorInventory } from './lib/useVendorInventory';
 import HomeScreen from './components/HomeScreen';
 import Scene from './components/Scene';
 import VendorSetupScreen from './components/VendorSetupScreen';
 import VendorScene from './components/VendorScene';
+import VendorsScreen from './components/VendorsScreen';
 
-type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk';
+type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk' | 'vendors';
 
 export default function App() {
   const [view, setView] = useState<View>('home');
@@ -18,9 +22,39 @@ export default function App() {
   const { bannerUrl, setBanner, removeBanner } = useBanner();
   const vendorPlan = useVendorPlan();
   const vendorBanners = useVendorBanners();
+  const vendors = useVendors();
 
-  // Vendor banners belong to the current plan image — replacing or clearing
-  // the plan drops them all
+  // Which collection hangs in the museum: null = the user's own cards,
+  // otherwise a vendor id whose inventory goes on the walls.
+  const [galleryVendorId, setGalleryVendorId] = useState<string | null>(null);
+  const galleryVendor = vendors.vendors.find((v) => v.id === galleryVendorId) ?? null;
+  const galleryInventory = useVendorInventory(galleryVendor?.id ?? null);
+
+  const galleryCards = useMemo<CardWithUrl[]>(() => {
+    if (!galleryVendor) return cards;
+    return galleryInventory.items.map((i) => ({
+      id: i.id,
+      name: i.caption,
+      imageBlob: i.imageBlob,
+      addedAt: i.addedAt,
+      imageUrl: i.imageUrl,
+      aspect: i.aspect,
+    }));
+  }, [galleryVendor, galleryInventory.items, cards]);
+
+  // Captions under inspected works — only vendor inventory carries them
+  const galleryCaptions = useMemo(() => {
+    const map = new Map<string, string>();
+    if (galleryVendor) {
+      for (const i of galleryInventory.items) {
+        if (i.caption) map.set(i.imageUrl, i.caption);
+      }
+    }
+    return map;
+  }, [galleryVendor, galleryInventory.items]);
+
+  // Legacy per-box banner slots belong to the current plan image — replacing
+  // or clearing the plan drops them all
   const { setPlan, clearPlan } = vendorPlan;
   const { reload: reloadVendorBanners } = vendorBanners;
   const handleSetPlan = useCallback(async (file: File) => {
@@ -47,9 +81,28 @@ export default function App() {
   if (view === 'gallery') {
     return (
       <Scene
-        cards={cards}
+        cards={galleryCards}
+        captions={galleryCaptions}
         bannerUrl={bannerUrl}
         onManage={() => setView('home')}
+      />
+    );
+  }
+
+  if (view === 'vendors') {
+    return (
+      <VendorsScreen
+        vendors={vendors.vendors}
+        savedPlans={savedPlans.savedPlans}
+        onAddVendor={vendors.addVendor}
+        onRenameVendor={vendors.renameVendor}
+        onDeleteVendor={vendors.deleteVendor}
+        onSetVendorBanner={vendors.setVendorBanner}
+        onRemoveVendorBanner={vendors.removeVendorBanner}
+        onAddManualShow={vendors.addManualShow}
+        onRemoveManualShow={vendors.removeManualShow}
+        onInventoryChanged={vendors.reload}
+        onBack={() => setView('home')}
       />
     );
   }
@@ -62,9 +115,8 @@ export default function App() {
         onSetPlan={handleSetPlan}
         onSaveMeta={vendorPlan.saveMeta}
         onClearPlan={handleClearPlan}
-        vendorBannerUrls={vendorBanners.bannerUrls}
-        onAddVendorBanner={vendorBanners.addVendorBanner}
-        onRemoveVendorBanner={vendorBanners.removeVendorBanner}
+        vendors={vendors.vendors}
+        onAddVendor={vendors.addVendor}
         savedPlans={savedPlans.savedPlans}
         onSavePlan={savedPlans.saveCurrentPlan}
         onLoadPlan={handleLoadPlan}
@@ -82,6 +134,7 @@ export default function App() {
         planUrl={vendorPlan.planUrl}
         bannerUrl={bannerUrl}
         vendorBannerUrls={vendorBanners.bannerUrls}
+        vendors={vendors.vendors}
         onBack={() => setView('vendorSetup')}
       />
     );
@@ -97,12 +150,16 @@ export default function App() {
       onSetBanner={setBanner}
       onRemoveBanner={removeBanner}
       savedPlans={savedPlans.savedPlans}
+      vendors={vendors.vendors}
+      galleryVendorId={galleryVendor?.id ?? null}
+      onSelectGalleryVendor={setGalleryVendorId}
       onWalkPlan={async (id) => {
         await handleLoadPlan(id);
         setView('vendorWalk');
       }}
       onEnter={() => setView('gallery')}
       onVendor={() => setView('vendorSetup')}
+      onVendors={() => setView('vendors')}
     />
   );
 }

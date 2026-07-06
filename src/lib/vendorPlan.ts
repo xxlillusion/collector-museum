@@ -1,4 +1,4 @@
-// Vendor View data model + pure layout math (no three.js imports so this is
+// Convention View data model + pure layout math (no three.js imports so this is
 // trivially unit-testable and usable from workers if ever needed).
 
 /** A table box drawn/detected on the floor plan, in stored-image pixels. */
@@ -11,8 +11,12 @@ export interface VendorRect {
   // SVG rotate() convention: degrees clockwise on the y-down image, about the
   // rect center. Absent/0 = axis-aligned (all detected rects).
   rotationDeg?: number;
-  // Per-vendor banner (settings slot `vendorBanner:<id>`); absent = global banner
+  // Legacy per-box banner (settings slot `vendorBanner:<id>`) — read-only
+  // fallback for old saved plans; new assignments use vendorId instead.
   bannerId?: string;
+  // Assigned vendor (VendorRecord.id), resolved live. A dangling id (vendor
+  // deleted) renders as unassigned.
+  vendorId?: string;
 }
 
 export interface VendorPlanMeta {
@@ -39,6 +43,11 @@ export interface TablePlacement {
   position: [number, number, number];
   rotationY: number;
   bannerId?: string;
+  vendorId?: string;
+  /** The booth (rect) this table came from. */
+  rectId: string;
+  /** Ordinal within the booth's emission order — binder i sits on table i. */
+  indexInBooth: number;
   /** Stretch along the table's local width (long axis); absent = 1. */
   sx?: number;
   /** Stretch along the table's local depth (short axis); absent = 1. */
@@ -160,6 +169,7 @@ export function planToLayout(meta: VendorPlanMeta): {
     // faces the hall centerline (rect center is rotation-invariant, so it
     // ignores theta). Multi-row booths face back-to-back outward from the
     // booth's own center; an exact middle row falls back to the heuristic.
+    let indexInBooth = 0;
     for (let j = 0; j < rows; j++) {
       const offS = (-rows / 2 + j + 0.5) * pitchS;
       const outward = Math.abs(offS) < 1e-6 ? 0 : Math.sign(offS);
@@ -177,6 +187,9 @@ export function planToLayout(meta: VendorPlanMeta): {
               : [cx + ox * cosT + oz * sinT, 0, cz - ox * sinT + oz * cosT],
           rotationY: baseRotY + theta,
           bannerId: r.bannerId,
+          vendorId: r.vendorId,
+          rectId: r.id,
+          indexInBooth: indexInBooth++,
         };
         if (sx !== 1) table.sx = sx;
         if (sz !== 1) table.sz = sz;

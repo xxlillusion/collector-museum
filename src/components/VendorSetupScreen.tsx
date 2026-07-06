@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PlanEditor from './PlanEditor';
 import { detectTables, inferScale } from '../lib/planDetect';
 import { getFloorPlan } from '../lib/db';
 import type { VendorRect, VendorPlanMeta } from '../lib/vendorPlan';
 import type { SavedPlanRecord } from '../lib/db';
+import type { VendorSummary } from '../lib/useVendors';
 import { planToLayout, standardTableW } from '../lib/vendorPlan';
 
 interface VendorSetupScreenProps {
@@ -12,11 +13,10 @@ interface VendorSetupScreenProps {
   onSetPlan: (file: File) => Promise<void>;
   onSaveMeta: (meta: VendorPlanMeta) => Promise<void>;
   onClearPlan: () => Promise<void>;
-  vendorBannerUrls: Map<string, string>;
-  onAddVendorBanner: (file: File) => Promise<string>;
-  onRemoveVendorBanner: (id: string) => Promise<void>;
+  vendors: VendorSummary[];
+  onAddVendor: (name: string) => Promise<string>;
   savedPlans: SavedPlanRecord[];
-  onSavePlan: (name: string) => Promise<void>;
+  onSavePlan: (name: string, showDate?: string) => Promise<void>;
   onLoadPlan: (id: string) => Promise<void>;
   onDeletePlan: (id: string) => Promise<void>;
   onGenerate: () => void;
@@ -31,9 +31,8 @@ export default function VendorSetupScreen({
   onSetPlan,
   onSaveMeta,
   onClearPlan,
-  vendorBannerUrls,
-  onAddVendorBanner,
-  onRemoveVendorBanner,
+  vendors,
+  onAddVendor,
   savedPlans,
   onSavePlan,
   onLoadPlan,
@@ -118,12 +117,6 @@ export default function VendorSetupScreen({
     setCalibrationValue('');
   }, [calibrationPx, calibrationValue, calibrationUnit, meta, onSaveMeta]);
 
-  // Ref mirror for the debounced orphan sweep below
-  const bannerUrlsRef = useRef(vendorBannerUrls);
-  bannerUrlsRef.current = vendorBannerUrls;
-  const removeBannerRef = useRef(onRemoveVendorBanner);
-  removeBannerRef.current = onRemoveVendorBanner;
-
   // Debounce-persist rect edits so they survive refresh without a save button
   const handleRectsChange = useCallback((rects: VendorRect[]) => {
     setMeta((prev) => {
@@ -132,11 +125,6 @@ export default function VendorSetupScreen({
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
         onSaveMeta(next);
-        // Sweep banner blobs no rect references anymore (deleted/reassigned)
-        const referenced = new Set(next.rects.map((r) => r.bannerId).filter(Boolean));
-        for (const id of bannerUrlsRef.current.keys()) {
-          if (!referenced.has(id)) removeBannerRef.current(id);
-        }
       }, 500);
       return next;
     });
@@ -148,20 +136,27 @@ export default function VendorSetupScreen({
 
   const selectedRect = meta?.rects.find((r) => r.id === selectedRectId) ?? null;
 
-  const handleBannerUpload = useCallback(async (file: File | undefined) => {
-    if (!file || !file.type.startsWith('image/') || !selectedRectId) return;
-    // Cancel any pending persist so its sweep can't reap the new banner
-    // before the assignment below lands
-    if (saveTimer.current !== null) {
-      window.clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
-    const id = await onAddVendorBanner(file);
+  // Assigning a vendor is THE way a table gets a banner now; it also clears
+  // any legacy per-box bannerId so the vendor's own banner/name wins.
+  const handleAssignVendor = useCallback((vendorId: string | undefined) => {
+    if (!selectedRectId) return;
     const rects = metaRef.current?.rects.map((r) =>
-      r.id === selectedRectId ? { ...r, bannerId: id } : r,
+      r.id === selectedRectId
+        ? { ...r, vendorId, bannerId: vendorId ? undefined : r.bannerId }
+        : r,
     );
     if (rects) handleRectsChange(rects);
-  }, [selectedRectId, onAddVendorBanner, handleRectsChange]);
+  }, [selectedRectId, handleRectsChange]);
+
+  const [creatingVendor, setCreatingVendor] = useState<string | null>(null); // null = closed
+
+  const handleQuickCreateVendor = useCallback(async () => {
+    const name = creatingVendor?.trim();
+    if (!name) return;
+    const id = await onAddVendor(name);
+    setCreatingVendor(null);
+    handleAssignVendor(id);
+  }, [creatingVendor, onAddVendor, handleAssignVendor]);
 
   // Show-standard table size: re-derives an inferred scale from the current
   // boxes (they're the ruler), but never touches a manual calibration
@@ -184,15 +179,8 @@ export default function VendorSetupScreen({
     onSaveMeta(next); // single click — persist immediately, no debounce
   }, [onSaveMeta]);
 
-  const handleBannerRemove = useCallback(() => {
-    if (!selectedRectId) return;
-    const rects = metaRef.current?.rects.map((r) =>
-      r.id === selectedRectId ? { ...r, bannerId: undefined } : r,
-    );
-    if (rects) handleRectsChange(rects); // the debounced sweep deletes the blob
-  }, [selectedRectId, handleRectsChange]);
-
   const [savingName, setSavingName] = useState<string | null>(null); // null = closed
+  const [savingDate, setSavingDate] = useState('');
 
   const handleSavePlan = useCallback(async () => {
     const name = savingName?.trim();
@@ -203,9 +191,15 @@ export default function VendorSetupScreen({
       saveTimer.current = null;
       if (metaRef.current) await onSaveMeta(metaRef.current);
     }
-    await onSavePlan(name);
+    await onSavePlan(name, savingDate || undefined);
     setSavingName(null);
-  }, [savingName, onSavePlan, onSaveMeta]);
+    setSavingDate('');
+  }, [savingName, savingDate, onSavePlan, onSaveMeta]);
+
+  const vendorNames = useMemo(
+    () => new Map(vendors.map((v) => [v.id, v.name])),
+    [vendors],
+  );
 
   const layout = meta ? planToLayout(meta) : null;
   const totalTables = layout?.tables.length ?? 0;
@@ -224,7 +218,7 @@ export default function VendorSetupScreen({
       padding: '40px 24px',
     }}>
       <h1 style={{ fontSize: '2rem', letterSpacing: '0.12em', marginBottom: '4px', color: GOLD }}>
-        VENDOR VIEW
+        CONVENTION VIEW
       </h1>
       <p style={{ color: '#888', marginBottom: '32px', fontSize: '14px', letterSpacing: '0.08em' }}>
         WALK A CARD SHOW FROM ITS FLOOR PLAN
@@ -301,6 +295,7 @@ export default function VendorSetupScreen({
                 onSelectionChange={setSelectedRectId}
                 startPx={meta.startPx ?? null}
                 onStartChange={handleStartChange}
+                vendorNames={vendorNames}
               />
 
               {selectedRect && (
@@ -318,38 +313,79 @@ export default function VendorSetupScreen({
                   fontSize: '13px',
                   color: '#aaa',
                 }}>
-                  <span>Vendor banner for this box:</span>
-                  {selectedRect.bannerId && vendorBannerUrls.get(selectedRect.bannerId) ? (
+                  <span>Vendor at this booth:</span>
+                  <select
+                    value={selectedRect.vendorId && vendorNames.has(selectedRect.vendorId) ? selectedRect.vendorId : ''}
+                    onChange={(e) => handleAssignVendor(e.target.value || undefined)}
+                    style={{
+                      background: '#0d0b0a',
+                      color: '#e8e4dc',
+                      border: '1px solid #555',
+                      borderRadius: '6px',
+                      padding: '7px 10px',
+                      fontSize: '13px',
+                      fontFamily: 'Georgia, serif',
+                      maxWidth: '220px',
+                    }}
+                  >
+                    <option value="">— unassigned —</option>
+                    {vendors.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                  {creatingVendor === null ? (
+                    <button
+                      onClick={() => setCreatingVendor('')}
+                      style={{ ...secondaryButton, padding: '6px 12px', fontSize: '12px' }}
+                    >
+                      ＋ New vendor…
+                    </button>
+                  ) : (
                     <>
-                      <img
-                        src={vendorBannerUrls.get(selectedRect.bannerId)}
-                        alt="Vendor banner"
-                        style={{ height: '36px', borderRadius: '4px', border: '1px solid #555' }}
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="Vendor name"
+                        value={creatingVendor}
+                        onChange={(e) => setCreatingVendor(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleQuickCreateVendor(); }}
+                        style={{
+                          background: '#0d0b0a',
+                          color: '#e8e4dc',
+                          border: '1px solid #555',
+                          borderRadius: '6px',
+                          padding: '7px 10px',
+                          fontSize: '13px',
+                          fontFamily: 'Georgia, serif',
+                          width: '150px',
+                        }}
                       />
-                      <button onClick={handleBannerRemove} style={{ ...secondaryButton, padding: '6px 12px', fontSize: '12px' }}>
-                        Remove
+                      <button
+                        onClick={handleQuickCreateVendor}
+                        disabled={!creatingVendor.trim()}
+                        style={{
+                          ...secondaryButton,
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          background: creatingVendor.trim() ? GOLD : '#333',
+                          color: creatingVendor.trim() ? '#1a1614' : '#666',
+                          border: 'none',
+                          cursor: creatingVendor.trim() ? 'pointer' : 'not-allowed',
+                        }}
+                      >
+                        Create & assign
+                      </button>
+                      <button
+                        onClick={() => setCreatingVendor(null)}
+                        style={{ ...secondaryButton, padding: '6px 10px', fontSize: '12px' }}
+                      >
+                        Cancel
                       </button>
                     </>
-                  ) : (
-                    <span style={{ color: '#666' }}>none — uses the global tablecloth banner</span>
                   )}
-                  <label style={{
-                    ...secondaryButton,
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    display: 'inline-block',
-                  }}>
-                    {selectedRect.bannerId ? 'Replace…' : 'Upload…'}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        handleBannerUpload(e.target.files?.[0]);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+                  {!selectedRect.vendorId && (
+                    <span style={{ color: '#666' }}>unassigned — plain cloth / global banner</span>
+                  )}
                 </div>
               )}
 
@@ -549,6 +585,22 @@ export default function VendorSetupScreen({
                     width: '220px',
                   }}
                 />
+                <input
+                  type="date"
+                  title="Show date (optional) — past shows count toward vendors' show history"
+                  value={savingDate}
+                  onChange={(e) => setSavingDate(e.target.value)}
+                  style={{
+                    background: '#0d0b0a',
+                    color: savingDate ? '#e8e4dc' : '#777',
+                    border: '1px solid #555',
+                    borderRadius: '6px',
+                    padding: '9px 12px',
+                    fontSize: '14px',
+                    fontFamily: 'Georgia, serif',
+                    colorScheme: 'dark',
+                  }}
+                />
                 <button
                   onClick={handleSavePlan}
                   disabled={!savingName.trim()}
@@ -565,7 +617,7 @@ export default function VendorSetupScreen({
                 >
                   Save
                 </button>
-                <button onClick={() => setSavingName(null)} style={{ ...secondaryButton, padding: '10px 14px', fontSize: '13px' }}>
+                <button onClick={() => { setSavingName(null); setSavingDate(''); }} style={{ ...secondaryButton, padding: '10px 14px', fontSize: '13px' }}>
                   Cancel
                 </button>
               </div>
@@ -590,7 +642,7 @@ export default function VendorSetupScreen({
                 {p.name}
               </span>
               <span style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>
-                {new Date(p.updatedAt).toLocaleDateString()}
+                {p.showDate ? `show ${p.showDate} · ` : ''}{new Date(p.updatedAt).toLocaleDateString()}
               </span>
               <button
                 onClick={() => {

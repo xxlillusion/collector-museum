@@ -11,7 +11,7 @@ import { parsePlanMeta } from './vendorPlan';
 import type { VendorPlanMeta } from './vendorPlan';
 
 /**
- * Vendor View floor plan (single slot, IndexedDB `settings` store):
+ * Convention View floor plan (single slot, IndexedDB `settings` store):
  * the plan image blob ↔ object URL, plus its rect/scale metadata.
  * Same shape as useBanner.
  */

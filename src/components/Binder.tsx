@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
 import { useTexture } from '@react-three/drei';
@@ -9,11 +9,12 @@ import type { CardWithUrl } from '../lib/useCards';
 
 // Page/cover dimensions (meters). Local convention: spine along +Y at x=0,
 // pages extend to +X when on the right stack, content faces +Z.
+// Cover dims are exported for the hall's instanced closed-binder shells.
 const PAGE_W = 0.28;
 const PAGE_H = 0.34;
-const COVER_W = 0.30;
-const COVER_H = 0.36;
-const COVER_T = 0.006;
+export const COVER_W = 0.30;
+export const COVER_H = 0.36;
+export const COVER_T = 0.006;
 
 const CARDS_PER_FACE = 9;
 const CARDS_PER_SHEET = 18;
@@ -120,7 +121,11 @@ function PocketGrid({
           </mesh>
 
           {p.card && (
-            <SleeveCard card={p.card} pocketW={pocketW} pocketH={pocketH} />
+            // Own boundary so a loading texture pops in per pocket instead of
+            // suspending the whole scene (hall sheets mount textures lazily)
+            <Suspense fallback={null}>
+              <SleeveCard card={p.card} pocketW={pocketW} pocketH={pocketH} />
+            </Suspense>
           )}
 
           {/* Plastic sleeve sheen over the pocket — also the click target
@@ -200,6 +205,9 @@ function BinderSheet({
   );
 }
 
+// Sheets outside the lazy window render empty pockets — no cards, no textures
+const EMPTY_FACE: (CardWithUrl | undefined)[] = new Array(9).fill(undefined);
+
 interface BinderProps {
   cards: CardWithUrl[];
   open: boolean;
@@ -209,6 +217,15 @@ interface BinderProps {
   onPromptChange: (visible: boolean) => void;
   onInspect: (url: string) => void;
   onClosed: (relock: boolean) => void;
+  /** Closed resting pose; absent = the museum table (BINDER_REST). */
+  restPose?: { position: [number, number, number]; quaternion: THREE.Quaternion };
+  /**
+   * When set, only sheets within ±window of the current spread carry card
+   * textures (the rest show empty pockets). The hall uses 1 so an open
+   * inventory binder never mounts hundreds of textures at once; the museum
+   * omits it — behavior unchanged.
+   */
+  lazySheetWindow?: number;
 }
 
 export default function Binder({
@@ -219,6 +236,8 @@ export default function Binder({
   onPromptChange,
   onInspect,
   onClosed,
+  restPose,
+  lazySheetWindow,
 }: BinderProps) {
   const { camera, gl } = useThree();
 
@@ -249,8 +268,17 @@ export default function Binder({
   const spreadRef = useRef(0); // k: sheets 0..k-1 are on the left stack
   const flipRef = useRef<{ sheet: number; from: number; to: number; t: number } | null>(null);
   const promptRef = useRef(false);
+  // React mirror of spreadRef, driving the lazy sheet window (no-op re-render
+  // for the museum, which passes no window)
+  const [spreadUi, setSpreadUi] = useState(0);
 
   const tablePose = useMemo(() => {
+    if (restPose) {
+      return {
+        pos: new THREE.Vector3(...restPose.position),
+        quat: restPose.quaternion.clone(),
+      };
+    }
     const pos = new THREE.Vector3(...BINDER_REST);
     // Lie flat (covers up), spine parallel to the east wall, with a slight
     // casual skew so it doesn't look machine-placed.
@@ -258,7 +286,7 @@ export default function Binder({
       new THREE.Euler(-Math.PI / 2, 0, Math.PI / 2 + 0.12, 'YXZ'),
     );
     return { pos, quat };
-  }, []);
+  }, [restPose]);
 
   const viewPos = useRef(new THREE.Vector3());
   const viewQuat = useRef(new THREE.Quaternion());
@@ -274,6 +302,7 @@ export default function Binder({
     // Return all sheets to the right stack before the flight — the motion
     // hides the snap.
     spreadRef.current = 0;
+    setSpreadUi(0);
     flipRef.current = null;
     phaseRef.current = 'closing';
     tRef.current = 0;
@@ -287,9 +316,11 @@ export default function Binder({
     if (dir === 1 && k < numSheets) {
       flipRef.current = { sheet: k, from: restAngle(k, k, numSheets), to: -Math.PI + FAN * (k + 1), t: 0 };
       spreadRef.current = k + 1;
+      setSpreadUi(k + 1);
     } else if (dir === -1 && k > 0) {
       flipRef.current = { sheet: k - 1, from: restAngle(k - 1, k, numSheets), to: -FAN * (numSheets - (k - 1)), t: 0 };
       spreadRef.current = k - 1;
+      setSpreadUi(k - 1);
     }
   };
   const startFlipRef = useRef(startFlip);
@@ -304,6 +335,7 @@ export default function Binder({
       viewPos.current.y -= 0.03;
       viewQuat.current.copy(camera.quaternion);
       spreadRef.current = 0;
+      setSpreadUi(0);
       phaseRef.current = 'opening';
       tRef.current = 0;
     }
@@ -407,7 +439,7 @@ export default function Binder({
 
     // Proximity prompt (desktop, binder closed)
     if (!isTouchDevice && phase === 'closed') {
-      const toBinder = new THREE.Vector3(...BINDER_REST).sub(camera.position);
+      const toBinder = tablePose.pos.clone().sub(camera.position);
       const dist = toBinder.length();
       const forward = new THREE.Vector3();
       camera.getWorldDirection(forward);
@@ -524,20 +556,26 @@ export default function Binder({
         </mesh>
       ))}
 
-      {/* Sheets (hinged at the spine) */}
-      {sheets.map((s, i) => (
-        <BinderSheet
-          key={i}
-          frontCards={s.front}
-          backCards={s.back}
-          onInspect={(url) => {
-            if (phaseRef.current === 'open' && !suspendedRef.current) {
-              callbacksRef.current.onInspect(url);
-            }
-          }}
-          hingeRef={(g) => { sheetRefs.current[i] = g; }}
-        />
-      ))}
+      {/* Sheets (hinged at the spine). With a lazy window, only sheets near
+          the current spread carry cards — flipping pulls neighbors in. */}
+      {sheets.map((s, i) => {
+        const live =
+          lazySheetWindow == null ||
+          (i >= spreadUi - 1 - lazySheetWindow && i <= spreadUi + lazySheetWindow);
+        return (
+          <BinderSheet
+            key={i}
+            frontCards={live ? s.front : EMPTY_FACE}
+            backCards={live ? s.back : EMPTY_FACE}
+            onInspect={(url) => {
+              if (phaseRef.current === 'open' && !suspendedRef.current) {
+                callbacksRef.current.onInspect(url);
+              }
+            }}
+            hingeRef={(g) => { sheetRefs.current[i] = g; }}
+          />
+        );
+      })}
 
       {/* Front cover (hinged; group z is animated in useFrame) */}
       <group ref={coverRef} position={[0, 0, 0.012]}>

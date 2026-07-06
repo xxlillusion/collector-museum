@@ -23,6 +23,8 @@ const WALL_MARGIN = 1.2;         // keep-clear zone at wall ends
 
 interface SceneProps {
   cards: CardWithUrl[];
+  /** imageUrl → caption, shown in the inspect overlay (vendor inventory). */
+  captions?: Map<string, string>;
   bannerUrl: string | null;
   onManage: () => void;
 }
@@ -166,7 +168,7 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
   );
 }
 
-export default function Scene({ cards, bannerUrl, onManage }: SceneProps) {
+export default function Scene({ cards, captions, bannerUrl, onManage }: SceneProps) {
   const [locked, setLocked] = useState(false);
   const [inspectUrl, setInspectUrl] = useState<string | null>(null);
   // "open or animating" — Binder owns the phase machine internally
@@ -389,7 +391,11 @@ export default function Scene({ cards, bannerUrl, onManage }: SceneProps) {
       <MobileControls hidden={binderOpen} />
 
       {inspectUrl && (
-        <InspectOverlay imageUrl={inspectUrl} onClose={handleCloseInspect} />
+        <InspectOverlay
+          imageUrl={inspectUrl}
+          caption={captions?.get(inspectUrl)}
+          onClose={handleCloseInspect}
+        />
       )}
     </>
   );

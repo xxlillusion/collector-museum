@@ -6,10 +6,13 @@ spotlit art. No backend — everything persists in the browser via IndexedDB, de
 static site.
 
 Two experiences, switched from the upload screen:
-1. **Museum** — the original card gallery.
-2. **Vendor View** — upload a convention floor plan image, review auto-detected table boxes
-   in a 2D editor, press Generate, and walk a 3D convention hall where each box becomes one
-   or more 6-ft tablecloth tables (see “Vendor View” section below).
+1. **Museum** — the original card gallery. A collection picker on the home screen swaps the
+   walls between the user's cards and any vendor's inventory.
+2. **Convention View** (formerly "Vendor View") — upload a convention floor plan image,
+   review auto-detected table boxes in a 2D editor, assign vendors to booths, press
+   Generate, and walk a 3D convention hall where each box becomes one or more 6-ft
+   tablecloth tables with vendor banners and browsable inventory binders (see
+   “Convention View” and “Vendors” sections below).
 
 ## Quality bar (non-negotiable)
 
@@ -35,27 +38,38 @@ npm run build    # tsc -b && vite build — USE THIS to type-check (see gotchas)
 
 ## Architecture
 
-Four top-level views, switched in `src/App.tsx` (plain state union, no router):
+Five top-level views, switched in `src/App.tsx` (plain state union, no router):
 
 ```
 HomeScreen (DOM) ←→ Scene (museum, R3F Canvas + DOM overlays)
         ↕
-VendorSetupScreen (DOM: upload / detect / edit) ←→ VendorScene (hall, R3F Canvas)
+VendorsScreen (DOM: vendor registry — profile / inventory / shows)
+        ↕
+VendorSetupScreen (DOM: upload / detect / edit / assign) ←→ VendorScene (hall, R3F Canvas)
 ```
 
-`type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk'` — `vendorWalk` guards on
-`planMeta` existing and falls back to setup. DOM screens are their own scroll containers
-(`height: 100vh; overflow-y: auto`) because `html/body/#root` keep `overflow: hidden`
-for the fullscreen canvases.
+`type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk' | 'vendors'` — `vendorWalk`
+guards on `planMeta` existing and falls back to setup. DOM screens are their own scroll
+containers (`height: 100vh; overflow-y: auto`) because `html/body/#root` keep
+`overflow: hidden` for the fullscreen canvases.
 
 ### Data flow
 
-`src/lib/db.ts` — IndexedDB (`vendor-museum` db, v2). Stores:
-- `cards`: `{ id, name, imageBlob, addedAt }` → `src/lib/useCards.ts` hook (object URL per
-  blob, revoked/recreated on each reload).
-- `settings`: single-slot `{ key, blob }` records — `tableclothBanner` (→ `useBanner.ts`),
+`src/lib/db.ts` — IndexedDB (`vendor-museum` db, v4). Stores:
+- `cards` (v1): `{ id, name, imageBlob, addedAt }` → `src/lib/useCards.ts` hook (object URL
+  per blob, revoked/recreated on each reload).
+- `settings` (v2): single-slot `{ key, blob }` records — `tableclothBanner` (→ `useBanner.ts`),
   `vendorFloorPlan` (downscaled plan image) and `vendorPlanMeta` (JSON-as-Blob;
   → `useVendorPlan.ts`). JSON-in-a-Blob means new settings need **no schema bump**.
+  `vendorBanner:<id>` slots are **legacy** (pre-vendor-entity per-box banners) — still
+  restored/rendered for old saved plans, but no new ones are created.
+- `plans` (v3): `SavedPlanRecord` snapshots (+ optional `showDate`, ISO yyyy-mm-dd — feeds
+  derived "shows attended"; new saves write `banners: []`).
+- `vendors` (v4): `VendorRecord { id, name, createdAt, updatedAt, bannerBlob?, manualShows }`.
+- `inventory` (v4): `InventoryItemRecord { id, vendorId (indexed), imageBlob, caption,
+  visible, aspect, addedAt }` — separate store so vendor lists never deserialize image
+  blobs; `aspect` computed once at upload; `visible` is stored-but-inert (future public
+  profiles / accounts).
 
 All uploads pass through `downscaleImage()` (≤1600px, WebP 0.92).
 
@@ -70,8 +84,9 @@ All uploads pass through `downscaleImage()` (≤1600px, WebP 0.92).
 | `GalleryControls.tsx` | Desktop: `PointerLockControls` + WASD (velocity in `useFrame`, fixed eye height 1.7). Exports `isTouchDevice`, mutable `mobileInput`/`mobileLook` shared with mobile controls, and `AABB`. Parameterized via optional props `bounds` / `colliders: AABB[]` / `initialPosition` — **defaults reproduce the museum exactly** (room clamp + one-sided table push-out); VendorScene passes hall bounds + per-table AABBs. Push-out = axis of least penetration |
 | `MobileControls.tsx`  | Touch only: nipplejs joystick (bottom-left) writes `mobileInput`; window-level touch-drag listeners write `mobileLook` deltas (consumed as yaw/pitch in `GalleryControls.useFrame`). No intercepting overlay, so taps reach the canvas for card clicks                   |
 | `HUD.tsx`             | Control hints (different text for touch), crosshair when locked, "Manage Cards" button                                                                                                                                                                                   |
-| `InspectOverlay.tsx`  | Full-screen card view; any click (or Esc) closes it, and Scene then re-locks the pointer (best-effort — Chrome has a ~1s cooldown after exiting pointer lock, so it falls back to click-canvas-to-lock)                                                                  |
-| `HomeScreen.tsx`      | Museum-styled home (“Museum Refined” design, replaced the old UploadScreen 2026-07): card upload dropzone, framed collection grid with delete, tablecloth banner slot, saved-plan list with “Walk →” (loads snapshot via `onWalkPlan` then jumps straight to `vendorWalk`), Enter Gallery / Walk a Card Show CTAs |
+| `InspectOverlay.tsx`  | Full-screen card view (+ optional `caption` line — vendor inventory captions); any click (or Esc) closes it, and Scene then re-locks the pointer (best-effort — Chrome has a ~1s cooldown after exiting pointer lock, so it falls back to click-canvas-to-lock)          |
+| `HomeScreen.tsx`      | Museum-styled home (“Museum Refined” design, replaced the old UploadScreen 2026-07): card upload dropzone, framed collection grid with delete, tablecloth banner slot, saved-plan list with “Walk →” (loads snapshot via `onWalkPlan` then jumps straight to `vendorWalk`), “ON THE WALLS” collection picker (own cards vs any vendor with inventory → drives what `Scene` hangs), Enter Gallery / Walk a Card Show / Vendor Registry CTAs |
+| `Binder.tsx`          | The 3×3-pocket flip binder (18 cards per double-sided sheet). Parameterized for reuse: optional `restPose` (default = museum `BINDER_REST`) and `lazySheetWindow` (only sheets within ±window of the current spread carry card textures — hall passes 1, museum omits → unchanged). Exports `COVER_W/H/T` for the hall's instanced shells                                                                    |
 
 
 ### Layout algorithm (`computeLayout` in Scene.tsx)
@@ -101,13 +116,49 @@ reverted once. Post-processing is Bloom + Vignette only.
 `isTouchDevice` gates: no PointerLockControls, no SoftShadows, no EffectComposer,
 reflector resolution 512 (vs 1024). Movement/look come from the shared mutable objects.
 
-## Vendor View (floor plan → walkable convention hall)
+## Vendors (first-class entity, db v4, 2026-07-06)
+
+A vendor owns a name, an optional banner image, captioned inventory images and derived
+"shows attended". Managed in `VendorsScreen.tsx` (HomeScreen → "Vendor Registry"):
+vendor list + selected profile (rename on blur, banner slot, inventory grid with
+debounced caption inputs + inert "Public (future)" checkbox, shows list with manual
+add/remove).
+
+- **Assignment**: `VendorRect.vendorId` (set in the setup screen's per-box panel,
+  dropdown + quick-create; assigning clears legacy `bannerId`). Same vendor may hold
+  multiple boxes. Resolved live — deleting a vendor leaves dangling ids that render as
+  unassigned.
+- **Shows attended are derived, never stored** (`lib/vendorShows.ts::deriveShowsAttended`):
+  manual entries ∪ saved plans where the vendor is assigned to ≥1 rect AND
+  `SavedPlanRecord.showDate` (optional, set in the save dialog) is past. Unassigning or
+  re-dating self-corrects.
+- **Hooks**: `useVendors` (summaries only: banner object URL + `countInventory` per
+  vendor — never inventory blobs), `useVendorInventory(vendorId | null)` (lazy, per-vendor
+  object URLs, revoked on switch/unmount; used by the registry, the museum picker and the
+  open hall binder).
+- **Hall rendering**: assigned tables' front drape = vendor banner, else the vendor name
+  lettered on cloth (`makeNameTexture`); grouping stays one instanced draw per unique
+  texture. Booths with inventory get **binders** (`VendorHallBinders.tsx`): 90 items per
+  binder (10 faces × 9), binder *i* on booth table *i* (emission order), extras side by
+  side on the last table, duplicated at each of the vendor's booths. Closed binders =
+  **2 instanced draws total** (merged leather shells + ring packs), zero textures. F (or
+  click/tap) opens: the instance collapses to scale 0 and the real `Binder` mounts in its
+  place with the inventory slice (`lazySheetWindow=1` — textures only near the open
+  spread), full flip/inspect/caption flow, then unmounts on close.
+- **Museum**: HomeScreen picker feeds a vendor's inventory into `Scene` as `CardWithUrl[]`
+  (aspect stored on the record); captions surface in `InspectOverlay`.
+
+## Convention View (floor plan → walkable convention hall)
+
+(Renamed from "Vendor View" 2026-07-06 — user-facing strings say Convention View; internal
+`vendor*` file/identifier names kept to avoid churn.)
 
 Flow: HomeScreen “Walk a Card Show” button → `VendorSetupScreen` (drop plan image →
-auto-detect → `PlanEditor` fix-up → Generate) → `VendorScene` (first-person hall).
-Plan image + edited boxes persist in the `settings` store; a saved plan skips straight
-to the editor on return. HomeScreen’s saved-plan “Walk →” shortcut bypasses the editor:
-it loads the snapshot into the working slots and goes directly to `vendorWalk`.
+auto-detect → `PlanEditor` fix-up → assign vendors → Generate) → `VendorScene`
+(first-person hall). Plan image + edited boxes persist in the `settings` store; a saved
+plan skips straight to the editor on return. HomeScreen’s saved-plan “Walk →” shortcut
+bypasses the editor: it loads the snapshot into the working slots and goes directly to
+`vendorWalk`.
 
 ### Files
 
@@ -116,15 +167,17 @@ it loads the snapshot into the working slots and goes directly to `vendorWalk`.
 | `lib/vendorPlan.ts` | Data model (`VendorRect` in stored-image px — optional `rotationDeg` (SVG rotate() convention, clockwise about center) and `bannerId`; `VendorPlanMeta` — optional `pxPerMeterSource: 'inferred'\|'manual'` and `startPx`) + pure math: `planToLayout(meta)` → hall dims + `TablePlacement[]` + the **clamped** `pxPerMeter/planW/planD` it used (minimap/spawn mapping basis). px→m via `pxPerMeter`; image y-down → world +Z; image rotate(d) ⇒ world rotationY −d·π/180 (sin sign flips, cos agrees). Hall = plan extent + 2m margin, height 6, axes clamped to 8–80m. **`AISLE_SCALE = 1.2`**: booth *positions* and hall extents spread ×1.2 while box footprints (→ table sizes) keep the true scale — wider aisles without inflating tables; the returned `pxPerMeter/planW/planD` already include the spread so minimap/spawn mapping stay consistent. Show-standard table size: `VendorPlanMeta.tableLengthFt?: 6\|8` + `standardTableW(ft)` (absent = 6 ft). A box spawns a **rows × cols grid** via `boxGrid(long, short, tableW)`: `cols = round(long/tableW)`, `rows = round(short/0.76)` (min 1 each), each table stretched (`TablePlacement.sx/sz`; `sx` normalized to the 1.83 m geometry, clamp window scaled by `tableW/1.83` — an exact 8 ft slot = one table at sx ≈ 1.33) so the grid spans the box footprint exactly — generated proportions match the plan. Single-row fronts face the hall centerline (center is rotation-invariant); multi-row booths face back-to-back outward from the booth center (exact middle row falls back to the centerline heuristic) |
 | `lib/planDetect.ts` | Dependency-free detection: downsample ≤1000px → luma → Otsu (saturated mid/bright pixels count as background so colored decoration ≠ tables; dark colored fills still detect) → Pass A (flood-fill light mask from borders; remaining enclosed light components = outlined tables, then `mergeSplitFragments` re-joins boxes that label digits touching the outline split apart — merge gated on the gap band NOT containing a near-solid dark line, which distinguishes text gaps from shared booth walls) + Pass B (dark connected components = filled tables) + **Pass C (saturated colored fills)**: the sat pixels the Otsu guard excluded are grouped into 24-bin hue families (adjacent above-threshold bins merge; family mask includes ±1 bin for JPEG hue jitter). Per family: directly-accepted comps (generic filters OR the thin-run exception — fill ≥0.75, short ≤0.08·maxDim, any aspect, long ≤0.9·maxDim — for whole booth-ring sides) + **guillotine decomposition** of rejected comps (booth rings/L-corners connect into one mostly-empty component; `decomposeComponent` cuts along interior <30%-coverage row/col bands recursively into solid strips). Decomposed pieces only count when their short side is 0.6–1.7× the family's modal short side from ≥2 direct accepts (the ruler that stops decomposed logo art/colored bands minting fake tables), and a family needs **≥3 total candidates** — tables repeat, decoration doesn't → bbox filters (min side, ≤40% of image, fill ratio ≥0.7, aspect ≤14) → IoU merge (A wins, then B, then C) → containment prune → physical size floor (long ≥0.5m, short ≥0.2m — kills icons/figures). `inferScale(rects, imgW, tableW)`: modal short side of table-aspect boxes / 0.76m, cross-checked vs long side / tableW (aspect window scales with the standard). `detectTables(blob, tableW?)`. Main thread is fine at this size |
 | `lib/useVendorPlan.ts` | `useBanner`-style hook: `{ planUrl, planMeta, setPlan, saveMeta, clearPlan, loading, reload }`; new image clears stale rects |
-| `lib/useVendorBanners.ts` | Per-vendor banner blobs (settings slots `vendorBanner:<id>`) → `Map<id, objectURL>`; `{ bannerUrls, addVendorBanner, removeVendorBanner, reload }`. Owned by App, wiped on plan replace/clear; VendorSetupScreen sweep-deletes unreferenced blobs on debounced persist |
-| `lib/useSavedPlans.ts` | Named plan snapshots (`plans` store, db v3): `SavedPlanRecord` bundles plan image blob + metaJson + referenced banner blobs (self-contained, no ref-counting). Save = working→snapshot; Load = snapshot→working slots (raw `putFloorPlanBlob`, no re-downscale), then App reloads useVendorPlan + useVendorBanners |
-| `PlanEditor.tsx` | `<img>` + SVG overlay, `viewBox` = stored-image px (browser scales; zero resize math). Modes: select / add / calibrate / setStart. Select/move/resize (corner handles)/delete (✕ or Backspace)/**rotate** (handle above the box, 15° snap, Shift = free; whole `<g>` gets `transform=rotate(deg cx cy)` so handles ride along; resize runs in the rect's local frame then re-anchors the fixed corner in world space), “Add table” draw mode, calibration line drag (→ `onCalibrateLine(px)`), start-marker click (→ `onStartChange`), `onSelectionChange` feeds the banner panel. Live subdivision preview: dashed grid lines per box from the shared `boxGrid` (pointerEvents none), label shows `R×C · N tables` for 2D grids. Pointer capture guarded in try/catch. Controlled; parent debounce-persists (500ms) |
-| `VendorSetupScreen.tsx` | Upload/detect/edit wrapper; scale readout (“hall ≈ W×D m · N boxes → M tables”, “· calibrated” when manual), **table-size toggle (6 ft / 8 ft)** in the readout row — updates `meta.tableLengthFt` and re-derives an *inferred* scale from the current rects via `inferScale` (manual calibration never touched); Re-detect (**preserves manual scale + table size**), Replace image, calibration popover (m/ft → pxPerMeter), per-box vendor-banner panel, Saved Plans section (save/load/delete; flushes the debounce before snapshotting) |
+| `lib/useVendorBanners.ts` | **Legacy** per-box banner blobs (settings slots `vendorBanner:<id>`) → `Map<id, objectURL>`. No upload UI anymore (vendor entities own banners now); kept so old saved plans still render their banners. Wiped on plan replace/clear; the old sweep-delete is gone |
+| `lib/useSavedPlans.ts` | Named plan snapshots (`plans` store, db v3): plan image blob + metaJson (+ optional `showDate`). `saveCurrentPlan(name, showDate?)` writes `banners: []` — vendors resolve live; legacy records with bundled banners still restore on load. Save = working→snapshot; Load = snapshot→working slots (raw `putFloorPlanBlob`, no re-downscale), then App reloads useVendorPlan + useVendorBanners |
+| `lib/useVendors.ts` | Vendor summaries (`VendorSummary`: banner URL + inventoryCount + manualShows) + CRUD incl. `addManualShow/removeManualShow`; `lib/useVendorInventory.ts` — lazy per-vendor items with URLs; `lib/vendorShows.ts` — `deriveShowsAttended` (see Vendors section) |
+| `PlanEditor.tsx` | `<img>` + SVG overlay, `viewBox` = stored-image px (browser scales; zero resize math). Modes: select / add / calibrate / setStart. Select/move/resize (corner handles)/delete (✕ or Backspace)/**rotate** (handle above the box, 15° snap, Shift = free; whole `<g>` gets `transform=rotate(deg cx cy)` so handles ride along; resize runs in the rect's local frame then re-anchors the fixed corner in world space), “Add table” draw mode, calibration line drag (→ `onCalibrateLine(px)`), start-marker click (→ `onStartChange`), `onSelectionChange` feeds the vendor-assignment panel. Live subdivision preview: dashed grid lines per box from the shared `boxGrid` (pointerEvents none), label shows `R×C · N tables` + the assigned vendor's name (gold italic, via `vendorNames` map prop). Pointer capture guarded in try/catch. Controlled; parent debounce-persists (500ms) |
+| `VendorSetupScreen.tsx` | Upload/detect/edit wrapper; scale readout (“hall ≈ W×D m · N boxes → M tables”, “· calibrated” when manual), **table-size toggle (6 ft / 8 ft)** in the readout row — updates `meta.tableLengthFt` and re-derives an *inferred* scale from the current rects via `inferScale` (manual calibration never touched); Re-detect (**preserves manual scale + table size**), Replace image, calibration popover (m/ft → pxPerMeter), per-box **vendor-assignment panel** (dropdown of vendors + quick-create-and-assign + unassign; replaced the old banner-upload panel), Saved Plans section (save with optional show date /load/delete; flushes the debounce before snapshotting) |
 | `VendorRoom.tsx` | Parameterized `{width, depth, height}` hall shell (reflector floor 512/256, walls, baseboards, hemi+ambient). Room.tsx deliberately untouched |
-| `VendorTables.tsx` | **Instanced**: 6 shared parts (board, merged legs, cloth top, back/side drapes) = one `instancedMesh` each over all tables, plus **one front-drape `instancedMesh` per unique banner** (per-vendor → global → plain cloth fallback). Draw calls = 6 + unique banners — grows with vendors, never with tables. Matrices = table world transform (incl. per-table `sx/sz` stretch, so part offsets ride to the stretched edges) × part local offset, set in `useLayoutEffect` (+ `computeBoundingSphere`) — deps are `[tables, spec]` **on purpose**: a material change makes R3F recreate the mesh via `args`, and the fresh mesh needs its matrices re-set (drapes silently vanish otherwise) |
-| `VendorScene.tsx` | Duplicates Scene.tsx’s Canvas props + `onCreated` **verbatim, on purpose** (see gotcha 9-adjacent comment in file). Hall lighting: 1 shadow directional (ortho fit to hall) + ≤6 warm aisle spots + emissive ceiling panels (bloom, zero light cost) = 9 lights total. Spawn = `meta.startPx` when set (clamped into hall, collider-nudged), else south wall. `tableColliders`: AABB for rotationY multiples of π/2, `RotatedBox` otherwise; half-extents follow each table's `sx/sz` stretch |
+| `VendorTables.tsx` | **Instanced**: 6 shared parts (board, merged legs, cloth top, back/side drapes) = one `instancedMesh` each over all tables, plus **one front-drape `instancedMesh` per unique texture group**. Group key chain: vendor banner (`vb:<id>`) → vendor name-on-cloth (`vn:<id>`, `makeNameTexture`) → legacy `bannerId` URL → global banner → plain cloth. Draw calls grow with unique vendors, never with tables. Matrices = table world transform (incl. per-table `sx/sz` stretch, so part offsets ride to the stretched edges) × part local offset, set in `useLayoutEffect` (+ `computeBoundingSphere`) — deps are `[tables, spec]` **on purpose**: a material change makes R3F recreate the mesh via `args`, and the fresh mesh needs its matrices re-set (drapes silently vanish otherwise) |
+| `VendorHallBinders.tsx` | Inventory binders on assigned tables (see Vendors section): `computeBinderPoses` (booth grouping by `rectId`, overflow spread, museum lie-flat pose re-based per table yaw), 2 instanced shell draws, proximity `useFrame` scan → HUD F-prompt, open = hide instance + mount `Binder` (own `Suspense` so texture mounts never suspend the hall) |
+| `VendorScene.tsx` | Duplicates Scene.tsx’s Canvas props + `onCreated` **verbatim, on purpose** (see gotcha 9-adjacent comment in file). Hall lighting: 1 shadow directional (ortho fit to hall) + ≤6 warm aisle spots + emissive ceiling panels (bloom, zero light cost) = 9 lights total. Spawn = `meta.startPx` when set (clamped into hall, collider-nudged), else south wall. `tableColliders`: AABB for rotationY multiples of π/2, `RotatedBox` otherwise; half-extents follow each table's `sx/sz` stretch. Owns binder open/prompt state (freezes controls, hides minimap while open) + `InspectOverlay` with captions |
 | `Minimap.tsx` | Plan-image minimap, top-right under the Floor Plan button (`pointerEvents: none` — pointer-lock clicks pass through). `Minimap` (DOM, outside Canvas) + `MinimapTracker` (inside Canvas): `useFrame` writes the marker div's `style.transform` directly via a shared ref — zero React state per frame. u = (worldX + planW/2)·pxPerMeter/imgW (use planToLayout's clamped values); marker rotation = **−yaw** (camera faces (−sin yaw, −cos yaw) in image axes) |
-| `tableGeometry.ts` | Extracted cloth recipes (`makeTopGeometry`, `makeDrapeGeometry(width, phase)`, CLOTH_* constants), lazy shared singletons `getTableGeometries()` (incl. back drape phase 3.1 + `mergeGeometries` legs), `getClothMaterial()`, `makeBannerTexture(img)`. Table.tsx consumes these — museum visuals unchanged |
+| `tableGeometry.ts` | Extracted cloth recipes (`makeTopGeometry`, `makeDrapeGeometry(width, phase)`, CLOTH_* constants), lazy shared singletons `getTableGeometries()` (incl. back drape phase 3.1 + `mergeGeometries` legs), `getClothMaterial()`, `makeBannerTexture(img)`, `makeNameTexture(name)` (canvas fillText — vendor name in cream-gold serif on cloth, same dims as the banner canvas so both drape identically). Table.tsx consumes these — museum visuals unchanged |
 | `sceneCommon.tsx` | `ShadowRefresh` + `LoadingOverlay` shared by both scenes |
 
 ### Perf rules for the hall (50–200 tables)
@@ -132,8 +185,12 @@ it loads the snapshot into the working slots and goes directly to `vendorWalk`.
 - Never per-table lights or shadow spots — the budget is hemi + ambient + 1 shadow
   directional + ≤6 spots. Visual density comes from emissive panels via bloom.
 - All tables share geometry; keep new per-table decoration instanced or it will multiply
-  draw calls by table count (reflector renders the scene twice). Per-vendor banners are
-  the sanctioned exception: one extra instanced draw per *unique banner* (not per table).
+  draw calls by table count (reflector renders the scene twice). Per-vendor front drapes
+  are the sanctioned exception: one extra instanced draw per *unique vendor texture*
+  (not per table).
+- Closed binders are exactly 2 instanced draws (shells + rings), zero textures. Only the
+  one open binder mounts card textures, and only near its current spread
+  (`lazySheetWindow=1`). Never mount per-table React binder components.
 
 ### Collision (GalleryControls)
 
@@ -220,6 +277,22 @@ against ±hx/±hz, transform back.
   positions/hall 20% while tables keep true size (user found aisles cramped). Known deferred
   detection issues on floorplan_two: logos sitting mid-run split/block boxes; occasional
   rects bleeding into neighbors at ring corners — user OK'd deferring, editor fixes suffice.
+- **Vendor entities shipped** (2026-07-06, browser-verified end-to-end): db v4 (`vendors`
+  + `inventory` stores), Vendors Registry screen (create/rename/delete, banner, captioned
+  inventory with inert `visible` flag, manual shows), booth assignment in the editor
+  (dropdown + quick-create, vendor name on the 2D box), derived shows-attended
+  (manual ∪ past-dated saved plans where assigned — `showDate` is new on SavedPlanRecord),
+  vendor banner / name-on-cloth front drapes (still one instanced draw per unique
+  texture), browsable inventory binders in the hall (90 items each, spread across booth
+  tables, 2 instanced draws closed, lazy textures open), museum collection picker
+  ("ON THE WALLS": own cards vs vendor inventory) and captions in InspectOverlay.
+  "Vendor View" renamed to "Convention View" in user-facing strings only. Verified:
+  v3→v4 upgrade with live data, full registry flow, assignment + save-with-past-date →
+  shows derivation for two vendors, hall with 103 tables (12 draw-call texture groups,
+  zero console errors), F-open binder → flip → inspect-with-caption → close → shell
+  restored, museum walls with 12 vendor items, My-Collection + legacy-plan regressions.
+  Design decision: accounts/backend expected later — records are self-contained with
+  stable UUIDs, `visible` is future-proofing, nothing else anticipates sync.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

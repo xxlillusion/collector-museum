@@ -139,3 +139,48 @@ export function makeBannerTexture(img: HTMLImageElement): THREE.CanvasTexture | 
   tex.anisotropy = 8;
   return tex;
 }
+
+/**
+ * Vendor name lettered on the front drape — the default look for assigned
+ * vendors without a banner image. Same canvas dims as makeBannerTexture so
+ * both texture kinds drape identically.
+ */
+export function makeNameTexture(name: string): THREE.CanvasTexture | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = Math.round(1024 * (DRAPE_H / CLOTH_W));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = CLOTH_COLOR;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const text = name.trim() || 'Vendor';
+  const maxW = canvas.width * 0.82;
+  let fontSize = Math.round(canvas.height * 0.3);
+  do {
+    ctx.font = `italic ${fontSize}px Georgia, "Times New Roman", serif`;
+    if (ctx.measureText(text).width <= maxW) break;
+    fontSize -= 8;
+  } while (fontSize > 24);
+
+  // Warm cream-gold lettering with a soft drop shadow so it reads under the
+  // hall's dim aisle lighting
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = fontSize * 0.08;
+  ctx.shadowOffsetY = fontSize * 0.04;
+  ctx.fillStyle = '#e8d9a8';
+  ctx.fillText(text, canvas.width / 2, canvas.height * 0.4);
+  ctx.shadowColor = 'transparent';
+
+  // Thin rule beneath, museum-placard style
+  const ruleW = Math.min(maxW, ctx.measureText(text).width) * 0.8;
+  ctx.fillStyle = 'rgba(232,217,168,0.55)';
+  ctx.fillRect((canvas.width - ruleW) / 2, canvas.height * 0.4 + fontSize * 0.75, ruleW, Math.max(2, fontSize * 0.03));
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}

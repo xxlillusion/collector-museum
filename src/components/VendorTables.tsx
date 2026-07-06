@@ -10,8 +10,15 @@ import {
   getTableGeometries,
   getClothMaterial,
   makeBannerTexture,
+  makeNameTexture,
 } from './tableGeometry';
 import type { TablePlacement } from '../lib/vendorPlan';
+
+/** What a vendor contributes to its tables' front drape. */
+export interface VendorDrapeInfo {
+  name: string;
+  bannerUrl: string | null;
+}
 
 // All hall tables are identical 6ft units, so N tables render as one
 // instancedMesh per part (~8 draw calls total). Local frame matches the
@@ -69,35 +76,61 @@ function InstancedPart({
 interface VendorTablesProps {
   tables: TablePlacement[];
   bannerUrl: string | null;
-  /** Per-vendor banner object URLs by banner id (VendorRect.bannerId). */
+  /** Legacy per-box banner object URLs by banner id (VendorRect.bannerId). */
   vendorBannerUrls?: Map<string, string>;
+  /** Assigned vendors by id — banner image, or name lettered on the cloth. */
+  vendors?: Map<string, VendorDrapeInfo>;
 }
 
-/** Load banner textures for each unique URL; dispose replaced ones. */
-function useBannerTextures(urls: string[]): Map<string, THREE.CanvasTexture> {
+/** One front-drape texture to produce: an image letterboxed on cloth, or a
+ *  vendor name lettered on cloth. `key` is the table-group key. */
+interface DrapeDesc {
+  key: string;
+  kind: 'image' | 'text';
+  url?: string;
+  text?: string;
+}
+
+/** Build/load one texture per descriptor; dispose replaced ones. */
+function useDrapeTextures(descs: DrapeDesc[]): Map<string, THREE.CanvasTexture> {
   const [textures, setTextures] = useState<Map<string, THREE.CanvasTexture>>(new Map());
-  const key = urls.join('\n');
+  const key = descs.map((d) => `${d.key}|${d.kind}|${d.url ?? d.text ?? ''}`).join('\n');
   useEffect(() => {
     let cancelled = false;
     const loaded = new Map<string, THREE.CanvasTexture>();
-    if (urls.length === 0) {
+    if (descs.length === 0) {
       setTextures(new Map());
       return;
     }
-    let pending = urls.length;
-    for (const url of urls) {
+    // Text textures are synchronous; images resolve the async remainder
+    const images = descs.filter((d) => d.kind === 'image' && d.url);
+    for (const d of descs) {
+      if (d.kind === 'text') {
+        const tex = makeNameTexture(d.text ?? '');
+        if (tex) loaded.set(d.key, tex);
+      }
+    }
+    if (images.length === 0) {
+      setTextures(new Map(loaded));
+      return () => {
+        cancelled = true;
+        for (const tex of loaded.values()) tex.dispose();
+      };
+    }
+    let pending = images.length;
+    for (const d of images) {
       const img = new Image();
       img.onload = () => {
         if (!cancelled) {
           const tex = makeBannerTexture(img);
-          if (tex) loaded.set(url, tex);
+          if (tex) loaded.set(d.key, tex);
         }
         if (--pending === 0 && !cancelled) setTextures(new Map(loaded));
       };
       img.onerror = () => {
         if (--pending === 0 && !cancelled) setTextures(new Map(loaded));
       };
-      img.src = url;
+      img.src = d.url!;
     }
     return () => {
       cancelled = true;
@@ -108,28 +141,44 @@ function useBannerTextures(urls: string[]): Map<string, THREE.CanvasTexture> {
   return textures;
 }
 
-export default function VendorTables({ tables, bannerUrl, vendorBannerUrls }: VendorTablesProps) {
+export default function VendorTables({ tables, bannerUrl, vendorBannerUrls, vendors }: VendorTablesProps) {
   const geos = useMemo(getTableGeometries, []);
 
-  // Tables grouped by the front-drape texture they resolve to: their vendor
-  // banner when it exists, else the global banner, else plain cloth. One
-  // instanced front drape per group — draw calls grow with unique banners
+  // Tables grouped by the front-drape texture they resolve to: the assigned
+  // vendor's banner, else the vendor's name lettered on the cloth, else the
+  // legacy per-box banner, else the global banner, else plain cloth. One
+  // instanced front drape per group — draw calls grow with unique vendors
   // (a handful), never with table count.
-  const groups = useMemo(() => {
-    const byUrl = new Map<string | null, TablePlacement[]>();
+  const { groups, descs } = useMemo(() => {
+    const groups = new Map<string, TablePlacement[]>();
+    const descMap = new Map<string, DrapeDesc>();
     for (const t of tables) {
-      const url =
-        (t.bannerId ? vendorBannerUrls?.get(t.bannerId) : undefined) ?? bannerUrl ?? null;
-      const arr = byUrl.get(url);
+      const vendor = t.vendorId ? vendors?.get(t.vendorId) : undefined;
+      let key: string;
+      if (vendor?.bannerUrl) {
+        key = `vb:${t.vendorId}`;
+        descMap.set(key, { key, kind: 'image', url: vendor.bannerUrl });
+      } else if (vendor) {
+        key = `vn:${t.vendorId}`;
+        descMap.set(key, { key, kind: 'text', text: vendor.name });
+      } else {
+        const url =
+          (t.bannerId ? vendorBannerUrls?.get(t.bannerId) : undefined) ?? bannerUrl ?? null;
+        if (url) {
+          key = `img:${url}`;
+          descMap.set(key, { key, kind: 'image', url });
+        } else {
+          key = 'plain';
+        }
+      }
+      const arr = groups.get(key);
       if (arr) arr.push(t);
-      else byUrl.set(url, [t]);
+      else groups.set(key, [t]);
     }
-    return byUrl;
-  }, [tables, bannerUrl, vendorBannerUrls]);
+    return { groups, descs: [...descMap.values()] };
+  }, [tables, bannerUrl, vendorBannerUrls, vendors]);
 
-  const textures = useBannerTextures(
-    useMemo(() => [...groups.keys()].filter((u): u is string => u !== null), [groups]),
-  );
+  const textures = useDrapeTextures(descs);
 
   // Shared parts (everything except the front drape) — one draw call each
   const parts = useMemo<PartSpec[]>(() => {
@@ -176,8 +225,8 @@ export default function VendorTables({ tables, bannerUrl, vendorBannerUrls }: Ve
   const frontLocal = useMemo(() => compose(0, CLOTH_TOP_Y - DRAPE_H / 2, CLOTH_D / 2), []);
   const frontMats = useMemo(() => {
     const mats = new Map<string, THREE.MeshStandardMaterial>();
-    for (const [url, tex] of textures) {
-      mats.set(url, new THREE.MeshStandardMaterial({
+    for (const [key, tex] of textures) {
+      mats.set(key, new THREE.MeshStandardMaterial({
         map: tex,
         roughness: CLOTH_ROUGHNESS,
         side: THREE.DoubleSide,
@@ -194,13 +243,13 @@ export default function VendorTables({ tables, bannerUrl, vendorBannerUrls }: Ve
       {parts.map((spec, i) => (
         <InstancedPart key={i} spec={spec} tables={tables} />
       ))}
-      {[...groups.entries()].map(([url, group]) => (
+      {[...groups.entries()].map(([key, group]) => (
         <InstancedPart
-          key={url ?? '__cloth__'}
+          key={key}
           spec={{
             geometry: geos.front,
             local: frontLocal,
-            material: (url !== null && frontMats.get(url)) || getClothMaterial(),
+            material: frontMats.get(key) ?? getClothMaterial(),
             castShadow: true,
           }}
           tables={group}

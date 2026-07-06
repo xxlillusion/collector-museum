@@ -2,11 +2,13 @@ import { useEffect } from 'react';
 
 interface InspectOverlayProps {
   imageUrl: string;
+  /** Shown beneath the image — inventory items carry vendor captions. */
+  caption?: string;
   /** `relock` is true when closed by click — the caller may resume pointer lock */
   onClose: (relock: boolean) => void;
 }
 
-export default function InspectOverlay({ imageUrl, onClose }: InspectOverlayProps) {
+export default function InspectOverlay({ imageUrl, caption, onClose }: InspectOverlayProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.code === 'Escape') onClose(false);
@@ -58,6 +60,20 @@ export default function InspectOverlay({ imageUrl, onClose }: InspectOverlayProp
           userSelect: 'none',
         }}
       />
+      {caption && (
+        <div style={{
+          color: 'rgba(255,255,255,0.85)',
+          fontSize: '16px',
+          fontFamily: 'Georgia, serif',
+          fontStyle: 'italic',
+          letterSpacing: '0.04em',
+          maxWidth: '80vw',
+          textAlign: 'center',
+          userSelect: 'none',
+        }}>
+          {caption}
+        </div>
+      )}
       <div style={{
         color: 'rgba(255,255,255,0.45)',
         fontSize: '13px',

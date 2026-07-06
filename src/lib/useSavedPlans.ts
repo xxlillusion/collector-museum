@@ -7,18 +7,18 @@ import {
   getPlanMetaBlob,
   putFloorPlanBlob,
   savePlanMeta,
-  getVendorBanners,
   putVendorBanner,
   deleteAllVendorBanners,
 } from './db';
 import type { SavedPlanRecord } from './db';
-import type { VendorPlanMeta } from './vendorPlan';
 
 /**
- * Named saved plans (`plans` store): each record is a self-contained snapshot
- * of the working plan — image, meta, and the vendor banners it references.
- * Save copies working → snapshot; load copies snapshot → working slots.
- * The caller reloads useVendorPlan / useVendorBanners after loadPlan.
+ * Named saved plans (`plans` store): each record snapshots the working plan —
+ * image + meta (rects reference vendors by id, resolved live against the
+ * `vendors` store). Save copies working → snapshot; load copies snapshot →
+ * working slots. The caller reloads useVendorPlan / useVendorBanners after
+ * loadPlan. Legacy records may still bundle per-box banner blobs; loading
+ * restores them so old plans keep rendering.
  */
 export function useSavedPlans() {
   const [savedPlans, setSavedPlans] = useState<SavedPlanRecord[]>([]);
@@ -33,29 +33,25 @@ export function useSavedPlans() {
     refresh();
   }, [refresh]);
 
-  const saveCurrentPlan = useCallback(async (name: string) => {
-    const [planBlob, metaBlob, allBanners] = await Promise.all([
+  const saveCurrentPlan = useCallback(async (name: string, showDate?: string) => {
+    const [planBlob, metaBlob] = await Promise.all([
       getFloorPlan(),
       getPlanMetaBlob(),
-      getVendorBanners(),
     ]);
     if (!planBlob || !metaBlob) return;
     const metaJson = await metaBlob.text();
-    const meta = JSON.parse(metaJson) as VendorPlanMeta;
-    const referenced = new Set(meta.rects.map((r) => r.bannerId).filter(Boolean));
-    const banners = [...allBanners]
-      .filter(([id]) => referenced.has(id))
-      .map(([id, blob]) => ({ id, blob }));
     const now = Date.now();
-    await savePlanRecord({
+    const record: SavedPlanRecord = {
       id: crypto.randomUUID(),
       name,
       createdAt: now,
       updatedAt: now,
       planBlob,
       metaJson,
-      banners,
-    });
+      banners: [], // vendor banners live on VendorRecord now, resolved live
+    };
+    if (showDate) record.showDate = showDate;
+    await savePlanRecord(record);
     await refresh();
   }, [refresh]);
 

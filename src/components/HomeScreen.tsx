@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { CardWithUrl } from '../lib/useCards';
 import type { SavedPlanRecord } from '../lib/db';
+import type { VendorSummary } from '../lib/useVendors';
 
 // Home screen — the "Museum Refined" design (graduated from the 2026-07 UI
 // Lab beta): upload cards, manage the banner, and enter either 3D experience.
@@ -23,9 +24,14 @@ interface HomeScreenProps {
   onSetBanner: (file: File) => Promise<void>;
   onRemoveBanner: () => Promise<void>;
   savedPlans: SavedPlanRecord[];
+  vendors: VendorSummary[];
+  /** Whose collection hangs in the gallery: null = own cards, else vendor id. */
+  galleryVendorId: string | null;
+  onSelectGalleryVendor: (id: string | null) => void;
   onWalkPlan: (id: string) => Promise<void>;
   onEnter: () => void;
   onVendor: () => void;
+  onVendors: () => void;
 }
 
 function Ornament({ width = 60 }: { width?: number }) {
@@ -64,9 +70,13 @@ export default function HomeScreen({
   onSetBanner,
   onRemoveBanner,
   savedPlans,
+  vendors,
+  galleryVendorId,
+  onSelectGalleryVendor,
   onWalkPlan,
   onEnter,
   onVendor,
+  onVendors,
 }: HomeScreenProps) {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -106,7 +116,11 @@ export default function HomeScreen({
     return {
       id: p.id,
       name: p.name,
-      detail: `${booths} booths · saved ${new Date(p.updatedAt).toLocaleDateString()}`,
+      detail: [
+        `${booths} booths`,
+        p.showDate ? `show ${p.showDate}` : null,
+        `saved ${new Date(p.updatedAt).toLocaleDateString()}`,
+      ].filter(Boolean).join(' · '),
     };
   }), [savedPlans]);
 
@@ -114,7 +128,13 @@ export default function HomeScreen({
     `${cards.length} ${cards.length === 1 ? 'WORK' : 'WORKS'}`,
     bannerUrl ? 'BANNER SET' : 'NO BANNER',
     `${savedPlans.length} SAVED ${savedPlans.length === 1 ? 'PLAN' : 'PLANS'}`,
+    `${vendors.length} ${vendors.length === 1 ? 'VENDOR' : 'VENDORS'}`,
   ].join(' · ');
+
+  // Vendors with inventory can hang their collection in the gallery
+  const showableVendors = vendors.filter((v) => v.inventoryCount > 0);
+  const galleryVendor = showableVendors.find((v) => v.id === galleryVendorId) ?? null;
+  const canEnter = galleryVendor ? galleryVendor.inventoryCount > 0 : cards.length > 0;
 
   return (
     <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: BG, color: TEXT, fontFamily: SANS }}>
@@ -139,26 +159,49 @@ export default function HomeScreen({
           <p style={{ margin: 0, fontSize: '13.5px', color: MUTED, letterSpacing: '0.12em' }}>
             {loading ? 'OPENING THE ARCHIVES…' : countsLine}
           </p>
+          {showableVendors.length > 0 && (
+            <div style={{ marginTop: '28px' }}>
+              <span style={{ fontSize: '11px', letterSpacing: '0.14em', color: MUTED, marginRight: '10px' }}>
+                ON THE WALLS
+              </span>
+              <select
+                value={galleryVendor?.id ?? ''}
+                onChange={(e) => onSelectGalleryVendor(e.target.value || null)}
+                style={{
+                  background: '#0d0b0a', color: TEXT, border: `1px solid ${HAIRLINE}`,
+                  borderRadius: '2px', padding: '8px 12px', fontSize: '13px',
+                  fontFamily: SERIF, letterSpacing: '0.04em', cursor: 'pointer',
+                }}
+              >
+                <option value="">My Collection · {cards.length} {cards.length === 1 ? 'work' : 'works'}</option>
+                {showableVendors.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name} · {v.inventoryCount} {v.inventoryCount === 1 ? 'item' : 'items'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
             onClick={onEnter}
-            disabled={cards.length === 0}
+            disabled={!canEnter}
             style={{
-              marginTop: '30px',
-              background: cards.length > 0 ? GOLD : '#332b1e',
-              color: cards.length > 0 ? '#1a1614' : '#7a6c50',
+              marginTop: showableVendors.length > 0 ? '16px' : '30px',
+              background: canEnter ? GOLD : '#332b1e',
+              color: canEnter ? '#1a1614' : '#7a6c50',
               border: 'none', padding: '15px 46px',
               fontSize: '14px', letterSpacing: '0.16em', fontFamily: SERIF,
-              cursor: cards.length > 0 ? 'pointer' : 'not-allowed', borderRadius: '2px',
+              cursor: canEnter ? 'pointer' : 'not-allowed', borderRadius: '2px',
             }}
           >
             ENTER THE GALLERY →
           </button>
-          {cards.length === 0 && !loading && (
+          {!canEnter && !loading && (
             <p style={{ margin: '10px 0 0', fontSize: '11.5px', color: MUTED, fontStyle: 'italic', fontFamily: SERIF }}>
               Submit at least one work to open the gallery
             </p>
           )}
-          <div style={{ marginTop: '12px' }}>
+          <div style={{ marginTop: '12px', display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={onVendor}
               style={{
@@ -167,6 +210,15 @@ export default function HomeScreen({
               }}
             >
               WALK A CARD SHOW →
+            </button>
+            <button
+              onClick={onVendors}
+              style={{
+                background: 'transparent', color: GOLD, border: `1px solid ${HAIRLINE}`, padding: '11px 30px',
+                fontSize: '12px', letterSpacing: '0.16em', fontFamily: SERIF, cursor: 'pointer', borderRadius: '2px',
+              }}
+            >
+              VENDOR REGISTRY →
             </button>
           </div>
         </header>

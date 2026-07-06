@@ -21,6 +21,8 @@ interface PlanEditorProps {
   /** Player start marker (image px). Provide both to enable the tool. */
   startPx?: { x: number; y: number } | null;
   onStartChange?: (p: { x: number; y: number }) => void;
+  /** Vendor id → name, for labelling assigned boxes. */
+  vendorNames?: Map<string, string>;
 }
 
 type EditorMode = 'select' | 'add' | 'calibrate' | 'setStart';
@@ -65,6 +67,7 @@ export default function PlanEditor({
   onSelectionChange,
   startPx,
   onStartChange,
+  vendorNames,
 }: PlanEditorProps) {
   const tableW = standardTableW(tableLengthFt);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -313,6 +316,8 @@ export default function PlanEditor({
           const k = nw * nh;
           const rcx = r.x + r.w / 2;
           const rcy = r.y + r.h / 2;
+          const vendorName = r.vendorId ? vendorNames?.get(r.vendorId) : undefined;
+          const labelSize = Math.min(ui * 2.2, Math.max(r.h * 0.6, ui * 1.2));
           const corners: [number, number][] = [
             [r.x, r.y],
             [r.x + r.w, r.y],
@@ -367,15 +372,15 @@ export default function PlanEditor({
                   />
                 ))}
               <text
-                x={r.x + r.w / 2}
-                y={r.y + r.h / 2}
+                x={rcx}
+                y={vendorName ? rcy - labelSize * 0.55 : rcy}
                 textAnchor="middle"
                 dominantBaseline="central"
                 fill="#fff"
                 stroke="#000"
                 strokeWidth={ui * 0.06}
                 paintOrder="stroke"
-                fontSize={Math.min(ui * 2.2, Math.max(r.h * 0.6, ui * 1.2))}
+                fontSize={labelSize}
                 style={{ pointerEvents: 'none', fontFamily: 'Georgia, serif' }}
               >
                 {nw > 1 && nh > 1
@@ -384,6 +389,22 @@ export default function PlanEditor({
                     ? `${k} tables`
                     : '1 table'}
               </text>
+              {vendorName && (
+                <text
+                  x={rcx}
+                  y={rcy + labelSize * 0.65}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fill={GOLD}
+                  stroke="#000"
+                  strokeWidth={ui * 0.06}
+                  paintOrder="stroke"
+                  fontSize={labelSize * 0.85}
+                  style={{ pointerEvents: 'none', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}
+                >
+                  {vendorName}
+                </text>
+              )}
               {isSel && mode === 'select' && (
                 <>
                   {/* Rotate handle above the top edge */}

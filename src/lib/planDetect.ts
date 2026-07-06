@@ -202,6 +202,96 @@ function mergeSplitFragments(
   return merged;
 }
 
+// Coverage-guided guillotine decomposition of one labeled component into
+// solid rectangular strips. Booth rings and L-corners arrive as a single
+// connected component whose bbox is mostly empty interior; cutting along
+// interior low-coverage row/column bands recovers the table runs.
+const SPLIT_COV = 0.3;
+
+function decomposeComponent(
+  labels: Int32Array,
+  label: number,
+  w: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  depth: number,
+  out: Candidate[],
+): void {
+  // Tight bbox of this label within the given bounds
+  let tx0 = x1 + 1;
+  let tx1 = x0 - 1;
+  let ty0 = y1 + 1;
+  let ty1 = y0 - 1;
+  let area = 0;
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (labels[y * w + x] !== label) continue;
+      area++;
+      if (x < tx0) tx0 = x;
+      if (x > tx1) tx1 = x;
+      if (y < ty0) ty0 = y;
+      if (y > ty1) ty1 = y;
+    }
+  }
+  if (area === 0) return;
+  const tw = tx1 - tx0 + 1;
+  const th = ty1 - ty0 + 1;
+  const colCnt = new Uint32Array(tw);
+  const rowCnt = new Uint32Array(th);
+  for (let y = ty0; y <= ty1; y++) {
+    for (let x = tx0; x <= tx1; x++) {
+      if (labels[y * w + x] !== label) continue;
+      colCnt[x - tx0]++;
+      rowCnt[y - ty0]++;
+    }
+  }
+  const emit = () => out.push({ x: tx0, y: ty0, w: tw, h: th, fill: area / (tw * th) });
+  if (depth <= 0) {
+    emit();
+    return;
+  }
+
+  // Split into contiguous bands of above/below-threshold coverage and recurse
+  // into every band that still holds pixels. Low bands aren't discarded — a
+  // ring's interior band still contains its two vertical arms, which the
+  // recursion then separates along the other axis.
+  const trySplit = (cnt: Uint32Array, len: number, denom: number, columns: boolean): boolean => {
+    const bands: Array<[number, number]> = [];
+    let start = 0;
+    let cur = cnt[0] / denom >= SPLIT_COV;
+    for (let i = 1; i < len; i++) {
+      const high = cnt[i] / denom >= SPLIT_COV;
+      if (high !== cur) {
+        bands.push([start, i - 1]);
+        start = i;
+        cur = high;
+      }
+    }
+    bands.push([start, len - 1]);
+    if (bands.length < 2) return false;
+    for (const [a, b] of bands) {
+      let sum = 0;
+      for (let i = a; i <= b; i++) sum += cnt[i];
+      if (sum === 0) continue;
+      if (columns) decomposeComponent(labels, label, w, tx0 + a, ty0, tx0 + b, ty1, depth - 1, out);
+      else decomposeComponent(labels, label, w, tx0, ty0 + a, tx1, ty0 + b, depth - 1, out);
+    }
+    return true;
+  };
+
+  // Cut across the long axis first; both axes get tried either way
+  if (th >= tw) {
+    if (trySplit(rowCnt, th, tw, false)) return;
+    if (trySplit(colCnt, tw, th, true)) return;
+  } else {
+    if (trySplit(colCnt, tw, th, true)) return;
+    if (trySplit(rowCnt, th, tw, false)) return;
+  }
+  emit();
+}
+
 function iou(a: Candidate, b: Candidate): number {
   const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
   const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
@@ -220,16 +310,22 @@ function contains(outer: Candidate, inner: Candidate): boolean {
 }
 
 /**
- * Infer px→meters assuming table-shaped boxes are 6ft tables.
- * Modal short side of aspect-plausible rects / table depth (0.76 m),
- * cross-checked against the modal long side / table width (1.83 m).
+ * Infer px→meters assuming table-shaped boxes are standard tables of length
+ * `tableW` (default 6 ft). Modal short side of aspect-plausible rects / table
+ * depth (0.76 m), cross-checked against the modal long side / tableW.
  */
-export function inferScale(rects: { w: number; h: number }[], imgW: number): number {
+export function inferScale(
+  rects: { w: number; h: number }[],
+  imgW: number,
+  tableW: number = TABLE_W,
+): number {
   const fallback = imgW / 30; // "image is ~30 m wide" last resort
 
+  // ±~40% around the standard table's aspect (6 ft ≈ 2.4 → 1.6–3.4)
+  const tableAspect = tableW / TABLE_D;
   const tableish = rects.filter((r) => {
     const aspect = Math.max(r.w, r.h) / Math.min(r.w, r.h);
-    return aspect >= 1.6 && aspect <= 3.4; // 6ft table ≈ 2.4
+    return aspect >= 0.67 * tableAspect && aspect <= 1.42 * tableAspect;
   });
 
   const modalMedian = (values: number[]): number | null => {
@@ -252,7 +348,7 @@ export function inferScale(rects: { w: number; h: number }[], imgW: number): num
 
   if (shortSide !== null && longSide !== null) {
     const fromShort = shortSide / TABLE_D;
-    const fromLong = longSide / TABLE_W;
+    const fromLong = longSide / tableW;
     // Long boxes (multi-table runs) skew the long-side estimate upward, so
     // prefer the short side unless they wildly disagree.
     if (Math.abs(fromShort - fromLong) / fromLong <= 0.35) return fromShort;
@@ -267,8 +363,8 @@ export function inferScale(rects: { w: number; h: number }[], imgW: number): num
   return fallback;
 }
 
-/** Run detection on a stored floor-plan blob. */
-export async function detectTables(blob: Blob): Promise<DetectionResult> {
+/** Run detection on a stored floor-plan blob. `tableW` = show standard (m). */
+export async function detectTables(blob: Blob, tableW: number = TABLE_W): Promise<DetectionResult> {
   const bmp = await createImageBitmap(blob);
   const imgW = bmp.width;
   const imgH = bmp.height;
@@ -297,6 +393,7 @@ export async function detectTables(blob: Blob): Promise<DetectionResult> {
   const n = w * h;
   const mask = new Uint8Array(n);
   const sat = new Uint8Array(n);
+  const hueBin = new Uint8Array(n); // 24 × 15° hue bins, valid where sat=1
   const hist = new Uint32Array(256);
   let satCount = 0;
   for (let i = 0; i < n; i++) {
@@ -305,11 +402,18 @@ export async function detectTables(blob: Blob): Promise<DetectionResult> {
     const g = data[o + 1];
     const b = data[o + 2];
     const luma = (0.299 * r + 0.587 * g + 0.114 * b) | 0;
-    const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+    const mx = Math.max(r, g, b);
+    const mn = Math.min(r, g, b);
+    const chroma = mx - mn;
     mask[i] = luma; // temporarily store luma
     if (chroma > 60 && luma > 50) {
       sat[i] = 1;
       satCount++;
+      let hue: number;
+      if (mx === r) hue = ((g - b) / chroma + 6) % 6;
+      else if (mx === g) hue = (b - r) / chroma + 2;
+      else hue = (r - g) / chroma + 4;
+      hueBin[i] = Math.min(23, (hue * 4) | 0); // hue∈[0,6) → 24 bins
     } else {
       hist[luma]++;
     }
@@ -356,11 +460,94 @@ export async function detectTables(blob: Blob): Promise<DetectionResult> {
     .filter((c) => acceptCandidate(c, maxDim));
   const passB = darkBlobs.map(componentToCandidate).filter((c) => acceptCandidate(c, maxDim));
 
+  // Pass C — saturated colored fills (tables drawn as solid orange/teal/etc
+  // boxes). The Otsu guard above excludes these on purpose so decoration
+  // can't become fake tables; here we take the excluded pixels, group them
+  // into hue families, and accept a family only when it yields ≥3
+  // table-plausible components — tables repeat, decoration doesn't.
+  const passC: Candidate[] = [];
+  if (satCount >= 0.002 * n) {
+    const hueHist = new Uint32Array(24);
+    for (let i = 0; i < n; i++) if (sat[i]) hueHist[hueBin[i]]++;
+    const binThresh = Math.max(0.002 * n, 30);
+    // Circular runs of above-threshold bins = one family each
+    const inFamily = new Int8Array(24).fill(-1);
+    let famCount = 0;
+    for (let b = 0; b < 24; b++) {
+      if (hueHist[b] < binThresh || inFamily[b] >= 0) continue;
+      const fam = famCount++;
+      // walk the run both ways
+      for (let d = 0; d < 24 && hueHist[(b + d) % 24] >= binThresh; d++) inFamily[(b + d) % 24] = fam;
+      for (let d = 1; d < 24 && hueHist[(b - d + 24) % 24] >= binThresh; d++) inFamily[(b - d + 24) % 24] = fam;
+    }
+    const famMask = new Uint8Array(n);
+    const famLabels = new Int32Array(n);
+    for (let f = 0; f < famCount; f++) {
+      famMask.fill(0);
+      famLabels.fill(0);
+      for (let i = 0; i < n; i++) {
+        if (!sat[i]) continue;
+        const b = hueBin[i];
+        // family bins ±1 so JPEG hue jitter doesn't split a box
+        if (inFamily[b] === f || inFamily[(b + 1) % 24] === f || inFamily[(b + 23) % 24] === f) {
+          famMask[i] = 1;
+        }
+      }
+      // Beyond the generic caps, accept long straight runs of slots (whole
+      // booth-ring sides): thin + solid at any aspect. Decoration blobs are
+      // far thicker than a table depth, so the short-side cap excludes them.
+      const acceptC = (c: Candidate): boolean => {
+        if (acceptCandidate(c, maxDim)) return true;
+        const short = Math.min(c.w, c.h);
+        const long = Math.max(c.w, c.h);
+        return (
+          c.fill >= 0.75 &&
+          short >= Math.max(6, 0.008 * maxDim) &&
+          short <= 0.08 * maxDim &&
+          long <= 0.9 * maxDim
+        );
+      };
+      const comps = connectedComponents(famMask, famLabels, w, h, 1, 0);
+      const direct: Candidate[] = [];
+      const rejected: number[] = []; // component indices
+      for (let ci = 0; ci < comps.length; ci++) {
+        const cand = componentToCandidate(comps[ci]);
+        if (acceptC(cand)) direct.push(cand);
+        else rejected.push(ci);
+      }
+      const famCands: Candidate[] = [...direct];
+      // Booth rings / L-corners connect into one mostly-empty component —
+      // guillotine-cut them into strips. Pieces only count when their short
+      // side matches the family's typical table depth (the ruler set by the
+      // directly-accepted boxes); this is what keeps decomposed decoration
+      // (logo art, colored bands) from minting fake tables.
+      if (direct.length >= 2 && rejected.length > 0) {
+        const shorts = direct.map((c) => Math.min(c.w, c.h)).sort((a, b) => a - b);
+        const modalShort = shorts[shorts.length >> 1];
+        for (const ci of rejected) {
+          const comp = comps[ci];
+          if (comp.area < 150) continue;
+          const pieces: Candidate[] = [];
+          decomposeComponent(famLabels, ci + 1, w, comp.minX, comp.minY, comp.maxX, comp.maxY, 8, pieces);
+          if (pieces.length < 2) continue; // uncuttable — genuinely not a table
+          for (const p of pieces) {
+            const s = Math.min(p.w, p.h);
+            if (acceptC(p) && s >= 0.6 * modalShort && s <= 1.7 * modalShort) famCands.push(p);
+          }
+        }
+      }
+      if (famCands.length >= 3) passC.push(...famCands);
+    }
+  }
+
   // Merge: pass A wins on overlap (an outlined table also produces a dark
   // ring blob in pass B with poor fill, but belt-and-braces)
   const merged: Candidate[] = [...passA];
   for (const b of passB) {
     if (!merged.some((a) => iou(a, b) > 0.5)) merged.push(b);
+  }
+  for (const c of passC) {
+    if (!merged.some((a) => iou(a, c) > 0.5)) merged.push(c);
   }
 
   // Containment prune: a rect swallowing ≥3 accepted rects is a booth block
@@ -368,7 +555,7 @@ export async function detectTables(blob: Blob): Promise<DetectionResult> {
     (outer) => merged.filter((inner) => inner !== outer && contains(outer, inner)).length < 3,
   );
 
-  const pxPerMeterDetect = inferScale(pruned, w);
+  const pxPerMeterDetect = inferScale(pruned, w, tableW);
 
   // Physical size floor: icon-sized blobs (figures, ⓘ markers) survive the
   // pixel filters but no real table is under ~half a table-depth on a side

@@ -39,9 +39,13 @@ function InstancedPart({
     if (!mesh) return;
     const m = new THREE.Matrix4();
     const table = new THREE.Matrix4();
+    const s = new THREE.Vector3();
     for (let i = 0; i < tables.length; i++) {
       const t = tables[i];
       table.makeRotationY(t.rotationY);
+      // Stretch-to-fit boxes: scale in the table's local frame so part
+      // offsets (legs, drapes) ride out to the stretched edges. Y stays 1.
+      table.scale(s.set(t.sx ?? 1, 1, t.sz ?? 1));
       table.setPosition(t.position[0], t.position[1], t.position[2]);
       m.multiplyMatrices(table, spec.local);
       mesh.setMatrixAt(i, m);

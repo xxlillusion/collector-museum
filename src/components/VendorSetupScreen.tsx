@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PlanEditor from './PlanEditor';
-import { detectTables } from '../lib/planDetect';
+import { detectTables, inferScale } from '../lib/planDetect';
 import { getFloorPlan } from '../lib/db';
 import type { VendorRect, VendorPlanMeta } from '../lib/vendorPlan';
 import type { SavedPlanRecord } from '../lib/db';
-import { planToLayout } from '../lib/vendorPlan';
+import { planToLayout, standardTableW } from '../lib/vendorPlan';
 
 interface VendorSetupScreenProps {
   planUrl: string | null;
@@ -65,13 +65,15 @@ export default function VendorSetupScreen({
     try {
       const blob = await getFloorPlan();
       if (!blob) return;
-      const result = await detectTables(blob);
+      const tableFt = metaRef.current?.tableLengthFt;
+      const result = await detectTables(blob, standardTableW(tableFt));
       // A user-calibrated scale survives Re-detect; only the boxes regenerate
       const manual = metaRef.current?.pxPerMeterSource === 'manual';
       const next: VendorPlanMeta = {
         rects: result.rects,
         pxPerMeter: manual ? metaRef.current!.pxPerMeter : result.pxPerMeter,
         pxPerMeterSource: manual ? 'manual' : 'inferred',
+        tableLengthFt: tableFt,
         imgW: result.imgW,
         imgH: result.imgH,
         updatedAt: Date.now(),
@@ -160,6 +162,19 @@ export default function VendorSetupScreen({
     );
     if (rects) handleRectsChange(rects);
   }, [selectedRectId, onAddVendorBanner, handleRectsChange]);
+
+  // Show-standard table size: re-derives an inferred scale from the current
+  // boxes (they're the ruler), but never touches a manual calibration
+  const handleTableSize = useCallback((ft: 6 | 8) => {
+    const prev = metaRef.current;
+    if (!prev || (prev.tableLengthFt ?? 6) === ft) return;
+    const next: VendorPlanMeta = { ...prev, tableLengthFt: ft, updatedAt: Date.now() };
+    if (prev.pxPerMeterSource !== 'manual' && prev.rects.length > 0) {
+      next.pxPerMeter = inferScale(prev.rects, prev.imgW, standardTableW(ft));
+    }
+    setMeta(next);
+    onSaveMeta(next);
+  }, [onSaveMeta]);
 
   const handleStartChange = useCallback((p: { x: number; y: number }) => {
     const prev = metaRef.current;
@@ -280,6 +295,7 @@ export default function VendorSetupScreen({
                 imgH={meta.imgH}
                 rects={meta.rects}
                 pxPerMeter={meta.pxPerMeter}
+                tableLengthFt={meta.tableLengthFt}
                 onChange={handleRectsChange}
                 onCalibrateLine={setCalibrationPx}
                 onSelectionChange={setSelectedRectId}
@@ -427,8 +443,32 @@ export default function VendorSetupScreen({
                   Hall ≈ {layout ? `${layout.hall.width.toFixed(0)} × ${layout.hall.depth.toFixed(0)} m` : '—'}
                   {meta.pxPerMeterSource === 'manual' ? ' · calibrated' : ''}
                 </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  Table size:
+                  {([6, 8] as const).map((ft) => {
+                    const active = (meta.tableLengthFt ?? 6) === ft;
+                    return (
+                      <button
+                        key={ft}
+                        onClick={() => handleTableSize(ft)}
+                        style={{
+                          background: active ? GOLD : 'transparent',
+                          color: active ? '#1a1614' : '#aaa',
+                          border: `1px solid ${active ? GOLD : '#555'}`,
+                          borderRadius: '6px',
+                          padding: '3px 10px',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          fontFamily: 'Georgia, serif',
+                        }}
+                      >
+                        {ft} ft
+                      </button>
+                    );
+                  })}
+                </span>
                 <span>
-                  {meta.rects.length} box{meta.rects.length === 1 ? '' : 'es'} → {totalTables} table{totalTables === 1 ? '' : 's'} (6 ft each)
+                  {meta.rects.length} box{meta.rects.length === 1 ? '' : 'es'} → {totalTables} table{totalTables === 1 ? '' : 's'} (≈{meta.tableLengthFt ?? 6} ft each)
                 </span>
               </div>
 

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { useAuth } from '../lib/auth';
 import type { CardWithUrl } from '../lib/useCards';
 import type { SavedPlanRecord } from '../lib/db';
@@ -46,6 +46,32 @@ function Ornament({ width = 60 }: { width?: number }) {
   );
 }
 
+function QuickAction({ label, sub, onClick }: {
+  label: string; sub?: string; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: 'transparent', color: GOLD, border: `1px solid ${HAIRLINE}`,
+        padding: '11px 22px', maxWidth: '230px',
+        fontSize: '12px', letterSpacing: '0.16em', fontFamily: SERIF,
+        cursor: 'pointer', borderRadius: '2px', textAlign: 'center',
+      }}
+    >
+      {label}
+      {sub && (
+        <span style={{
+          display: 'block', marginTop: '5px', fontSize: '10.5px', letterSpacing: '0.05em',
+          color: MUTED, fontStyle: 'italic', textTransform: 'none',
+        }}>
+          {sub}
+        </span>
+      )}
+    </button>
+  );
+}
+
 function Section({ numeral, title, children }: {
   numeral: string; title: string; children: React.ReactNode;
 }) {
@@ -80,6 +106,7 @@ export default function HomeScreen({
   onVendor,
   onVendors,
 }: HomeScreenProps) {
+  const [, navigate] = useLocation();
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [walkingId, setWalkingId] = useState<string | null>(null);
@@ -216,25 +243,27 @@ export default function HomeScreen({
               Submit at least one work to open the gallery
             </p>
           )}
-          <div style={{ marginTop: '12px', display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button
+          <div style={{ marginTop: '12px', display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', alignItems: 'stretch' }}>
+            <QuickAction
+              label="EXPLORE CARD SHOWS →"
+              sub="browse real shows by location and walk them"
+              onClick={() => navigate('/shows')}
+            />
+            <QuickAction
+              label="BUILD A SHOW (LOCAL SANDBOX) →"
+              sub="local floor-plan editor, this browser only"
               onClick={onVendor}
-              style={{
-                background: 'transparent', color: GOLD, border: `1px solid ${HAIRLINE}`, padding: '11px 30px',
-                fontSize: '12px', letterSpacing: '0.16em', fontFamily: SERIF, cursor: 'pointer', borderRadius: '2px',
-              }}
-            >
-              WALK A CARD SHOW →
-            </button>
-            <button
+            />
+            <QuickAction
+              label="VENDOR DIRECTORY →"
+              sub="registered vendors across the platform"
+              onClick={() => navigate('/vendors')}
+            />
+            <QuickAction
+              label="VENDOR REGISTRY →"
+              sub="manage your own vendors and inventory"
               onClick={onVendors}
-              style={{
-                background: 'transparent', color: GOLD, border: `1px solid ${HAIRLINE}`, padding: '11px 30px',
-                fontSize: '12px', letterSpacing: '0.16em', fontFamily: SERIF, cursor: 'pointer', borderRadius: '2px',
-              }}
-            >
-              VENDOR REGISTRY →
-            </button>
+            />
           </div>
         </header>
 

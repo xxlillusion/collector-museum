@@ -13,12 +13,14 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "@react-three/postprocessing": "^3.0.4",
+    "@supabase/supabase-js": "^2.110.0",
     "idb": "^8.0.3",
     "nipplejs": "^1.0.4",
     "node": "^20.19.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "three": "^0.185.1"
+    "three": "^0.185.1",
+    "wouter": "^3.10.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

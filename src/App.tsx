@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { useProvider } from './lib/provider/context';
 import { useCards } from './lib/useCards';
 import type { CardWithUrl } from './lib/useCards';
@@ -9,10 +9,21 @@ import { useSavedPlans } from './lib/useSavedPlans';
 import { useVendors } from './lib/useVendors';
 import { useVendorInventory } from './lib/useVendorInventory';
 import HomeScreen from './components/HomeScreen';
-import Scene from './components/Scene';
-import VendorSetupScreen from './components/VendorSetupScreen';
-import VendorScene from './components/VendorScene';
 import VendorsScreen from './components/VendorsScreen';
+
+// The three.js-heavy subtrees load on demand — the home screen and the
+// platform pages (shows directory, auth, vendor profiles) must never pull
+// the 3D bundle. Scene/VendorScene carry three/drei/postprocessing;
+// VendorSetupScreen carries the detection pipeline + plan editor.
+const Scene = lazy(() => import('./components/Scene'));
+const VendorScene = lazy(() => import('./components/VendorScene'));
+const VendorSetupScreen = lazy(() => import('./components/VendorSetupScreen'));
+
+/** Black full-viewport fallback while a lazy chunk loads — the scenes' own
+ *  LoadingOverlay takes over as soon as the module is in. */
+function ChunkFallback() {
+  return <div style={{ height: '100vh', background: '#000' }} />;
+}
 
 type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk' | 'vendors';
 
@@ -79,12 +90,14 @@ export default function App() {
 
   if (view === 'gallery') {
     return (
-      <Scene
-        cards={galleryCards}
-        captions={galleryCaptions}
-        bannerUrl={bannerUrl}
-        onManage={() => setView('home')}
-      />
+      <Suspense fallback={<ChunkFallback />}>
+        <Scene
+          cards={galleryCards}
+          captions={galleryCaptions}
+          bannerUrl={bannerUrl}
+          onManage={() => setView('home')}
+        />
+      </Suspense>
     );
   }
 
@@ -108,6 +121,7 @@ export default function App() {
 
   if (view === 'vendorSetup') {
     return (
+      <Suspense fallback={<ChunkFallback />}>
       <VendorSetupScreen
         planUrl={vendorPlan.planUrl}
         planMeta={vendorPlan.planMeta}
@@ -124,20 +138,23 @@ export default function App() {
         onGenerate={() => setView('vendorWalk')}
         onBack={() => setView('home')}
       />
+      </Suspense>
     );
   }
 
   if (view === 'vendorWalk' && vendorPlan.planMeta) {
     return (
-      <VendorScene
-        planMeta={vendorPlan.planMeta}
-        planUrl={vendorPlan.planUrl}
-        bannerUrl={bannerUrl}
-        vendorBannerUrls={vendorBanners.bannerUrls}
-        vendors={vendors.vendors}
-        fetchInventory={provider.getInventoryItems}
-        onBack={() => setView('vendorSetup')}
-      />
+      <Suspense fallback={<ChunkFallback />}>
+        <VendorScene
+          planMeta={vendorPlan.planMeta}
+          planUrl={vendorPlan.planUrl}
+          bannerUrl={bannerUrl}
+          vendorBannerUrls={vendorBanners.bannerUrls}
+          vendors={vendors.vendors}
+          fetchInventory={provider.getInventoryItems}
+          onBack={() => setView('vendorSetup')}
+        />
+      </Suspense>
     );
   }
 

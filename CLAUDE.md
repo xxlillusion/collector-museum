@@ -172,7 +172,8 @@ bypasses the editor: it loads the snapshot into the working slots and goes direc
 | `lib/useVendors.ts` | Vendor summaries (`VendorSummary`: banner URL + inventoryCount + manualShows) + CRUD incl. `addManualShow/removeManualShow`; `lib/useVendorInventory.ts` — lazy per-vendor items with URLs; `lib/vendorShows.ts` — `deriveShowsAttended` (see Vendors section) |
 | `lib/sleeveTextures.ts` | Shared binder sleeve texture cache (museum + hall): decodes card/inventory **blobs** via `createImageBitmap` (off main thread, `imageOrientation:'flipY'` + `texture.flipY=false`, resized to a 512px cap — pockets are small; InspectOverlay still uses the full-res object URL), keyed by item id (images are immutable per id). Entries are **refcounted** by mounted `SleeveCard`s (`acquireSleeveTexture`/release); LRU eviction past 120 entries only touches unpinned entries, so an open binder can't lose a displayed texture. `prefetchSleeveTexture` warms without pinning. Uploaded via `gl.initTexture` off the render path |
 | `PlanEditor.tsx` | `<img>` + SVG overlay, `viewBox` = stored-image px (browser scales; zero resize math). Modes: select / add / calibrate / setStart. Select/move/resize (corner handles)/delete (✕ or Backspace)/**rotate** (handle above the box, 15° snap, Shift = free; whole `<g>` gets `transform=rotate(deg cx cy)` so handles ride along; resize runs in the rect's local frame then re-anchors the fixed corner in world space), “Add table” draw mode, calibration line drag (→ `onCalibrateLine(px)`), start-marker click (→ `onStartChange`), `onSelectionChange` feeds the vendor-assignment panel. Live subdivision preview: dashed grid lines per box from the shared `boxGrid` (pointerEvents none), label shows `R×C · N tables` + the assigned vendor's name (gold italic, via `vendorNames` map prop). Pointer capture guarded in try/catch. Controlled; parent debounce-persists (500ms) |
-| `VendorSetupScreen.tsx` | Upload/detect/edit wrapper; scale readout (“hall ≈ W×D m · N boxes → M tables”, “· calibrated” when manual), **table-size toggle (6 ft / 8 ft)** in the readout row — updates `meta.tableLengthFt` and re-derives an *inferred* scale from the current rects via `inferScale` (manual calibration never touched); Re-detect (**preserves manual scale + table size**), Replace image, calibration popover (m/ft → pxPerMeter), per-box **vendor-assignment panel** (dropdown of vendors + quick-create-and-assign + unassign; replaced the old banner-upload panel), Saved Plans section (save with optional show date /load/delete; flushes the debounce before snapshotting) |
+| `PlanWorkbench.tsx` | **The plan-editing machinery, extracted from VendorSetupScreen (Wave 2)** so the organizer show editor reuses it: `meta` mirror + debounce (500ms rect persist), `runDetection` + auto-detect effect, dropzone, calibration popover (m/ft → pxPerMeter), table-size toggle (6 ft / 8 ft — updates `meta.tableLengthFt`, re-derives *inferred* scale via `inferScale`, manual calibration never touched), Re-detect (**preserves manual scale + table size**), Replace image, start marker, `PlanEditor` mount, per-box **vendor-assignment panel** (dropdown + quick-create-and-assign + unassign), scale readout (“Hall ≈ W×D m · N boxes → M tables”). Props = the 8 plan/vendor props VendorSetupScreen always took, plus `actions` render-prop (host buttons in the actions row), `onStateChange` (`{hasMeta, detecting, totalTables}` for host chrome gating) and a ref exposing `flushPendingMeta()` (flush debounce → current meta; called before save/publish/generate) |
+| `VendorSetupScreen.tsx` | Now the thin **guest sandbox** host: header + persistent local-only banner (“Shows built here are local to this browser…”), `<PlanWorkbench/>` with GENERATE passed through `actions`, Saved Plans section (save with optional show date /load/delete; flushes via the workbench ref before snapshotting). The Publish-to-Card-Shows dialog moved to `screens/organizer/ShowEditorScreen` (Wave 2). External prop contract unchanged — App.tsx untouched |
 | `VendorRoom.tsx` | Parameterized `{width, depth, height}` hall shell (reflector floor 512/256, walls, baseboards, hemi+ambient). Room.tsx deliberately untouched |
 | `VendorTables.tsx` | **Instanced**: 6 shared parts (board, merged legs, cloth top, back/side drapes) = one `instancedMesh` each over all tables, plus **one front-drape `instancedMesh` per unique texture group**. Group key chain: vendor banner (`vb:<id>`) → vendor name-on-cloth (`vn:<id>`, `makeNameTexture`) → legacy `bannerId` URL → global banner → plain cloth. Draw calls grow with unique vendors, never with tables. Matrices = table world transform (incl. per-table `sx/sz` stretch, so part offsets ride to the stretched edges) × part local offset, set in `useLayoutEffect` (+ `computeBoundingSphere`) — deps are `[tables, spec]` **on purpose**: a material change makes R3F recreate the mesh via `args`, and the fresh mesh needs its matrices re-set (drapes silently vanish otherwise) |
 | `VendorHallBinders.tsx` | Inventory binders on assigned tables (see Vendors section): `computeBinderPoses` (booth grouping by `rectId`, overflow spread, museum lie-flat pose re-based per table yaw), 2 instanced shell draws, proximity `useFrame` scan → HUD F-prompt, open = hide instance + mount `Binder` (own `Suspense` so texture mounts never suspend the hall, `fillLight={false}`). The prompt (and shell hover) **prefetches** the binder's first-spread sleeve textures (IDB read + `prefetchSleeveTexture`), so cards are usually decoded before F is pressed. Mounts a permanent intensity-0 `pointLight` (tucked in front of the camera + 0.35 while a binder is open — the light Binder would otherwise own) and a `BinderMaterialWarmup`, both so the first open never changes light count / compiles shaders (gotcha 11) |
@@ -375,6 +376,45 @@ edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record typ
   inventory → anonymous /vendor/:id renders visible inventory + "Appearing at". A demo
   "Live Smoke Show" + "Live Vendor" (test account jason.a.dale2+live2917@gmail.com)
   remain in the project as browsable seed data.
+- **Platform Wave 2 shipped** (2026-07-07, branch `platform-wave2`; Phase-0 scaffolding +
+  3 parallel worktree streams; merged build green; 22/22 headless guest regression incl.
+  the PlanWorkbench sandbox flow, zero console errors):
+  - **Migration `0003_accounts_locations.sql`** — ⚠ **NOT YET APPLIED to the
+    live project** (only the anon key is available locally; paste it into the dashboard
+    SQL editor). Until applied, cloud reads that select the new columns 400 and degrade
+    to empty states, new-signup account types are ignored, and organizer gating is
+    UI-only. Adds: `profiles.account_type ('collector'|'vendor') + is_organizer +
+    country/state/city/bio/collection_public` (legacy `role` kept, deprecated);
+    `vendors.profile_id (unique → canonical vendor of a vendor account) +
+    country/state/area_served/inventory_public`; `shows.country/state/city`; signup
+    trigger creates the canonical vendor row for vendor-type signups; shows insert/update
+    RLS requires `is_organizer`; collections readable when `collection_public`; inventory
+    select composes `visible AND vendor.inventory_public`; **cards bucket → public-read**
+    (paths unguessable; discovery gated by table RLS — storage policies can't subquery).
+  - **Auth**: signup picks Collector/Vendor (+ display name, via signup metadata);
+    login has forgot-password (`resetPasswordForEmail` → `/reset-password`, which handles
+    the `PASSWORD_RECOVERY` session); Account page gained location/bio, change-password,
+    organizer toggle, my-vendor-table settings (location, area served, inventory-public),
+    collection-public toggle, and one-way Become-a-Vendor. `lib/profileService.ts` owns
+    profile + canonical-vendor ops (outside the DataProvider seam, like showService).
+  - **Convention View restructure**: HomeScreen “EXPLORE CARD SHOWS →” → `/shows`
+    (country/state filter, server-side `.eq`); the local editor stays as “BUILD A SHOW
+    (LOCAL SANDBOX) →” with a persistent local-only banner and **no Publish dialog**.
+    Organizers create/edit shows at `/organizer/show/new` + `/organizer/show/:id/edit`
+    (`ShowEditorScreen`: isOrganizer gate, name/date/location form, lazy `PlanWorkbench`,
+    vendors = `listRegisteredVendors()` ∪ own placeholders; edit seeds the local working
+    slots from the cloud show via the `loadPlan` pattern, re-uploads the plan image only
+    when replaced — versioned filename dodges CDN cache; booths replaced wholesale).
+    `showService` gained `updateShow`/`getMyShowForEdit`; `publicShows` exports
+    `reconstructPlanMeta` shared by walk + edit.
+  - **Public profiles**: `/vendors` directory (registered vendors = `profile_id` non-null),
+    vendor pages show location/area-served and respect `inventory_public`;
+    `/collector/:id` (public collection grid via `lib/publicCollectors.ts`); both link to
+    public museums `/museum/vendor/:id` + `/museum/collector/:id` — tiny lazy wrappers
+    that download image blobs (museum binder needs `imageBlob`) and mount the museum
+    `Scene` with captions; three.js stays in its lazy chunk (wrappers ≈ 2.8 kB).
+  - Deferred: vendor claiming flow for placeholder vendors; live E2E of signup/organizer/
+    public-museum flows blocked on applying 0003.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

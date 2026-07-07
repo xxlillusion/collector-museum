@@ -4,8 +4,6 @@ import type { PlanWorkbenchHandle, PlanWorkbenchState } from './PlanWorkbench';
 import type { VendorPlanMeta } from '../lib/vendorPlan';
 import type { SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
-import { useAuth } from '../lib/auth';
-import { publishShow } from '../lib/showService';
 
 interface VendorSetupScreenProps {
   planUrl: string | null;
@@ -55,42 +53,6 @@ export default function VendorSetupScreen({
   const [savingName, setSavingName] = useState<string | null>(null); // null = closed
   const [savingDate, setSavingDate] = useState('');
 
-  // Publish to the public shows directory — organizer accounts only.
-  // This screen is DOM (outside any Canvas), so auth context is available.
-  const { configured, session } = useAuth();
-  const [publishName, setPublishName] = useState<string | null>(null); // null = closed
-  const [publishDate, setPublishDate] = useState('');
-  const [publishBusy, setPublishBusy] = useState(false);
-  const [publishResult, setPublishResult] = useState<{ id?: string; error?: string } | null>(null);
-
-  const handlePublishShow = useCallback(async () => {
-    const name = publishName?.trim();
-    if (!name || !session || publishBusy) return;
-    setPublishBusy(true);
-    setPublishResult(null);
-    try {
-      // Flush any pending debounced edit so the published snapshot is current
-      // (same as the save path).
-      const meta = (await workbenchRef.current?.flushPendingMeta()) ?? null;
-      const blob = await getPlanBlob();
-      if (!blob || !meta) throw new Error('No floor plan to publish.');
-      const id = await publishShow({
-        organizerId: session.user.id,
-        name,
-        showDate: publishDate || undefined,
-        planBlob: blob,
-        meta,
-      });
-      setPublishResult({ id });
-      setPublishName(null);
-      setPublishDate('');
-    } catch (e) {
-      setPublishResult({ error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setPublishBusy(false);
-    }
-  }, [publishName, publishDate, session, publishBusy, getPlanBlob]);
-
   const handleSavePlan = useCallback(async () => {
     const name = savingName?.trim();
     if (!name) return;
@@ -117,9 +79,29 @@ export default function VendorSetupScreen({
       <h1 style={{ fontSize: '2rem', letterSpacing: '0.12em', marginBottom: '4px', color: GOLD }}>
         CONVENTION VIEW
       </h1>
-      <p style={{ color: '#888', marginBottom: '32px', fontSize: '14px', letterSpacing: '0.08em' }}>
+      <p style={{ color: '#888', marginBottom: '20px', fontSize: '14px', letterSpacing: '0.08em' }}>
         WALK A CARD SHOW FROM ITS FLOOR PLAN
       </p>
+
+      {/* Local-sandbox note — this editor never publishes; organizers create
+          public shows from their account (/organizer/show/new). */}
+      <div style={{
+        width: '100%',
+        maxWidth: '900px',
+        boxSizing: 'border-box',
+        border: '1px solid rgba(212,175,55,0.35)',
+        borderRadius: '8px',
+        background: 'rgba(212,175,55,0.05)',
+        padding: '10px 16px',
+        marginBottom: '28px',
+        fontSize: '13px',
+        lineHeight: 1.6,
+        color: '#b7ad98',
+        textAlign: 'center',
+      }}>
+        Shows built here are local to this browser — you can walk them, but they can't be
+        shared or published. Organizers create public shows from their account.
+      </div>
 
       <PlanWorkbench
         ref={workbenchRef}
@@ -226,91 +208,6 @@ export default function VendorSetupScreen({
                 </button>
               </div>
             )
-          )}
-
-          {/* Publish to the public shows directory — signed-in organizers only */}
-          {wb.hasMeta && !wb.detecting && configured && session && (
-            publishName === null ? (
-              <button
-                onClick={() => { setPublishName(''); setPublishResult(null); }}
-                style={{ ...secondaryButton, marginBottom: '12px', marginLeft: savingName === null ? '10px' : 0 }}
-              >
-                📣 Publish to Card Shows…
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="Show name"
-                  value={publishName}
-                  onChange={(e) => setPublishName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handlePublishShow(); }}
-                  style={{
-                    background: '#0d0b0a',
-                    color: '#e8e4dc',
-                    border: '1px solid #555',
-                    borderRadius: '6px',
-                    padding: '10px 12px',
-                    fontSize: '14px',
-                    fontFamily: 'Georgia, serif',
-                    width: '220px',
-                  }}
-                />
-                <input
-                  type="date"
-                  title="Show date (optional) — shown in the public directory"
-                  value={publishDate}
-                  onChange={(e) => setPublishDate(e.target.value)}
-                  style={{
-                    background: '#0d0b0a',
-                    color: publishDate ? '#e8e4dc' : '#777',
-                    border: '1px solid #555',
-                    borderRadius: '6px',
-                    padding: '9px 12px',
-                    fontSize: '14px',
-                    fontFamily: 'Georgia, serif',
-                    colorScheme: 'dark',
-                  }}
-                />
-                <button
-                  onClick={handlePublishShow}
-                  disabled={!publishName.trim() || publishBusy}
-                  style={{
-                    background: publishName.trim() && !publishBusy ? GOLD : '#333',
-                    color: publishName.trim() && !publishBusy ? '#1a1614' : '#666',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '10px 20px',
-                    fontSize: '14px',
-                    cursor: publishName.trim() && !publishBusy ? 'pointer' : 'not-allowed',
-                    fontFamily: 'Georgia, serif',
-                  }}
-                >
-                  {publishBusy ? 'Publishing…' : 'Publish'}
-                </button>
-                <button
-                  onClick={() => { setPublishName(null); setPublishDate(''); }}
-                  disabled={publishBusy}
-                  style={{ ...secondaryButton, padding: '10px 14px', fontSize: '13px' }}
-                >
-                  Cancel
-                </button>
-              </div>
-            )
-          )}
-          {publishResult?.id && (
-            <div style={{ color: GOLD, fontSize: '13px', marginBottom: '12px' }}>
-              Published — view it at{' '}
-              <a href={`/show/${publishResult.id}`} style={{ color: GOLD }}>
-                /show/{publishResult.id}
-              </a>
-            </div>
-          )}
-          {publishResult?.error && (
-            <div style={{ color: '#c66', fontSize: '13px', marginBottom: '12px' }}>
-              Publish failed: {publishResult.error}
-            </div>
           )}
 
           {savedPlans.map((p) => (

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PlanEditor from './PlanEditor';
 import { detectTables, inferScale } from '../lib/planDetect';
-import { getFloorPlan } from '../lib/db';
 import type { VendorRect, VendorPlanMeta } from '../lib/vendorPlan';
 import type { SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
@@ -10,6 +9,8 @@ import { planToLayout, standardTableW } from '../lib/vendorPlan';
 interface VendorSetupScreenProps {
   planUrl: string | null;
   planMeta: VendorPlanMeta | null;
+  /** Raw working-slot plan blob — detection input for Re-detect. */
+  getPlanBlob: () => Promise<Blob | undefined>;
   onSetPlan: (file: File) => Promise<void>;
   onSaveMeta: (meta: VendorPlanMeta) => Promise<void>;
   onClearPlan: () => Promise<void>;
@@ -28,6 +29,7 @@ const GOLD = '#d4af37';
 export default function VendorSetupScreen({
   planUrl,
   planMeta,
+  getPlanBlob,
   onSetPlan,
   onSaveMeta,
   onClearPlan,
@@ -62,7 +64,7 @@ export default function VendorSetupScreen({
     // Let the spinner paint before the pixel crunch
     await new Promise((r) => setTimeout(r, 30));
     try {
-      const blob = await getFloorPlan();
+      const blob = await getPlanBlob();
       if (!blob) return;
       const tableFt = metaRef.current?.tableLengthFt;
       const result = await detectTables(blob, standardTableW(tableFt));
@@ -82,7 +84,7 @@ export default function VendorSetupScreen({
     } finally {
       setDetecting(false);
     }
-  }, [onSaveMeta]);
+  }, [getPlanBlob, onSaveMeta]);
 
   // A stored plan with no meta (e.g. refresh mid-detection) would otherwise
   // render an empty screen with no way forward — detect it automatically.

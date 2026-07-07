@@ -7,11 +7,18 @@ import Binder, { BinderMaterialWarmup, COVER_W, COVER_H, COVER_T, CARDS_PER_SHEE
 import { isTouchDevice } from './GalleryControls';
 import { CLOTH_TOP_Y } from './tableGeometry';
 import { TABLE } from './Room';
-import { getInventoryItems } from '../lib/db';
 import { prefetchSleeveTexture } from '../lib/sleeveTextures';
-import { useVendorInventory } from '../lib/useVendorInventory';
+import type { InventoryItemRecord } from '../lib/db';
 import type { TablePlacement } from '../lib/vendorPlan';
 import type { CardWithUrl } from '../lib/useCards';
+
+/**
+ * Inventory reads come in as a prop, not from the data-provider context —
+ * React context does not cross the R3F <Canvas> root, so a context read in
+ * here would silently see the default (local) provider regardless of who is
+ * signed in. VendorScene threads this from the app side.
+ */
+export type FetchInventory = (vendorId: string) => Promise<InventoryItemRecord[]>;
 
 // Inventory binders on assigned tables. Closed binders are two instanced
 // draws total (leather shells + ring packs) with zero textures; opening one
@@ -121,16 +128,36 @@ function getShellGeometries() {
  *  while open) and drives the real Binder from its shell's resting pose. */
 function OpenHallBinder({
   pose,
+  fetchInventory,
   suspended,
   onInspect,
   onClosed,
 }: {
   pose: BinderPose;
+  fetchInventory: FetchInventory;
   suspended: boolean;
   onInspect: (url: string, caption?: string) => void;
   onClosed: (relock: boolean) => void;
 }) {
-  const { items } = useVendorInventory(pose.vendorId);
+  // Same read-only shape as useVendorInventory, minus the context read
+  // (see FetchInventory above): object URLs live only while open.
+  const [items, setItems] = useState<(InventoryItemRecord & { imageUrl: string })[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchInventory(pose.vendorId)
+      .then((records) => {
+        if (cancelled) return;
+        setItems(records.map((r) => ({ ...r, imageUrl: URL.createObjectURL(r.imageBlob) })));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      setItems((prev) => {
+        prev.forEach((i) => URL.revokeObjectURL(i.imageUrl));
+        return [];
+      });
+    };
+  }, [fetchInventory, pose.vendorId]);
 
   const cards = useMemo<CardWithUrl[]>(
     () =>
@@ -172,6 +199,7 @@ interface VendorHallBindersProps {
   tables: TablePlacement[];
   /** Vendor id → inventory item count (0 / absent = no binders). */
   inventoryCounts: Map<string, number>;
+  fetchInventory: FetchInventory;
   /** true while the InspectOverlay is up — ignore keys/clicks. */
   suspended: boolean;
   onPromptChange: (visible: boolean) => void;
@@ -184,6 +212,7 @@ interface VendorHallBindersProps {
 export default function VendorHallBinders({
   tables,
   inventoryCounts,
+  fetchInventory,
   suspended,
   onPromptChange,
   onOpenChange,
@@ -264,7 +293,7 @@ export default function VendorHallBinders({
     const key = `${pose.vendorId}:${pose.binderIndex}`;
     if (prefetchedRef.current.has(key)) return;
     prefetchedRef.current.add(key);
-    getInventoryItems(pose.vendorId)
+    fetchInventory(pose.vendorId)
       .then((records) => {
         const start = pose.binderIndex * ITEMS_PER_BINDER;
         for (const r of records.slice(start, start + CARDS_PER_SHEET)) {
@@ -369,6 +398,7 @@ export default function VendorHallBinders({
         <Suspense fallback={null}>
           <OpenHallBinder
             pose={poses[openIdx]}
+            fetchInventory={fetchInventory}
             suspended={suspended}
             onInspect={onInspect}
             onClosed={handleClosed}

@@ -1,9 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { saveVendorBanner, getVendorBanners, deleteVendorBanner } from './db';
+import {
+  saveVendorBanner,
+  getVendorBanners,
+  deleteVendorBanner,
+  deleteAllVendorBanners,
+} from './db';
 
 /**
  * Per-vendor banner images (settings slots `vendorBanner:<id>`), loaded as a
  * map of object URLs. Same blob↔URL lifecycle as useBanner, many slots.
+ * Legacy (pre-vendor-entity) — local-only forever, bypasses the provider.
  */
 export function useVendorBanners() {
   const [bannerUrls, setBannerUrls] = useState<Map<string, string>>(new Map());
@@ -37,5 +43,11 @@ export function useVendorBanners() {
     await reload();
   }, [reload]);
 
-  return { bannerUrls, addVendorBanner, removeVendorBanner, reload };
+  /** Drop every legacy slot — they belong to the current plan image. */
+  const clearAll = useCallback(async () => {
+    await deleteAllVendorBanners();
+    await reload();
+  }, [reload]);
+
+  return { bannerUrls, addVendorBanner, removeVendorBanner, clearAll, reload };
 }

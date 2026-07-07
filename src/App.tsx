@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { deleteAllVendorBanners } from './lib/db';
+import { useProvider } from './lib/provider/context';
 import { useCards } from './lib/useCards';
 import type { CardWithUrl } from './lib/useCards';
 import { useBanner } from './lib/useBanner';
@@ -18,6 +18,7 @@ type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk' | 'vendors';
 
 export default function App() {
   const [view, setView] = useState<View>('home');
+  const provider = useProvider();
   const { cards, loading, addCard, removeCard } = useCards();
   const { bannerUrl, setBanner, removeBanner } = useBanner();
   const vendorPlan = useVendorPlan();
@@ -56,17 +57,15 @@ export default function App() {
   // Legacy per-box banner slots belong to the current plan image — replacing
   // or clearing the plan drops them all
   const { setPlan, clearPlan } = vendorPlan;
-  const { reload: reloadVendorBanners } = vendorBanners;
+  const { clearAll: clearVendorBanners, reload: reloadVendorBanners } = vendorBanners;
   const handleSetPlan = useCallback(async (file: File) => {
-    await deleteAllVendorBanners();
+    await clearVendorBanners();
     await setPlan(file);
-    await reloadVendorBanners();
-  }, [setPlan, reloadVendorBanners]);
+  }, [clearVendorBanners, setPlan]);
   const handleClearPlan = useCallback(async () => {
-    await deleteAllVendorBanners();
+    await clearVendorBanners();
     await clearPlan();
-    await reloadVendorBanners();
-  }, [clearPlan, reloadVendorBanners]);
+  }, [clearVendorBanners, clearPlan]);
 
   // Saved plan snapshots; loading one replaces the working slots, so both
   // working-copy hooks reload afterwards
@@ -112,6 +111,7 @@ export default function App() {
       <VendorSetupScreen
         planUrl={vendorPlan.planUrl}
         planMeta={vendorPlan.planMeta}
+        getPlanBlob={vendorPlan.getPlanBlob}
         onSetPlan={handleSetPlan}
         onSaveMeta={vendorPlan.saveMeta}
         onClearPlan={handleClearPlan}
@@ -135,6 +135,7 @@ export default function App() {
         bannerUrl={bannerUrl}
         vendorBannerUrls={vendorBanners.bannerUrls}
         vendors={vendors.vendors}
+        fetchInventory={provider.getInventoryItems}
         onBack={() => setView('vendorSetup')}
       />
     );

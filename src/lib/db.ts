@@ -123,7 +123,8 @@ function getDB() {
 
 // Downscale large uploads — full-resolution photos become huge GPU textures,
 // which slows scene load and can crash the WebGL context on weaker GPUs.
-async function downscaleImage(file: File, maxDim = 1600): Promise<Blob> {
+// Exported: the remote provider runs the same pipeline before Storage uploads.
+export async function downscaleImage(file: File, maxDim = 1600): Promise<Blob> {
   try {
     const bmp = await createImageBitmap(file);
     const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));

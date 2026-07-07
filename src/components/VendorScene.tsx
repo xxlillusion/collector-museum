@@ -7,6 +7,7 @@ import VendorRoom from './VendorRoom';
 import VendorTables from './VendorTables';
 import type { VendorDrapeInfo } from './VendorTables';
 import VendorHallBinders from './VendorHallBinders';
+import type { FetchInventory } from './VendorHallBinders';
 import GalleryControls, { isTouchDevice } from './GalleryControls';
 import type { Collider } from './GalleryControls';
 import MobileControls from './MobileControls';
@@ -26,6 +27,9 @@ interface VendorSceneProps {
   bannerUrl: string | null;
   vendorBannerUrls: Map<string, string>;
   vendors: VendorSummary[];
+  /** Inventory reads for the hall binders — threaded as a prop because React
+   *  context does not cross the R3F Canvas root (see VendorHallBinders). */
+  fetchInventory: FetchInventory;
   onBack: () => void;
 }
 
@@ -152,7 +156,7 @@ function tableColliders(tables: TablePlacement[]): Collider[] {
   });
 }
 
-export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, onBack }: VendorSceneProps) {
+export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, onBack }: VendorSceneProps) {
   const [locked, setLocked] = useState(false);
   const [binderOpen, setBinderOpen] = useState(false);
   const [binderPrompt, setBinderPrompt] = useState(false);
@@ -310,6 +314,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
           <VendorHallBinders
             tables={tables}
             inventoryCounts={inventoryCounts}
+            fetchInventory={fetchInventory}
             suspended={!!inspect}
             onPromptChange={setBinderPrompt}
             onOpenChange={setBinderOpen}

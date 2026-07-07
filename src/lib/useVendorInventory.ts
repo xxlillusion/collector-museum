@@ -1,11 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import {
-  saveInventoryItem,
-  getInventoryItems,
-  updateInventoryItem,
-  deleteInventoryItem,
-} from './db';
 import type { InventoryItemRecord } from './db';
+import { useProvider } from './provider/context';
 
 export interface InventoryItemWithUrl extends InventoryItemRecord {
   imageUrl: string;
@@ -18,6 +13,7 @@ export interface InventoryItemWithUrl extends InventoryItemRecord {
  * URLs are revoked on vendor switch and unmount.
  */
 export function useVendorInventory(vendorId: string | null) {
+  const provider = useProvider();
   const [items, setItems] = useState<InventoryItemWithUrl[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -30,13 +26,13 @@ export function useVendorInventory(vendorId: string | null) {
       return;
     }
     setLoading(true);
-    const records = await getInventoryItems(vendorId);
+    const records = await provider.getInventoryItems(vendorId);
     setItems((prev) => {
       prev.forEach((i) => URL.revokeObjectURL(i.imageUrl));
       return records.map((r) => ({ ...r, imageUrl: URL.createObjectURL(r.imageBlob) }));
     });
     setLoading(false);
-  }, [vendorId]);
+  }, [provider, vendorId]);
 
   useEffect(() => {
     reload();
@@ -51,26 +47,26 @@ export function useVendorInventory(vendorId: string | null) {
   const addItems = useCallback(async (files: File[]) => {
     if (!vendorId) return;
     for (const file of files) {
-      if (file.type.startsWith('image/')) await saveInventoryItem(vendorId, file);
+      if (file.type.startsWith('image/')) await provider.saveInventoryItem(vendorId, file);
     }
     await reload();
-  }, [vendorId, reload]);
+  }, [provider, vendorId, reload]);
 
   /** Persists and patches local state — no reload, so object URLs survive. */
   const setCaption = useCallback(async (id: string, caption: string) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, caption } : i)));
-    await updateInventoryItem(id, { caption });
-  }, []);
+    await provider.updateInventoryItem(id, { caption });
+  }, [provider]);
 
   const setVisible = useCallback(async (id: string, visible: boolean) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, visible } : i)));
-    await updateInventoryItem(id, { visible });
-  }, []);
+    await provider.updateInventoryItem(id, { visible });
+  }, [provider]);
 
   const removeItem = useCallback(async (id: string) => {
-    await deleteInventoryItem(id);
+    await provider.deleteInventoryItem(id);
     await reload();
-  }, [reload]);
+  }, [provider, reload]);
 
   return { items, loading, reload, addItems, setCaption, setVisible, removeItem };
 }

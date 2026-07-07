@@ -33,10 +33,15 @@ export default function SignupScreen() {
     e.preventDefault();
     setError(null);
     setBusy(true);
-    const { error: err } = await signUp(email.trim(), password);
-    setBusy(false);
-    if (err) setError(err);
-    else setSubmitted(true); // session effect handles the redirect if auto-confirmed
+    try {
+      const { error: err } = await signUp(email.trim(), password);
+      if (err) setError(err);
+      else setSubmitted(true); // session effect handles the redirect if auto-confirmed
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

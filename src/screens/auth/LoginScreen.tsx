@@ -80,10 +80,15 @@ export default function LoginScreen() {
     e.preventDefault();
     setError(null);
     setBusy(true);
-    const { error: err } = await signIn(email.trim(), password);
-    setBusy(false);
-    if (err) setError(err);
-    else navigate('/');
+    try {
+      const { error: err } = await signIn(email.trim(), password);
+      if (err) setError(err);
+      else navigate('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

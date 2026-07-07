@@ -64,12 +64,19 @@ export function NotConfiguredNote() {
 
 // Owned by the accounts workstream (Stream A).
 export default function LoginScreen() {
-  const { configured, session, signIn } = useAuth();
+  const { configured, session, signIn, resetPassword } = useAuth();
   const [, navigate] = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // ---- forgot-password (inline) ----
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   // Already signed in (or just signed in) — go home.
   useEffect(() => {
@@ -91,51 +98,128 @@ export default function LoginScreen() {
     }
   }
 
+  async function onReset(e: FormEvent) {
+    e.preventDefault();
+    setResetError(null);
+    setResetBusy(true);
+    try {
+      const { error: err } = await resetPassword(resetEmail.trim());
+      if (err) setResetError(err);
+      else setResetSent(true);
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
   return (
     <PageShell title="Sign In">
       {!configured ? (
         <NotConfiguredNote />
       ) : (
-        <form onSubmit={onSubmit} style={{ maxWidth: 420 }}>
-          <div style={{ marginBottom: 18 }}>
-            <label htmlFor="login-email" style={authLabelStyle}>
-              EMAIL
-            </label>
-            <input
-              id="login-email"
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={authInputStyle}
-            />
-          </div>
-          <div style={{ marginBottom: 24 }}>
-            <label htmlFor="login-password" style={authLabelStyle}>
-              PASSWORD
-            </label>
-            <input
-              id="login-password"
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={authInputStyle}
-            />
-          </div>
-          <button type="submit" disabled={busy} style={{ ...authButtonStyle, opacity: busy ? 0.6 : 1 }}>
-            {busy ? 'SIGNING IN…' : 'SIGN IN →'}
-          </button>
-          {error && <p style={authErrorStyle}>{error}</p>}
+        <div style={{ maxWidth: 420 }}>
+          <form onSubmit={onSubmit}>
+            <div style={{ marginBottom: 18 }}>
+              <label htmlFor="login-email" style={authLabelStyle}>
+                EMAIL
+              </label>
+              <input
+                id="login-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={authInputStyle}
+              />
+            </div>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <label htmlFor="login-password" style={authLabelStyle}>
+                  PASSWORD
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotOpen((open) => !open);
+                    if (!forgotOpen && !resetEmail) setResetEmail(email);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    fontFamily: 'inherit',
+                    fontSize: 12,
+                    color: GOLD,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <input
+                id="login-password"
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={authInputStyle}
+              />
+            </div>
+            <button type="submit" disabled={busy} style={{ ...authButtonStyle, opacity: busy ? 0.6 : 1 }}>
+              {busy ? 'SIGNING IN…' : 'SIGN IN →'}
+            </button>
+            {error && <p style={authErrorStyle}>{error}</p>}
+          </form>
+
+          {forgotOpen && (
+            <div style={{ marginTop: 28, paddingTop: 22, borderTop: `1px solid ${HAIRLINE}` }}>
+              {resetSent ? (
+                <p style={{ margin: 0, fontSize: 15, lineHeight: 1.65, color: '#e8e0d0' }}>
+                  Check your email for a reset link.
+                </p>
+              ) : (
+                <form onSubmit={onReset}>
+                  <p style={{ margin: '0 0 14px', fontSize: 14, lineHeight: 1.6, color: MUTED }}>
+                    Enter your account email and we&rsquo;ll send you a link to set a new
+                    password.
+                  </p>
+                  <div style={{ marginBottom: 16 }}>
+                    <label htmlFor="reset-email" style={authLabelStyle}>
+                      EMAIL
+                    </label>
+                    <input
+                      id="reset-email"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      style={authInputStyle}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={resetBusy}
+                    style={{ ...authButtonStyle, opacity: resetBusy ? 0.6 : 1 }}
+                  >
+                    {resetBusy ? 'SENDING…' : 'SEND RESET LINK →'}
+                  </button>
+                  {resetError && <p style={authErrorStyle}>{resetError}</p>}
+                </form>
+              )}
+            </div>
+          )}
+
           <p style={{ marginTop: 28, fontSize: 14, color: MUTED }}>
             New to the museum?{' '}
             <Link href="/signup" style={{ color: GOLD }}>
               Create an account →
             </Link>
           </p>
-        </form>
+        </div>
       )}
     </PageShell>
   );

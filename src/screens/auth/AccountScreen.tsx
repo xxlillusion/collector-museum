@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
-import { useLocation } from 'wouter';
+import type { CSSProperties, FormEvent } from 'react';
+import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
-import { supabase } from '../../lib/supabase';
+import {
+  getMyProfile,
+  updateMyProfile,
+  getMyVendor,
+  ensureCanonicalVendor,
+  updateMyVendorSettings,
+} from '../../lib/profileService';
+import type { ProfileRecord, MyVendorRecord } from '../../lib/profileService';
+import { COUNTRIES, regionOptions } from '../../lib/locations';
 import {
   readLocalSnapshot,
   importLocalData,
@@ -36,6 +44,50 @@ const sectionTitleStyle: CSSProperties = {
   letterSpacing: '0.22em',
   color: GOLD,
 };
+
+const ghostButtonStyle: CSSProperties = {
+  background: 'transparent',
+  color: GOLD,
+  border: `1px solid ${HAIRLINE}`,
+  padding: '11px 30px',
+  fontSize: 12,
+  letterSpacing: '0.16em',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  borderRadius: 2,
+};
+
+const checkLabelStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 12,
+  fontSize: 15,
+  color: '#e8e0d0',
+  cursor: 'pointer',
+};
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function StatusLine({ status, error }: { status: SaveStatus; error?: string | null }) {
+  return (
+    <p
+      style={{
+        margin: '6px 0 0',
+        fontSize: 12,
+        color: status === 'error' ? '#e0967e' : MUTED,
+        minHeight: 15,
+      }}
+    >
+      {status === 'saving' && 'Saving…'}
+      {status === 'saved' && 'Saved.'}
+      {status === 'error' && (error || 'Could not save — try again.')}
+    </p>
+  );
+}
 
 function ImportRow({
   label,
@@ -77,13 +129,51 @@ function ImportRow({
 
 // Owned by the accounts workstream (Stream A).
 export default function AccountScreen() {
-  const { configured, session, loading, signOut } = useAuth();
+  const { configured, session, loading, signOut, updatePassword } = useAuth();
   const [, navigate] = useLocation();
   const userId = session?.user.id ?? null;
 
-  // ---- profile (display name persists to `profiles`) ----
+  // ---- profile (loaded once via profileService; sections edit slices of it) ----
+  const [profile, setProfile] = useState<ProfileRecord | null>(null);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+
+  // ---- display name ----
   const [displayName, setDisplayName] = useState('');
-  const [nameStatus, setNameStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [nameStatus, setNameStatus] = useState<SaveStatus>('idle');
+
+  // ---- location & bio ----
+  const [country, setCountry] = useState<string | null>(null);
+  const [stateRegion, setStateRegion] = useState<string | null>(null);
+  const [city, setCity] = useState('');
+  const [bio, setBio] = useState('');
+  const [locStatus, setLocStatus] = useState<SaveStatus>('idle');
+  const [locError, setLocError] = useState<string | null>(null);
+
+  // ---- change password ----
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwDone, setPwDone] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+
+  // ---- organizer / collection toggles ----
+  const [orgStatus, setOrgStatus] = useState<SaveStatus>('idle');
+  const [orgError, setOrgError] = useState<string | null>(null);
+  const [collStatus, setCollStatus] = useState<SaveStatus>('idle');
+  const [collError, setCollError] = useState<string | null>(null);
+
+  // ---- canonical vendor (vendor accounts) ----
+  const [vendor, setVendor] = useState<MyVendorRecord | null>(null);
+  const [vendorLoading, setVendorLoading] = useState(false);
+  const [vendorLoadError, setVendorLoadError] = useState<string | null>(null);
+  const [vendorName, setVendorName] = useState('');
+  const [areaServed, setAreaServed] = useState('');
+  const [vendorStatus, setVendorStatus] = useState<SaveStatus>('idle');
+  const [vendorSaveError, setVendorSaveError] = useState<string | null>(null);
+
+  // ---- become a vendor (collectors) ----
+  const [becoming, setBecoming] = useState(false);
+  const [becomeError, setBecomeError] = useState<string | null>(null);
 
   // ---- import wizard ----
   const [snapshot, setSnapshot] = useState<LocalSnapshot | null>(null);
@@ -102,23 +192,59 @@ export default function AccountScreen() {
     if (configured && !loading && !session) navigate('/login');
   }, [configured, loading, session, navigate]);
 
-  // Load the profile's display name.
+  // Load the full profile (display name, location, bio, flags).
   useEffect(() => {
-    if (!userId || !supabase) return;
+    if (!userId) return;
     let cancelled = false;
-    supabase
-      .from('profiles')
-      .select('display_name')
-      .eq('id', userId)
-      .maybeSingle()
-      .then(({ data }) => {
-        const name = (data as { display_name: string } | null)?.display_name;
-        if (!cancelled && name) setDisplayName(name);
+    getMyProfile(userId)
+      .then((p) => {
+        if (cancelled) return;
+        if (!p) {
+          setProfileLoadError('Could not load your profile — try reloading the page.');
+          return;
+        }
+        setProfile(p);
+        setDisplayName(p.displayName);
+        setCountry(p.country);
+        setStateRegion(p.state);
+        setCity(p.city ?? '');
+        setBio(p.bio);
+      })
+      .catch((err) => {
+        if (!cancelled) setProfileLoadError(errMsg(err));
       });
     return () => {
       cancelled = true;
     };
   }, [userId]);
+
+  // Load (or lazily create, for legacy accounts) the canonical vendor row.
+  const accountType = profile?.accountType ?? null;
+  useEffect(() => {
+    if (!userId || accountType !== 'vendor') return;
+    let cancelled = false;
+    setVendorLoading(true);
+    setVendorLoadError(null);
+    (async () => {
+      try {
+        let v = await getMyVendor(userId);
+        if (!v) v = await ensureCanonicalVendor(userId, profile?.displayName ?? '');
+        if (!cancelled) {
+          setVendor(v);
+          setVendorName(v.name);
+          setAreaServed(v.areaServed);
+        }
+      } catch (err) {
+        if (!cancelled) setVendorLoadError(errMsg(err));
+      } finally {
+        if (!cancelled) setVendorLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- displayName is only a creation fallback
+  }, [userId, accountType]);
 
   // Count what the guest (local IndexedDB) side holds.
   useEffect(() => {
@@ -142,14 +268,152 @@ export default function AccountScreen() {
   }, []);
 
   const saveDisplayName = useCallback(async () => {
-    if (!userId || !supabase) return;
+    if (!userId) return;
     setNameStatus('saving');
-    const { error } = await supabase
-      .from('profiles')
-      .update({ display_name: displayName.trim() })
-      .eq('id', userId);
-    setNameStatus(error ? 'error' : 'saved');
+    try {
+      const trimmed = displayName.trim();
+      await updateMyProfile(userId, { displayName: trimmed });
+      setProfile((p) => (p ? { ...p, displayName: trimmed } : p));
+      setNameStatus('saved');
+    } catch {
+      setNameStatus('error');
+    }
   }, [userId, displayName]);
+
+  const saveLocation = useCallback(
+    async (patch: Partial<Pick<ProfileRecord, 'country' | 'state' | 'city' | 'bio'>>) => {
+      if (!userId) return;
+      setLocStatus('saving');
+      setLocError(null);
+      try {
+        await updateMyProfile(userId, patch);
+        setProfile((p) => (p ? { ...p, ...patch } : p));
+        setLocStatus('saved');
+      } catch (err) {
+        setLocStatus('error');
+        setLocError(errMsg(err));
+      }
+    },
+    [userId],
+  );
+
+  function onCountryChange(nextRaw: string) {
+    const next = nextRaw || null;
+    setCountry(next);
+    // Keep the region only when it exists in the new country's list.
+    const keep = next !== null && regionOptions(next).some((r) => r.code === stateRegion);
+    const nextState = keep ? stateRegion : null;
+    setStateRegion(nextState);
+    void saveLocation({ country: next, state: nextState });
+  }
+
+  async function onChangePassword(e: FormEvent) {
+    e.preventDefault();
+    setPwError(null);
+    setPwDone(false);
+    if (newPw.length < 6) {
+      setPwError('Password must be at least 6 characters.');
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setPwError('Passwords do not match.');
+      return;
+    }
+    setPwBusy(true);
+    try {
+      const { error: err } = await updatePassword(newPw);
+      if (err) setPwError(err);
+      else {
+        setPwDone(true);
+        setNewPw('');
+        setConfirmPw('');
+      }
+    } catch (err) {
+      setPwError(errMsg(err));
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  async function toggleOrganizer(next: boolean) {
+    if (!userId || !profile) return;
+    const prev = profile.isOrganizer;
+    setProfile({ ...profile, isOrganizer: next });
+    setOrgStatus('saving');
+    setOrgError(null);
+    try {
+      await updateMyProfile(userId, { isOrganizer: next });
+      setOrgStatus('saved');
+    } catch (err) {
+      setProfile((p) => (p ? { ...p, isOrganizer: prev } : p));
+      setOrgStatus('error');
+      setOrgError(errMsg(err));
+    }
+  }
+
+  async function toggleCollectionPublic(next: boolean) {
+    if (!userId || !profile) return;
+    const prev = profile.collectionPublic;
+    setProfile({ ...profile, collectionPublic: next });
+    setCollStatus('saving');
+    setCollError(null);
+    try {
+      await updateMyProfile(userId, { collectionPublic: next });
+      setCollStatus('saved');
+    } catch (err) {
+      setProfile((p) => (p ? { ...p, collectionPublic: prev } : p));
+      setCollStatus('error');
+      setCollError(errMsg(err));
+    }
+  }
+
+  const saveVendor = useCallback(
+    async (patch: Partial<Omit<MyVendorRecord, 'id'>>) => {
+      if (!vendor) return;
+      const prev = vendor;
+      setVendor({ ...vendor, ...patch });
+      setVendorStatus('saving');
+      setVendorSaveError(null);
+      try {
+        await updateMyVendorSettings(vendor.id, patch);
+        setVendorStatus('saved');
+      } catch (err) {
+        setVendor(prev);
+        setVendorStatus('error');
+        setVendorSaveError(errMsg(err));
+      }
+    },
+    [vendor],
+  );
+
+  function onVendorCountryChange(nextRaw: string) {
+    if (!vendor) return;
+    const next = nextRaw || null;
+    const keep = next !== null && regionOptions(next).some((r) => r.code === vendor.state);
+    void saveVendor({ country: next, state: keep ? vendor.state : null });
+  }
+
+  async function becomeVendor() {
+    if (!userId || !profile) return;
+    const ok = window.confirm(
+      'Become a vendor? Your account gains a vendor profile that appears in the vendor directory and show booth assignments.',
+    );
+    if (!ok) return;
+    setBecoming(true);
+    setBecomeError(null);
+    try {
+      await updateMyProfile(userId, { accountType: 'vendor' });
+      const v = await ensureCanonicalVendor(userId, profile.displayName || displayName);
+      setVendor(v);
+      setVendorName(v.name);
+      setAreaServed(v.areaServed);
+      setProfile({ ...profile, accountType: 'vendor' });
+    } catch (err) {
+      setBecomeError(errMsg(err));
+    } finally {
+      setBecoming(false);
+    }
+  }
 
   async function runImport() {
     if (!userId || !snapshot) return;
@@ -161,7 +425,7 @@ export default function AccountScreen() {
       setImportDone(true);
       setProgress('');
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : String(err));
+      setImportError(errMsg(err));
     } finally {
       setImporting(false);
     }
@@ -187,6 +451,9 @@ export default function AccountScreen() {
     snapshot.vendors.length === 0 &&
     snapshot.plans.length === 0;
 
+  const regions = regionOptions(country);
+  const vendorRegions = regionOptions(vendor?.country ?? null);
+
   return (
     <PageShell title="My Account">
       <section style={sectionStyle}>
@@ -210,32 +477,319 @@ export default function AccountScreen() {
             onBlur={saveDisplayName}
             style={authInputStyle}
           />
-          <p style={{ margin: '6px 0 0', fontSize: 12, color: MUTED, minHeight: 15 }}>
-            {nameStatus === 'saving' && 'Saving…'}
-            {nameStatus === 'saved' && 'Saved.'}
-            {nameStatus === 'error' && 'Could not save — try again.'}
-          </p>
+          <StatusLine status={nameStatus} />
         </div>
         <button
           onClick={async () => {
             await signOut();
             navigate('/');
           }}
-          style={{
-            background: 'transparent',
-            color: GOLD,
-            border: `1px solid ${HAIRLINE}`,
-            padding: '11px 30px',
-            fontSize: 12,
-            letterSpacing: '0.16em',
-            fontFamily: 'inherit',
-            cursor: 'pointer',
-            borderRadius: 2,
-          }}
+          style={ghostButtonStyle}
         >
           SIGN OUT
         </button>
       </section>
+
+      {profileLoadError && (
+        <section style={sectionStyle}>
+          <p style={{ ...authErrorStyle, margin: 0 }}>{profileLoadError}</p>
+        </section>
+      )}
+      {!profile && !profileLoadError && (
+        <section style={sectionStyle}>
+          <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading profile…</p>
+        </section>
+      )}
+
+      {profile && (
+        <>
+          <section style={sectionStyle}>
+            <h2 style={sectionTitleStyle}>LOCATION &amp; BIO</h2>
+            <div style={{ maxWidth: 420 }}>
+              <div style={{ marginBottom: 18 }}>
+                <label htmlFor="account-country" style={authLabelStyle}>
+                  COUNTRY
+                </label>
+                <select
+                  id="account-country"
+                  value={country ?? ''}
+                  onChange={(e) => onCountryChange(e.target.value)}
+                  style={authInputStyle}
+                >
+                  <option value="">—</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {regions.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <label htmlFor="account-state" style={authLabelStyle}>
+                    {country === 'CA' ? 'PROVINCE' : 'STATE'}
+                  </label>
+                  <select
+                    id="account-state"
+                    value={stateRegion ?? ''}
+                    onChange={(e) => {
+                      const next = e.target.value || null;
+                      setStateRegion(next);
+                      void saveLocation({ state: next });
+                    }}
+                    style={authInputStyle}
+                  >
+                    <option value="">—</option>
+                    {regions.map((r) => (
+                      <option key={r.code} value={r.code}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div style={{ marginBottom: 18 }}>
+                <label htmlFor="account-city" style={authLabelStyle}>
+                  CITY
+                </label>
+                <input
+                  id="account-city"
+                  type="text"
+                  value={city}
+                  placeholder="e.g. Philadelphia"
+                  onChange={(e) => setCity(e.target.value)}
+                  onBlur={() => void saveLocation({ city: city.trim() || null })}
+                  style={authInputStyle}
+                />
+              </div>
+              <div>
+                <label htmlFor="account-bio" style={authLabelStyle}>
+                  BIO
+                </label>
+                <textarea
+                  id="account-bio"
+                  value={bio}
+                  placeholder="A few lines about you and what you collect"
+                  onChange={(e) => setBio(e.target.value)}
+                  onBlur={() => void saveLocation({ bio })}
+                  rows={4}
+                  style={{ ...authInputStyle, lineHeight: 1.6, resize: 'vertical' }}
+                />
+                <StatusLine status={locStatus} error={locError} />
+              </div>
+            </div>
+          </section>
+
+          {profile.accountType === 'vendor' ? (
+            <section style={sectionStyle}>
+              <h2 style={sectionTitleStyle}>MY VENDOR TABLE</h2>
+              {vendorLoadError ? (
+                <p style={{ ...authErrorStyle, margin: 0 }}>{vendorLoadError}</p>
+              ) : vendorLoading || !vendor ? (
+                <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading vendor profile…</p>
+              ) : (
+                <div style={{ maxWidth: 420 }}>
+                  <div style={{ marginBottom: 18 }}>
+                    <label htmlFor="vendor-name" style={authLabelStyle}>
+                      VENDOR NAME
+                    </label>
+                    <input
+                      id="vendor-name"
+                      type="text"
+                      value={vendorName}
+                      onChange={(e) => setVendorName(e.target.value)}
+                      onBlur={() => {
+                        const trimmed = vendorName.trim();
+                        if (!trimmed) {
+                          setVendorName(vendor.name); // never save an empty name
+                          return;
+                        }
+                        if (trimmed !== vendor.name) void saveVendor({ name: trimmed });
+                      }}
+                      style={authInputStyle}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 18 }}>
+                    <label htmlFor="vendor-country" style={authLabelStyle}>
+                      COUNTRY
+                    </label>
+                    <select
+                      id="vendor-country"
+                      value={vendor.country ?? ''}
+                      onChange={(e) => onVendorCountryChange(e.target.value)}
+                      style={authInputStyle}
+                    >
+                      <option value="">—</option>
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {vendorRegions.length > 0 && (
+                    <div style={{ marginBottom: 18 }}>
+                      <label htmlFor="vendor-state" style={authLabelStyle}>
+                        {vendor.country === 'CA' ? 'PROVINCE' : 'STATE'}
+                      </label>
+                      <select
+                        id="vendor-state"
+                        value={vendor.state ?? ''}
+                        onChange={(e) => void saveVendor({ state: e.target.value || null })}
+                        style={authInputStyle}
+                      >
+                        <option value="">—</option>
+                        {vendorRegions.map((r) => (
+                          <option key={r.code} value={r.code}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div style={{ marginBottom: 18 }}>
+                    <label htmlFor="vendor-area" style={authLabelStyle}>
+                      AREA SERVED
+                    </label>
+                    <input
+                      id="vendor-area"
+                      type="text"
+                      value={areaServed}
+                      placeholder='e.g. "Greater Philadelphia / tri-state shows"'
+                      onChange={(e) => setAreaServed(e.target.value)}
+                      onBlur={() => {
+                        const trimmed = areaServed.trim();
+                        if (trimmed !== vendor.areaServed) void saveVendor({ areaServed: trimmed });
+                      }}
+                      style={authInputStyle}
+                    />
+                  </div>
+                  <label style={checkLabelStyle}>
+                    <input
+                      type="checkbox"
+                      checked={vendor.inventoryPublic}
+                      onChange={(e) => void saveVendor({ inventoryPublic: e.target.checked })}
+                      style={{ accentColor: GOLD }}
+                    />
+                    <span>Show my inventory publicly</span>
+                  </label>
+                  <StatusLine status={vendorStatus} error={vendorSaveError} />
+                  <p style={{ margin: '14px 0 0', fontSize: 14, color: MUTED }}>
+                    <Link href={`/vendor/${vendor.id}`} style={{ color: GOLD }}>
+                      View my public vendor page →
+                    </Link>
+                  </p>
+                  <p style={{ margin: '8px 0 0', fontSize: 13, color: MUTED, lineHeight: 1.6 }}>
+                    Your inventory itself is managed in the Vendor Registry (home → Vendor
+                    Registry).
+                  </p>
+                </div>
+              )}
+            </section>
+          ) : (
+            <section style={sectionStyle}>
+              <h2 style={sectionTitleStyle}>BECOME A VENDOR</h2>
+              <p style={{ margin: '0 0 16px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
+                Sell cards? A vendor profile lists you in the vendor directory and lets
+                organizers assign you to show booths.
+              </p>
+              <button onClick={() => void becomeVendor()} disabled={becoming} style={ghostButtonStyle}>
+                {becoming ? 'SETTING UP…' : 'BECOME A VENDOR'}
+              </button>
+              {becomeError && <p style={authErrorStyle}>{becomeError}</p>}
+            </section>
+          )}
+
+          <section style={sectionStyle}>
+            <h2 style={sectionTitleStyle}>MY COLLECTION</h2>
+            <label style={checkLabelStyle}>
+              <input
+                type="checkbox"
+                checked={profile.collectionPublic}
+                onChange={(e) => void toggleCollectionPublic(e.target.checked)}
+                style={{ accentColor: GOLD }}
+              />
+              <span>Make my collection public</span>
+            </label>
+            <StatusLine status={collStatus} error={collError} />
+            {profile.collectionPublic && (
+              <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
+                <Link href={`/collector/${userId}`} style={{ color: GOLD }}>
+                  View my public collection page →
+                </Link>
+              </p>
+            )}
+          </section>
+
+          <section style={sectionStyle}>
+            <h2 style={sectionTitleStyle}>ORGANIZER</h2>
+            <label style={checkLabelStyle}>
+              <input
+                type="checkbox"
+                checked={profile.isOrganizer}
+                onChange={(e) => void toggleOrganizer(e.target.checked)}
+                style={{ accentColor: GOLD }}
+              />
+              <span>Organizer — I run card shows</span>
+            </label>
+            <StatusLine status={orgStatus} error={orgError} />
+            {profile.isOrganizer && (
+              <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
+                <Link href="/organizer" style={{ color: GOLD }}>
+                  Go to organizer tools →
+                </Link>
+              </p>
+            )}
+          </section>
+
+          <section style={sectionStyle}>
+            <h2 style={sectionTitleStyle}>CHANGE PASSWORD</h2>
+            <form onSubmit={onChangePassword} style={{ maxWidth: 420 }}>
+              <div style={{ marginBottom: 18 }}>
+                <label htmlFor="account-new-password" style={authLabelStyle}>
+                  NEW PASSWORD
+                </label>
+                <input
+                  id="account-new-password"
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  style={authInputStyle}
+                />
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <label htmlFor="account-confirm-password" style={authLabelStyle}>
+                  CONFIRM NEW PASSWORD
+                </label>
+                <input
+                  id="account-confirm-password"
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={confirmPw}
+                  onChange={(e) => setConfirmPw(e.target.value)}
+                  style={authInputStyle}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={pwBusy}
+                style={{ ...authButtonStyle, opacity: pwBusy ? 0.6 : 1 }}
+              >
+                {pwBusy ? 'UPDATING…' : 'UPDATE PASSWORD →'}
+              </button>
+              <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
+                {pwDone && 'Password updated.'}
+              </p>
+              {pwError && <p style={authErrorStyle}>{pwError}</p>}
+            </form>
+          </section>
+        </>
+      )}
 
       <section style={sectionStyle}>
         <h2 style={sectionTitleStyle}>BRING IN THIS BROWSER&rsquo;S COLLECTION</h2>

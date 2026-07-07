@@ -86,7 +86,7 @@ All uploads pass through `downscaleImage()` (≤1600px, WebP 0.92).
 | `HUD.tsx`             | Control hints (different text for touch), crosshair when locked, "Manage Cards" button                                                                                                                                                                                   |
 | `InspectOverlay.tsx`  | Full-screen card view (+ optional `caption` line — vendor inventory captions); any click (or Esc) closes it, and Scene then re-locks the pointer (best-effort — Chrome has a ~1s cooldown after exiting pointer lock, so it falls back to click-canvas-to-lock)          |
 | `HomeScreen.tsx`      | Museum-styled home (“Museum Refined” design, replaced the old UploadScreen 2026-07): card upload dropzone, framed collection grid with delete, tablecloth banner slot, saved-plan list with “Walk →” (loads snapshot via `onWalkPlan` then jumps straight to `vendorWalk`), “ON THE WALLS” collection picker (own cards vs any vendor with inventory → drives what `Scene` hangs), Enter Gallery / Walk a Card Show / Vendor Registry CTAs |
-| `Binder.tsx`          | The 3×3-pocket flip binder (18 cards per double-sided sheet). Parameterized for reuse: optional `restPose` (default = museum `BINDER_REST`) and `lazySheetWindow` (only sheets within ±window of the current spread carry card textures — hall passes 1, museum omits → unchanged). Exports `COVER_W/H/T` for the hall's instanced shells                                                                    |
+| `Binder.tsx`          | The 3×3-pocket flip binder (18 cards per double-sided sheet). Parameterized for reuse: optional `restPose` (default = museum `BINDER_REST`), `lazySheetWindow` (only sheets within ±window of the current spread carry card textures — hall passes 1, museum omits → unchanged) and `fillLight` (false = host scene owns the fill light; see gotcha 11). Sleeve textures come from `lib/sleeveTextures.ts`, not `useTexture`; pocket geometries/materials are module-level singletons shared by every pocket (per-pocket allocation used to stall the open animation). Only the **top sheet of each stack** renders its card content (+ the sheet in flight and the pages it reveals/covers, toggled per frame via face-group refs) — resting sheets sit ~x·FAN apart, less than the pocket content stack near the spine, so buried cards physically poked through the page above (seen as previous-page cards leaking into the spine-side column of the last page). Exports `COVER_W/H/T` for the hall's instanced shells, `CARDS_PER_SHEET` for prefetch, and `BinderMaterialWarmup` (five 1 mm never-culled triangles that pull the sheet/pocket shader programs through compile at scene load instead of first open)                                                                    |
 
 
 ### Layout algorithm (`computeLayout` in Scene.tsx)
@@ -170,11 +170,12 @@ bypasses the editor: it loads the snapshot into the working slots and goes direc
 | `lib/useVendorBanners.ts` | **Legacy** per-box banner blobs (settings slots `vendorBanner:<id>`) → `Map<id, objectURL>`. No upload UI anymore (vendor entities own banners now); kept so old saved plans still render their banners. Wiped on plan replace/clear; the old sweep-delete is gone |
 | `lib/useSavedPlans.ts` | Named plan snapshots (`plans` store, db v3): plan image blob + metaJson (+ optional `showDate`). `saveCurrentPlan(name, showDate?)` writes `banners: []` — vendors resolve live; legacy records with bundled banners still restore on load. Save = working→snapshot; Load = snapshot→working slots (raw `putFloorPlanBlob`, no re-downscale), then App reloads useVendorPlan + useVendorBanners |
 | `lib/useVendors.ts` | Vendor summaries (`VendorSummary`: banner URL + inventoryCount + manualShows) + CRUD incl. `addManualShow/removeManualShow`; `lib/useVendorInventory.ts` — lazy per-vendor items with URLs; `lib/vendorShows.ts` — `deriveShowsAttended` (see Vendors section) |
+| `lib/sleeveTextures.ts` | Shared binder sleeve texture cache (museum + hall): decodes card/inventory **blobs** via `createImageBitmap` (off main thread, `imageOrientation:'flipY'` + `texture.flipY=false`, resized to a 512px cap — pockets are small; InspectOverlay still uses the full-res object URL), keyed by item id (images are immutable per id). Entries are **refcounted** by mounted `SleeveCard`s (`acquireSleeveTexture`/release); LRU eviction past 120 entries only touches unpinned entries, so an open binder can't lose a displayed texture. `prefetchSleeveTexture` warms without pinning. Uploaded via `gl.initTexture` off the render path |
 | `PlanEditor.tsx` | `<img>` + SVG overlay, `viewBox` = stored-image px (browser scales; zero resize math). Modes: select / add / calibrate / setStart. Select/move/resize (corner handles)/delete (✕ or Backspace)/**rotate** (handle above the box, 15° snap, Shift = free; whole `<g>` gets `transform=rotate(deg cx cy)` so handles ride along; resize runs in the rect's local frame then re-anchors the fixed corner in world space), “Add table” draw mode, calibration line drag (→ `onCalibrateLine(px)`), start-marker click (→ `onStartChange`), `onSelectionChange` feeds the vendor-assignment panel. Live subdivision preview: dashed grid lines per box from the shared `boxGrid` (pointerEvents none), label shows `R×C · N tables` + the assigned vendor's name (gold italic, via `vendorNames` map prop). Pointer capture guarded in try/catch. Controlled; parent debounce-persists (500ms) |
 | `VendorSetupScreen.tsx` | Upload/detect/edit wrapper; scale readout (“hall ≈ W×D m · N boxes → M tables”, “· calibrated” when manual), **table-size toggle (6 ft / 8 ft)** in the readout row — updates `meta.tableLengthFt` and re-derives an *inferred* scale from the current rects via `inferScale` (manual calibration never touched); Re-detect (**preserves manual scale + table size**), Replace image, calibration popover (m/ft → pxPerMeter), per-box **vendor-assignment panel** (dropdown of vendors + quick-create-and-assign + unassign; replaced the old banner-upload panel), Saved Plans section (save with optional show date /load/delete; flushes the debounce before snapshotting) |
 | `VendorRoom.tsx` | Parameterized `{width, depth, height}` hall shell (reflector floor 512/256, walls, baseboards, hemi+ambient). Room.tsx deliberately untouched |
 | `VendorTables.tsx` | **Instanced**: 6 shared parts (board, merged legs, cloth top, back/side drapes) = one `instancedMesh` each over all tables, plus **one front-drape `instancedMesh` per unique texture group**. Group key chain: vendor banner (`vb:<id>`) → vendor name-on-cloth (`vn:<id>`, `makeNameTexture`) → legacy `bannerId` URL → global banner → plain cloth. Draw calls grow with unique vendors, never with tables. Matrices = table world transform (incl. per-table `sx/sz` stretch, so part offsets ride to the stretched edges) × part local offset, set in `useLayoutEffect` (+ `computeBoundingSphere`) — deps are `[tables, spec]` **on purpose**: a material change makes R3F recreate the mesh via `args`, and the fresh mesh needs its matrices re-set (drapes silently vanish otherwise) |
-| `VendorHallBinders.tsx` | Inventory binders on assigned tables (see Vendors section): `computeBinderPoses` (booth grouping by `rectId`, overflow spread, museum lie-flat pose re-based per table yaw), 2 instanced shell draws, proximity `useFrame` scan → HUD F-prompt, open = hide instance + mount `Binder` (own `Suspense` so texture mounts never suspend the hall) |
+| `VendorHallBinders.tsx` | Inventory binders on assigned tables (see Vendors section): `computeBinderPoses` (booth grouping by `rectId`, overflow spread, museum lie-flat pose re-based per table yaw), 2 instanced shell draws, proximity `useFrame` scan → HUD F-prompt, open = hide instance + mount `Binder` (own `Suspense` so texture mounts never suspend the hall, `fillLight={false}`). The prompt (and shell hover) **prefetches** the binder's first-spread sleeve textures (IDB read + `prefetchSleeveTexture`), so cards are usually decoded before F is pressed. Mounts a permanent intensity-0 `pointLight` (tucked in front of the camera + 0.35 while a binder is open — the light Binder would otherwise own) and a `BinderMaterialWarmup`, both so the first open never changes light count / compiles shaders (gotcha 11) |
 | `VendorScene.tsx` | Duplicates Scene.tsx’s Canvas props + `onCreated` **verbatim, on purpose** (see gotcha 9-adjacent comment in file). Hall lighting: 1 shadow directional (ortho fit to hall) + ≤6 warm aisle spots + emissive ceiling panels (bloom, zero light cost) = 9 lights total. Spawn = `meta.startPx` when set (clamped into hall, collider-nudged), else south wall. `tableColliders`: AABB for rotationY multiples of π/2, `RotatedBox` otherwise; half-extents follow each table's `sx/sz` stretch. Owns binder open/prompt state (freezes controls, hides minimap while open) + `InspectOverlay` with captions |
 | `Minimap.tsx` | Plan-image minimap, top-right under the Floor Plan button (`pointerEvents: none` — pointer-lock clicks pass through). `Minimap` (DOM, outside Canvas) + `MinimapTracker` (inside Canvas): `useFrame` writes the marker div's `style.transform` directly via a shared ref — zero React state per frame. u = (worldX + planW/2)·pxPerMeter/imgW (use planToLayout's clamped values); marker rotation = **−yaw** (camera faces (−sin yaw, −cos yaw) in image axes) |
 | `tableGeometry.ts` | Extracted cloth recipes (`makeTopGeometry`, `makeDrapeGeometry(width, phase)`, CLOTH_* constants), lazy shared singletons `getTableGeometries()` (incl. back drape phase 3.1 + `mergeGeometries` legs), `getClothMaterial()`, `makeBannerTexture(img)`, `makeNameTexture(name)` (canvas fillText — vendor name in cream-gold serif on cloth, same dims as the banner canvas so both drape identically). Table.tsx consumes these — museum visuals unchanged |
@@ -199,6 +200,52 @@ code verbatim — the museum's lazy defaults flow through it unchanged (push-out
 stops at x=8.57). Rotated boxes: transform the player into the box's local frame
 (world→local = rotate by −rotY), run the same axis-of-least-penetration push-out
 against ±hx/±hz, transform back.
+
+## Platform groundwork (Phase 0, 2026-07-06, branch `platform-phase0`)
+
+The app is evolving into a multi-user platform (public shows, vendor/collector/organizer
+accounts, Supabase backend) per the approved roadmap
+(`~/.claude/plans/direction-take-a-streamed-river.md`). Phase 0 landed the shared seams;
+three parallel workstreams build on them. **Frozen files** (streams code against, never
+edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record types.
+
+- **Provider seam** (`src/lib/provider/`): `DataProvider` interface mirrors db.ts 1:1;
+  `local.ts` = guest IndexedDB, `remote.ts` = Supabase stub (accounts stream fills it in —
+  images are **downloaded to Blobs** so hooks/sleeve textures stay backend-agnostic).
+  Floor-plan **working-slot methods delegate to local even in remote** (drafting is
+  local; a future Publish snapshots up). All hooks consume `useProvider()`; return
+  shapes unchanged. `root.tsx` picks the provider from the auth session and remounts the
+  data subtree via `key` on identity change (never hot-swap provider state). Legacy
+  `vendorBanner:*` slots stay direct-db in `useVendorBanners`/`useSavedPlans` on purpose.
+- **Context does NOT cross the R3F Canvas root** — hall inventory reads are the
+  `fetchInventory` prop (App → VendorScene → VendorHallBinders; feeds both the prompt
+  prefetch and the open binder). Re-detect reads the plan via
+  `useVendorPlan().getPlanBlob` → prop.
+- **Routing** (`wouter`): `src/routes.tsx` is the frozen route table; every future
+  screen is pre-stubbed lazy under `src/screens/` (auth/* = accounts stream, vendor/* =
+  vendor portal, shows/* + organizer/* = shows stream; `PageShell` is shared chrome).
+  Default route = App's original view union; canvases stay outside route transitions.
+- **Code splitting**: Scene / VendorScene / VendorSetupScreen are `React.lazy` — entry
+  chunk 341 kB (98 kB gz); the ~1.07 MB three.js bundle loads only for 3D views. Don't
+  add eager imports from screens into anything that pulls three.
+- **Supabase**: `supabase/migrations/0001_init.sql` (profiles + auto-create trigger,
+  vendors, inventory_items, shows, booths — rect jsonb + vendor FK —, collections; RLS
+  everywhere; buckets banners/inventory/plans public + cards private) + `0002` (storage
+  policies rewritten subquery-free). `src/lib/supabase.ts` is env-guarded:
+  **no `VITE_SUPABASE_*` in `.env.local` = guest-only mode, auth UI hidden, no Supabase
+  project needed for local dev**. `src/lib/auth.tsx` = AuthContext (session restore,
+  sign in/up/out).
+- **Storage gotchas (hard-won, live-verified 2026-07-06)**: (1) storage.objects
+  policies that subquery public tables (vendors/shows ownership) are NOT reliably
+  evaluated by the storage service — legitimate owners get 403 on upload while the
+  identical subquery passes as a table policy. Every object path therefore starts with
+  the OWNER's uid and write policies are plain
+  `(storage.foldername(name))[1] = auth.uid()::text` prefix checks; readers use the
+  stored `*_path` columns, never reconstructed paths. (2) `upsert: true` on
+  `storage.upload()` 403s on buckets without a SELECT policy even for new objects —
+  `uploadImage` never sends upsert; overwrites are always removeImage-then-uploadImage
+  (`replaceImage`). (3) Blind `storage.download()` of a maybe-missing object logs a 400
+  console error — existence-check first (see remote.ts getBanner).
 
 ## Gotchas (hard-won, don't rediscover)
 
@@ -235,6 +282,12 @@ against ±hx/±hz, transform back.
   `events.connect`, crosshair `compute`, and context-loss remount are timing-sensitive
   (gotchas 3 & 8). Change one, change both; do not “refactor” them into a shared wrapper
   casually.
+11. **Never mount/unmount a light at runtime** (or toggle `light.visible`) — changing the
+  scene's light count makes three.js recompile **every** material in the scene. The binder's
+  conditional `{open && <pointLight/>}` fill light froze the hall for ~3s on first open
+  (reflector + cloth + drape shaders all recompiled; reopen was fine because programs
+  cache). Keep lights permanently mounted and animate `intensity` (0 = off) instead —
+  that's why Binder's fill light and the hall's binder light always exist.
 
 ## State / where things stand (2026-07-04, branch `floorplanGeneration`)
 
@@ -293,6 +346,35 @@ against ±hx/±hz, transform back.
   restored, museum walls with 12 vendor items, My-Collection + legacy-plan regressions.
   Design decision: accounts/backend expected later — records are self-contained with
   stable UUIDs, `visible` is future-proofing, nothing else anticipates sync.
+- **Binder perf + last-page fix shipped** (2026-07-06, browser-verified in hall + museum):
+  user reported laggy open animation, 3–5s grey sleeves, and previous-page cards leaking
+  into the last page's spine-side column. Fixes: `lib/sleeveTextures.ts` (512px ImageBitmap
+  cache, prefetch at prompt/hover), shared pocket geometry/materials, always-mounted fill
+  lights + `BinderMaterialWarmup` (gotcha 11 — first open recompiled every hall shader),
+  and top-of-stack-only card faces (the leak was physical poke-through at x·FAN gaps).
+  Measured headless: first-open max frame gap 3212ms → 392ms (SwiftShader), warm reopen
+  fully drawn at +700ms, last page clean in both scenes. A `.claude/skills/verify` skill
+  now records the headless drive recipe (minimap-based navigation etc.).
+- **Platform Phase 0 shipped** (2026-07-06, branch `platform-phase0`, headless-verified
+  M0 PASS: home, route stubs, card upload, gallery walk, vendor+inventory, plan
+  detect/assign/save, hall walk, F-open binder through the new fetchInventory prop with
+  textures confirmed, close/shell-restore, saved-plan Walk→ — zero console errors):
+  provider seam + wouter routes + lazy 3D chunks + Supabase schema/auth plumbing (see
+  "Platform groundwork" section). Next: three parallel streams — (A) accounts/collector:
+  fills `provider/remote.ts` + `screens/auth/*` + import wizard; (B) vendor portal:
+  `VendorsScreen`, `useVendors`/`useVendorInventory`, `screens/vendor/*`; (C) shows:
+  `VendorSetupScreen` publish, `screens/shows/*` + `organizer/*`, seed script. Going
+  live needs a Supabase project + `.env.local`; guest mode works without one.
+- **All three streams shipped + LIVE-verified** (2026-07-07, merged on `platform-phase0`,
+  17/17 guest regression + 17/17 live E2E, zero console errors, against the user's real
+  Supabase project — email provider ON, confirm-email OFF): guest seed → signup (instant
+  session) → cloud card add persists across reload → import wizard round-trips 2 cards +
+  1 vendor + 3 items → cloud vendor in registry with public-page link → booth assignment
+  → Publish to Card Shows → sign out → anonymous /shows lists it → /show/:id detail →
+  3D walk from remote data (canvas + minimap) → F-open binder shows the vendor's cloud
+  inventory → anonymous /vendor/:id renders visible inventory + "Appearing at". A demo
+  "Live Smoke Show" + "Live Vendor" (test account jason.a.dale2+live2917@gmail.com)
+  remain in the project as browsable seed data.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

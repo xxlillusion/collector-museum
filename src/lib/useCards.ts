@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { type CardRecord, saveCard, getCards, deleteCard } from './db';
+import type { CardRecord } from './db';
+import { useProvider } from './provider/context';
 
 export interface CardWithUrl extends CardRecord {
   imageUrl: string;
@@ -7,11 +8,12 @@ export interface CardWithUrl extends CardRecord {
 }
 
 export function useCards() {
+  const provider = useProvider();
   const [cards, setCards] = useState<CardWithUrl[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadCards = useCallback(async () => {
-    const records = await getCards();
+    const records = await provider.getCards();
     const withUrls = await Promise.all(
       records.map(async (r) => {
         let aspect = 2.5 / 3.5; // fall back to Pokemon card ratio
@@ -34,7 +36,7 @@ export function useCards() {
       return withUrls;
     });
     setLoading(false);
-  }, []);
+  }, [provider]);
 
   useEffect(() => {
     loadCards();
@@ -47,14 +49,14 @@ export function useCards() {
   }, [loadCards]);
 
   const addCard = useCallback(async (file: File) => {
-    await saveCard(file);
+    await provider.saveCard(file);
     await loadCards();
-  }, [loadCards]);
+  }, [provider, loadCards]);
 
   const removeCard = useCallback(async (id: string) => {
-    await deleteCard(id);
+    await provider.deleteCard(id);
     await loadCards();
-  }, [loadCards]);
+  }, [provider, loadCards]);
 
   return { cards, loading, addCard, removeCard };
 }

@@ -1,16 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import {
-  savePlanRecord,
-  getPlanRecords,
-  deletePlanRecord,
-  getFloorPlan,
-  getPlanMetaBlob,
-  putFloorPlanBlob,
-  savePlanMeta,
-  putVendorBanner,
-  deleteAllVendorBanners,
-} from './db';
+// Legacy per-box banner slots are local-only forever (pre-vendor-entity
+// plans) — they bypass the provider on purpose.
+import { putVendorBanner, deleteAllVendorBanners } from './db';
 import type { SavedPlanRecord } from './db';
+import { useProvider } from './provider/context';
 
 /**
  * Named saved plans (`plans` store): each record snapshots the working plan —
@@ -21,13 +14,14 @@ import type { SavedPlanRecord } from './db';
  * restores them so old plans keep rendering.
  */
 export function useSavedPlans() {
+  const provider = useProvider();
   const [savedPlans, setSavedPlans] = useState<SavedPlanRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    setSavedPlans(await getPlanRecords());
+    setSavedPlans(await provider.getPlanRecords());
     setLoading(false);
-  }, []);
+  }, [provider]);
 
   useEffect(() => {
     refresh();
@@ -35,8 +29,8 @@ export function useSavedPlans() {
 
   const saveCurrentPlan = useCallback(async (name: string, showDate?: string) => {
     const [planBlob, metaBlob] = await Promise.all([
-      getFloorPlan(),
-      getPlanMetaBlob(),
+      provider.getFloorPlan(),
+      provider.getPlanMetaBlob(),
     ]);
     if (!planBlob || !metaBlob) return;
     const metaJson = await metaBlob.text();
@@ -51,23 +45,23 @@ export function useSavedPlans() {
       banners: [], // vendor banners live on VendorRecord now, resolved live
     };
     if (showDate) record.showDate = showDate;
-    await savePlanRecord(record);
+    await provider.savePlanRecord(record);
     await refresh();
-  }, [refresh]);
+  }, [provider, refresh]);
 
   const loadPlan = useCallback(async (id: string) => {
     const record = savedPlans.find((p) => p.id === id);
     if (!record) return;
-    await putFloorPlanBlob(record.planBlob);
-    await savePlanMeta(JSON.parse(record.metaJson));
+    await provider.putFloorPlanBlob(record.planBlob);
+    await provider.savePlanMeta(JSON.parse(record.metaJson));
     await deleteAllVendorBanners();
     for (const b of record.banners) await putVendorBanner(b.id, b.blob);
-  }, [savedPlans]);
+  }, [provider, savedPlans]);
 
   const deletePlan = useCallback(async (id: string) => {
-    await deletePlanRecord(id);
+    await provider.deletePlanRecord(id);
     await refresh();
-  }, [refresh]);
+  }, [provider, refresh]);
 
   return { savedPlans, loading, saveCurrentPlan, loadPlan, deletePlan };
 }

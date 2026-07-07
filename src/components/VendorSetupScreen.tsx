@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PlanEditor from './PlanEditor';
 import { detectTables, inferScale } from '../lib/planDetect';
-import { getFloorPlan } from '../lib/db';
 import type { VendorRect, VendorPlanMeta } from '../lib/vendorPlan';
 import type { SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
 import { planToLayout, standardTableW } from '../lib/vendorPlan';
+import { useAuth } from '../lib/auth';
+import { publishShow } from '../lib/showService';
 
 interface VendorSetupScreenProps {
   planUrl: string | null;
   planMeta: VendorPlanMeta | null;
+  /** Raw working-slot plan blob — detection input for Re-detect. */
+  getPlanBlob: () => Promise<Blob | undefined>;
   onSetPlan: (file: File) => Promise<void>;
   onSaveMeta: (meta: VendorPlanMeta) => Promise<void>;
   onClearPlan: () => Promise<void>;
@@ -28,6 +31,7 @@ const GOLD = '#d4af37';
 export default function VendorSetupScreen({
   planUrl,
   planMeta,
+  getPlanBlob,
   onSetPlan,
   onSaveMeta,
   onClearPlan,
@@ -62,7 +66,7 @@ export default function VendorSetupScreen({
     // Let the spinner paint before the pixel crunch
     await new Promise((r) => setTimeout(r, 30));
     try {
-      const blob = await getFloorPlan();
+      const blob = await getPlanBlob();
       if (!blob) return;
       const tableFt = metaRef.current?.tableLengthFt;
       const result = await detectTables(blob, standardTableW(tableFt));
@@ -82,7 +86,7 @@ export default function VendorSetupScreen({
     } finally {
       setDetecting(false);
     }
-  }, [onSaveMeta]);
+  }, [getPlanBlob, onSaveMeta]);
 
   // A stored plan with no meta (e.g. refresh mid-detection) would otherwise
   // render an empty screen with no way forward — detect it automatically.
@@ -181,6 +185,47 @@ export default function VendorSetupScreen({
 
   const [savingName, setSavingName] = useState<string | null>(null); // null = closed
   const [savingDate, setSavingDate] = useState('');
+
+  // Publish to the public shows directory — organizer accounts only.
+  // This screen is DOM (outside any Canvas), so auth context is available.
+  const { configured, session } = useAuth();
+  const [publishName, setPublishName] = useState<string | null>(null); // null = closed
+  const [publishDate, setPublishDate] = useState('');
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishResult, setPublishResult] = useState<{ id?: string; error?: string } | null>(null);
+
+  const handlePublishShow = useCallback(async () => {
+    const name = publishName?.trim();
+    if (!name || !session || publishBusy) return;
+    setPublishBusy(true);
+    setPublishResult(null);
+    try {
+      // Flush any pending debounced edit so the published snapshot is current
+      // (same as the save path).
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        if (metaRef.current) await onSaveMeta(metaRef.current);
+      }
+      const blob = await getPlanBlob();
+      const meta = metaRef.current;
+      if (!blob || !meta) throw new Error('No floor plan to publish.');
+      const id = await publishShow({
+        organizerId: session.user.id,
+        name,
+        showDate: publishDate || undefined,
+        planBlob: blob,
+        meta,
+      });
+      setPublishResult({ id });
+      setPublishName(null);
+      setPublishDate('');
+    } catch (e) {
+      setPublishResult({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setPublishBusy(false);
+    }
+  }, [publishName, publishDate, session, publishBusy, getPlanBlob, onSaveMeta]);
 
   const handleSavePlan = useCallback(async () => {
     const name = savingName?.trim();
@@ -622,6 +667,91 @@ export default function VendorSetupScreen({
                 </button>
               </div>
             )
+          )}
+
+          {/* Publish to the public shows directory — signed-in organizers only */}
+          {meta && !detecting && configured && session && (
+            publishName === null ? (
+              <button
+                onClick={() => { setPublishName(''); setPublishResult(null); }}
+                style={{ ...secondaryButton, marginBottom: '12px', marginLeft: savingName === null ? '10px' : 0 }}
+              >
+                📣 Publish to Card Shows…
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Show name"
+                  value={publishName}
+                  onChange={(e) => setPublishName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handlePublishShow(); }}
+                  style={{
+                    background: '#0d0b0a',
+                    color: '#e8e4dc',
+                    border: '1px solid #555',
+                    borderRadius: '6px',
+                    padding: '10px 12px',
+                    fontSize: '14px',
+                    fontFamily: 'Georgia, serif',
+                    width: '220px',
+                  }}
+                />
+                <input
+                  type="date"
+                  title="Show date (optional) — shown in the public directory"
+                  value={publishDate}
+                  onChange={(e) => setPublishDate(e.target.value)}
+                  style={{
+                    background: '#0d0b0a',
+                    color: publishDate ? '#e8e4dc' : '#777',
+                    border: '1px solid #555',
+                    borderRadius: '6px',
+                    padding: '9px 12px',
+                    fontSize: '14px',
+                    fontFamily: 'Georgia, serif',
+                    colorScheme: 'dark',
+                  }}
+                />
+                <button
+                  onClick={handlePublishShow}
+                  disabled={!publishName.trim() || publishBusy}
+                  style={{
+                    background: publishName.trim() && !publishBusy ? GOLD : '#333',
+                    color: publishName.trim() && !publishBusy ? '#1a1614' : '#666',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '10px 20px',
+                    fontSize: '14px',
+                    cursor: publishName.trim() && !publishBusy ? 'pointer' : 'not-allowed',
+                    fontFamily: 'Georgia, serif',
+                  }}
+                >
+                  {publishBusy ? 'Publishing…' : 'Publish'}
+                </button>
+                <button
+                  onClick={() => { setPublishName(null); setPublishDate(''); }}
+                  disabled={publishBusy}
+                  style={{ ...secondaryButton, padding: '10px 14px', fontSize: '13px' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )
+          )}
+          {publishResult?.id && (
+            <div style={{ color: GOLD, fontSize: '13px', marginBottom: '12px' }}>
+              Published — view it at{' '}
+              <a href={`/show/${publishResult.id}`} style={{ color: GOLD }}>
+                /show/{publishResult.id}
+              </a>
+            </div>
+          )}
+          {publishResult?.error && (
+            <div style={{ color: '#c66', fontSize: '13px', marginBottom: '12px' }}>
+              Publish failed: {publishResult.error}
+            </div>
           )}
 
           {savedPlans.map((p) => (

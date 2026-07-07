@@ -1,14 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import {
-  createVendor,
-  getVendors,
-  updateVendor,
-  deleteVendorRecord,
-  setVendorBannerBlob,
-  removeVendorBannerBlob,
-  countInventory,
-} from './db';
 import type { VendorRecord, VendorShowEntry } from './db';
+import { useProvider } from './provider/context';
 
 /**
  * Vendor list with lightweight summaries: banner object URLs and inventory
@@ -38,18 +30,19 @@ function toSummary(r: VendorRecord, inventoryCount: number): VendorSummary {
 }
 
 export function useVendors() {
+  const provider = useProvider();
   const [vendors, setVendors] = useState<VendorSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    const records = await getVendors();
-    const counts = await Promise.all(records.map((r) => countInventory(r.id)));
+    const records = await provider.getVendors();
+    const counts = await Promise.all(records.map((r) => provider.countInventory(r.id)));
     setVendors((prev) => {
       prev.forEach((v) => { if (v.bannerUrl) URL.revokeObjectURL(v.bannerUrl); });
       return records.map((r, i) => toSummary(r, counts[i]));
     });
     setLoading(false);
-  }, []);
+  }, [provider]);
 
   useEffect(() => {
     reload();
@@ -62,30 +55,30 @@ export function useVendors() {
   }, [reload]);
 
   const addVendor = useCallback(async (name: string): Promise<string> => {
-    const record = await createVendor(name);
+    const record = await provider.createVendor(name);
     await reload();
     return record.id;
-  }, [reload]);
+  }, [provider, reload]);
 
   const renameVendor = useCallback(async (id: string, name: string) => {
-    await updateVendor(id, { name });
+    await provider.updateVendor(id, { name });
     await reload();
-  }, [reload]);
+  }, [provider, reload]);
 
   const deleteVendor = useCallback(async (id: string) => {
-    await deleteVendorRecord(id);
+    await provider.deleteVendorRecord(id);
     await reload();
-  }, [reload]);
+  }, [provider, reload]);
 
   const setVendorBanner = useCallback(async (id: string, file: File) => {
-    await setVendorBannerBlob(id, file);
+    await provider.setVendorBannerBlob(id, file);
     await reload();
-  }, [reload]);
+  }, [provider, reload]);
 
   const removeVendorBanner = useCallback(async (id: string) => {
-    await removeVendorBannerBlob(id);
+    await provider.removeVendorBannerBlob(id);
     await reload();
-  }, [reload]);
+  }, [provider, reload]);
 
   const addManualShow = useCallback(async (id: string, name: string, date: string) => {
     const vendor = vendors.find((v) => v.id === id);
@@ -94,18 +87,18 @@ export function useVendors() {
       ...vendor.manualShows,
       { id: crypto.randomUUID(), name, date },
     ];
-    await updateVendor(id, { manualShows });
+    await provider.updateVendor(id, { manualShows });
     await reload();
-  }, [vendors, reload]);
+  }, [provider, vendors, reload]);
 
   const removeManualShow = useCallback(async (id: string, showId: string) => {
     const vendor = vendors.find((v) => v.id === id);
     if (!vendor) return;
-    await updateVendor(id, {
+    await provider.updateVendor(id, {
       manualShows: vendor.manualShows.filter((s) => s.id !== showId),
     });
     await reload();
-  }, [vendors, reload]);
+  }, [provider, vendors, reload]);
 
   return {
     vendors,

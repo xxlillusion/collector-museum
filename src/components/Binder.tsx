@@ -1,10 +1,10 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
-import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { BINDER_REST } from './Room';
 import { isTouchDevice } from './GalleryControls';
+import { acquireSleeveTexture } from '../lib/sleeveTextures';
 import type { CardWithUrl } from '../lib/useCards';
 
 // Page/cover dimensions (meters). Local convention: spine along +Y at x=0,
@@ -17,7 +17,74 @@ export const COVER_H = 0.36;
 export const COVER_T = 0.006;
 
 const CARDS_PER_FACE = 9;
-const CARDS_PER_SHEET = 18;
+/** Exported for the hall's prompt-time texture prefetch (one spread's worth). */
+export const CARDS_PER_SHEET = 18;
+
+// Pocket grid metrics (module-level so geometry can be shared).
+const POCKET_MARGIN_X = 0.014;
+const POCKET_MARGIN_Y = 0.016;
+const POCKET_GAP = 0.006;
+const POCKET_W = (PAGE_W - POCKET_MARGIN_X * 2 - POCKET_GAP * 2) / 3;
+const POCKET_H = (PAGE_H - POCKET_MARGIN_Y * 2 - POCKET_GAP * 2) / 3;
+
+// Shared across every pocket of every sheet. A binder mounts ~90 pockets ×
+// 3 meshes; per-pocket geometry/material allocation (plus the physical
+// material's shader compile) used to land inside the open animation and
+// stutter it. Card planes share a unit geometry scaled per card.
+const pageGeometry = new THREE.PlaneGeometry(PAGE_W, PAGE_H);
+const pocketGeometry = new THREE.PlaneGeometry(POCKET_W, POCKET_H);
+const weldGeometry = new THREE.PlaneGeometry(POCKET_W, 0.003);
+const cardGeometry = new THREE.PlaneGeometry(1, 1);
+const pageMaterial = new THREE.MeshStandardMaterial({
+  color: '#17151a',
+  roughness: 0.85,
+  side: THREE.DoubleSide,
+});
+const backingMaterial = new THREE.MeshStandardMaterial({ color: '#232028', roughness: 0.8 });
+const sheenMaterial = new THREE.MeshPhysicalMaterial({
+  color: '#ffffff',
+  transparent: true,
+  opacity: 0.1,
+  roughness: 0.12,
+  metalness: 0,
+  clearcoat: 1,
+  clearcoatRoughness: 0.08,
+  envMapIntensity: 1.2,
+  depthWrite: false,
+});
+const weldMaterial = new THREE.MeshStandardMaterial({
+  color: '#0c0b0e',
+  roughness: 0.6,
+  transparent: true,
+  opacity: 0.6,
+});
+
+/**
+ * Five 1-mm, never-culled triangles that pull the sheet/pocket shader
+ * programs through compilation at scene load instead of on first binder
+ * open (where the compile burst used to stall the open animation).
+ * Binder renders one internally (museum: Binder mounts with the scene);
+ * the hall mounts its own because its Binder only mounts on open.
+ */
+export function BinderMaterialWarmup() {
+  const warmMap = useMemo(() => {
+    const t = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  }, []);
+  return (
+    <group scale={0.001}>
+      {[pageMaterial, backingMaterial, sheenMaterial, weldMaterial].map((m, i) => (
+        <mesh key={i} geometry={cardGeometry} material={m} frustumCulled={false} />
+      ))}
+      {/* same program variant as SleeveCard (standard material + map) */}
+      <mesh geometry={cardGeometry} frustumCulled={false}>
+        <meshStandardMaterial map={warmMap} roughness={0.5} />
+      </mesh>
+    </group>
+  );
+}
 
 const OPEN_DURATION = 0.6;  // lift + cover swing (seconds)
 const FLIP_DURATION = 0.4;  // one sheet turn
@@ -49,37 +116,44 @@ function restAngle(i: number, k: number, numSheets: number) {
   return -Math.PI + FAN * (i + 1);
 }
 
-/** One card inside a sleeve pocket; texture shared with the wall frames. */
-function SleeveCard({
-  card,
-  pocketW,
-  pocketH,
-}: {
-  card: CardWithUrl;
-  pocketW: number;
-  pocketH: number;
-}) {
-  const texture = useTexture(card.imageUrl);
+/** One card inside a sleeve pocket. Texture comes from the shared sleeve
+ *  cache (downscaled ImageBitmap, decoded off the main thread) and is
+ *  uploaded via gl.initTexture so it never stalls the render loop. */
+function SleeveCard({ card }: { card: CardWithUrl }) {
+  const gl = useThree((s) => s.gl);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
 
   useEffect(() => {
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 8;
-    texture.needsUpdate = true;
-  }, [texture]);
+    let alive = true;
+    const handle = acquireSleeveTexture(card.id, card.imageBlob);
+    handle.promise
+      .then((t) => {
+        if (!alive) return;
+        gl.initTexture(t); // upload now, off the render path
+        setTexture(t);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      handle.release();
+      setTexture(null);
+    };
+  }, [card, gl]);
+
+  if (!texture) return null;
 
   // Fit inside the pocket, preserving aspect
   const inset = 0.94;
-  let w = pocketW * inset;
+  let w = POCKET_W * inset;
   let h = w / card.aspect;
-  if (h > pocketH * inset) {
-    h = pocketH * inset;
+  if (h > POCKET_H * inset) {
+    h = POCKET_H * inset;
     w = h * card.aspect;
   }
 
   return (
     // Visual only — the pocket's sleeve plane handles clicks (bigger target)
-    <mesh position={[0, 0, 0.0012]} raycast={() => null}>
-      <planeGeometry args={[w, h]} />
+    <mesh position={[0, 0, 0.0012]} scale={[w, h, 1]} geometry={cardGeometry} raycast={() => null}>
       <meshStandardMaterial map={texture} roughness={0.5} />
     </mesh>
   );
@@ -93,18 +167,12 @@ function PocketGrid({
   cards: (CardWithUrl | undefined)[];
   onInspect: (url: string) => void;
 }) {
-  const marginX = 0.014;
-  const marginY = 0.016;
-  const gap = 0.006;
-  const pocketW = (PAGE_W - marginX * 2 - gap * 2) / 3;
-  const pocketH = (PAGE_H - marginY * 2 - gap * 2) / 3;
-
   const pockets: { x: number; y: number; card: CardWithUrl | undefined }[] = [];
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 3; col++) {
       pockets.push({
-        x: -PAGE_W / 2 + marginX + pocketW / 2 + col * (pocketW + gap),
-        y: PAGE_H / 2 - marginY - pocketH / 2 - row * (pocketH + gap),
+        x: -PAGE_W / 2 + POCKET_MARGIN_X + POCKET_W / 2 + col * (POCKET_W + POCKET_GAP),
+        y: PAGE_H / 2 - POCKET_MARGIN_Y - POCKET_H / 2 - row * (POCKET_H + POCKET_GAP),
         card: cards[row * 3 + col],
       });
     }
@@ -115,24 +183,17 @@ function PocketGrid({
       {pockets.map((p, i) => (
         <group key={i} position={[p.x, p.y, 0]}>
           {/* Pocket backing — slightly lighter than the page */}
-          <mesh position={[0, 0, 0.0006]}>
-            <planeGeometry args={[pocketW, pocketH]} />
-            <meshStandardMaterial color="#232028" roughness={0.8} />
-          </mesh>
+          <mesh position={[0, 0, 0.0006]} geometry={pocketGeometry} material={backingMaterial} />
 
-          {p.card && (
-            // Own boundary so a loading texture pops in per pocket instead of
-            // suspending the whole scene (hall sheets mount textures lazily)
-            <Suspense fallback={null}>
-              <SleeveCard card={p.card} pocketW={pocketW} pocketH={pocketH} />
-            </Suspense>
-          )}
+          {p.card && <SleeveCard card={p.card} />}
 
           {/* Plastic sleeve sheen over the pocket — also the click target
               for the card inside (frontmost, full pocket size). userData
               lets the native-click fallback raycast identify the card. */}
           <mesh
             position={[0, 0, 0.0022]}
+            geometry={pocketGeometry}
+            material={sheenMaterial}
             userData={{ cardUrl: p.card?.imageUrl }}
             onClick={(e: ThreeEvent<MouseEvent>) => {
               if (!p.card) return;
@@ -142,25 +203,13 @@ function PocketGrid({
             }}
             onPointerEnter={() => { if (p.card) document.body.style.cursor = 'pointer'; }}
             onPointerLeave={() => { document.body.style.cursor = 'default'; }}
-          >
-            <planeGeometry args={[pocketW, pocketH]} />
-            <meshPhysicalMaterial
-              color="#ffffff"
-              transparent
-              opacity={0.1}
-              roughness={0.12}
-              metalness={0}
-              clearcoat={1}
-              clearcoatRoughness={0.08}
-              envMapIntensity={1.2}
-              depthWrite={false}
-            />
-          </mesh>
+          />
           {/* Weld seam at the pocket opening */}
-          <mesh position={[0, pocketH / 2 - 0.0015, 0.0024]}>
-            <planeGeometry args={[pocketW, 0.003]} />
-            <meshStandardMaterial color="#0c0b0e" roughness={0.6} transparent opacity={0.6} />
-          </mesh>
+          <mesh
+            position={[0, POCKET_H / 2 - 0.0015, 0.0024]}
+            geometry={weldGeometry}
+            material={weldMaterial}
+          />
         </group>
       ))}
     </group>
@@ -177,27 +226,30 @@ function BinderSheet({
   backCards,
   onInspect,
   hingeRef,
+  frontFaceRef,
+  backFaceRef,
 }: {
   frontCards: (CardWithUrl | undefined)[];
   backCards: (CardWithUrl | undefined)[];
   onInspect: (url: string) => void;
   hingeRef: (g: THREE.Group | null) => void;
+  /** Face content groups — Binder's useFrame toggles their visibility so
+   *  only the top sheet of each stack shows cards (see the sheet loop). */
+  frontFaceRef: (g: THREE.Group | null) => void;
+  backFaceRef: (g: THREE.Group | null) => void;
 }) {
   return (
     // z: sheets ride the rings just above the back cover (top surface z=0)
     <group ref={hingeRef} position={[0, 0, 0.005]}>
       <group position={[PAGE_W / 2 + 0.004, 0, 0]}>
         {/* Page base — dark, visible from both sides */}
-        <mesh>
-          <planeGeometry args={[PAGE_W, PAGE_H]} />
-          <meshStandardMaterial color="#17151a" roughness={0.85} side={THREE.DoubleSide} />
-        </mesh>
+        <mesh geometry={pageGeometry} material={pageMaterial} />
         {/* Front face content */}
-        <group position={[0, 0, 0.0004]}>
+        <group ref={frontFaceRef} position={[0, 0, 0.0004]}>
           <PocketGrid cards={frontCards} onInspect={onInspect} />
         </group>
         {/* Back face content (faces -Z until the sheet is flipped) */}
-        <group rotation={[0, Math.PI, 0]} position={[0, 0, -0.0004]}>
+        <group ref={backFaceRef} rotation={[0, Math.PI, 0]} position={[0, 0, -0.0004]}>
           <PocketGrid cards={backCards} onInspect={onInspect} />
         </group>
       </group>
@@ -226,6 +278,14 @@ interface BinderProps {
    * omits it — behavior unchanged.
    */
   lazySheetWindow?: number;
+  /**
+   * false = the host scene owns the fill light (the hall mounts Binder only
+   * while open, and mounting a light changes the scene's light count, which
+   * forces three.js to recompile every material — a multi-second first-open
+   * stall). Default true: the light is always mounted, intensity 0 while
+   * closed, so the count never changes.
+   */
+  fillLight?: boolean;
 }
 
 export default function Binder({
@@ -238,12 +298,15 @@ export default function Binder({
   onClosed,
   restPose,
   lazySheetWindow,
+  fillLight = true,
 }: BinderProps) {
   const { camera, gl } = useThree();
 
   const rootRef = useRef<THREE.Group>(null);
   const coverRef = useRef<THREE.Group>(null);
   const sheetRefs = useRef<(THREE.Group | null)[]>([]);
+  const frontFaceRefs = useRef<(THREE.Group | null)[]>([]);
+  const backFaceRefs = useRef<(THREE.Group | null)[]>([]);
 
   const numSheets = Math.max(1, Math.ceil(cards.length / CARDS_PER_SHEET));
 
@@ -511,6 +574,20 @@ export default function Binder({
       } else {
         g.rotation.y = restAngle(i, k, numSheets);
       }
+      // Only the top sheet of each stack shows its cards. Resting sheets are
+      // separated by fractions of a millimeter near the spine (gap ≈ x·FAN),
+      // less than the pocket content stack — buried cards would poke through
+      // the page above them (visible as previous-page cards leaking into the
+      // spine-side column of the last page). During a flip, the sheet in
+      // flight plus the pages it reveals/covers stay live.
+      const frontVisible =
+        i === k || (flip !== null && (i === flip.sheet || i === flip.sheet + 1));
+      const backVisible =
+        i === k - 1 || (flip !== null && (i === flip.sheet || i === flip.sheet - 1));
+      const front = frontFaceRefs.current[i];
+      if (front) front.visible = frontVisible;
+      const back = backFaceRefs.current[i];
+      if (back) back.visible = backVisible;
     }
   });
 
@@ -524,11 +601,15 @@ export default function Binder({
 
   return (
     <group ref={rootRef}>
-      {/* Fill light so the spread reads well anywhere in the room; only
-          exists while the binder is up — walking-mode light count unchanged */}
-      {open && (
-        <pointLight position={[0, 0.1, 0.45]} intensity={0.35} distance={1.4} decay={2} color="#fff0dd" />
+      {/* Fill light so the spread reads well anywhere in the room. Mounted
+          permanently (intensity 0 while closed): toggling a light's mount
+          changes the light count and recompiles every scene material. */}
+      {fillLight && (
+        <pointLight position={[0, 0.1, 0.45]} intensity={open ? 0.35 : 0} distance={1.4} decay={2} color="#fff0dd" />
       )}
+
+      {/* Compile the sheet/pocket programs at scene load, not first open */}
+      <BinderMaterialWarmup />
 
       {/* Back cover (base of the stack) */}
       <mesh
@@ -573,6 +654,8 @@ export default function Binder({
               }
             }}
             hingeRef={(g) => { sheetRefs.current[i] = g; }}
+            frontFaceRef={(g) => { frontFaceRefs.current[i] = g; }}
+            backFaceRef={(g) => { backFaceRefs.current[i] = g; }}
           />
         );
       })}

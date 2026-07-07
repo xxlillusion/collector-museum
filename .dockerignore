@@ -3,6 +3,14 @@ dist
 dist-ssr
 .git
 .gitignore
+
+# Never let secrets or scratch files into the build context
+git_key
+git_key.pub
+.env
+.env.*
+*.local
+*.tmp.mjs
 *.log
 .DS_Store
 .vscode

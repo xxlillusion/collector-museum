@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
+import { Link } from 'wouter';
+import { useAuth } from '../lib/auth';
 import type { CardWithUrl } from '../lib/useCards';
 import type { SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
@@ -131,13 +133,26 @@ export default function HomeScreen({
     `${vendors.length} ${vendors.length === 1 ? 'VENDOR' : 'VENDORS'}`,
   ].join(' · ');
 
+  const { configured: authConfigured, session } = useAuth();
+
   // Vendors with inventory can hang their collection in the gallery
   const showableVendors = vendors.filter((v) => v.inventoryCount > 0);
   const galleryVendor = showableVendors.find((v) => v.id === galleryVendorId) ?? null;
   const canEnter = galleryVendor ? galleryVendor.inventoryCount > 0 : cards.length > 0;
 
   return (
-    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: BG, color: TEXT, fontFamily: SANS }}>
+    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: BG, color: TEXT, fontFamily: SANS, position: 'relative' }}>
+      {/* Auth corner — hidden entirely when accounts aren't configured */}
+      {authConfigured && (
+        <div style={{ position: 'absolute', top: '18px', right: '22px', fontFamily: SERIF, fontSize: '12px', letterSpacing: '0.12em' }}>
+          <Link
+            href={session ? '/account' : '/login'}
+            style={{ color: GOLD, textDecoration: 'none', border: `1px solid ${HAIRLINE}`, borderRadius: '999px', padding: '8px 18px' }}
+          >
+            {session ? (session.user.email ?? 'MY ACCOUNT') : 'SIGN IN'}
+          </Link>
+        </div>
+      )}
       <style>{`
         .home-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
         .home-lift:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.45); }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { saveBanner, getBanner, deleteBanner } from './db';
+import { useProvider } from './provider/context';
 
 /**
  * Tablecloth banner image (single slot, IndexedDB `settings` store).
@@ -7,15 +7,16 @@ import { saveBanner, getBanner, deleteBanner } from './db';
  * card layout.
  */
 export function useBanner() {
+  const provider = useProvider();
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
 
   const loadBanner = useCallback(async () => {
-    const blob = await getBanner();
+    const blob = await provider.getBanner();
     setBannerUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return blob ? URL.createObjectURL(blob) : null;
     });
-  }, []);
+  }, [provider]);
 
   useEffect(() => {
     loadBanner();
@@ -28,14 +29,14 @@ export function useBanner() {
   }, [loadBanner]);
 
   const setBanner = useCallback(async (file: File) => {
-    await saveBanner(file);
+    await provider.saveBanner(file);
     await loadBanner();
-  }, [loadBanner]);
+  }, [provider, loadBanner]);
 
   const removeBanner = useCallback(async () => {
-    await deleteBanner();
+    await provider.deleteBanner();
     await loadBanner();
-  }, [loadBanner]);
+  }, [provider, loadBanner]);
 
   return { bannerUrl, setBanner, removeBanner };
 }

@@ -17,9 +17,11 @@ export async function uploadImage(
   path: string,
   blob: Blob,
 ): Promise<void> {
+  // No `upsert` — the storage service 403s x-upsert writes on buckets without
+  // a SELECT policy (verified on this project), and plain inserts pass. All
+  // overwrite paths go through removeImage-then-uploadImage instead.
   const { error } = await supabase!.storage.from(bucket).upload(path, blob, {
     contentType: blob.type || 'image/webp',
-    upsert: true,
   });
   if (error) throw new Error(`upload ${bucket}/${path}: ${error.message}`);
 }

@@ -230,11 +230,22 @@ edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record typ
   add eager imports from screens into anything that pulls three.
 - **Supabase**: `supabase/migrations/0001_init.sql` (profiles + auto-create trigger,
   vendors, inventory_items, shows, booths — rect jsonb + vendor FK —, collections; RLS
-  everywhere; buckets banners/inventory/plans public + cards private, path convention
-  `<owning id>/<uuid>.webp` enforced by policies). `src/lib/supabase.ts` is env-guarded:
+  everywhere; buckets banners/inventory/plans public + cards private) + `0002` (storage
+  policies rewritten subquery-free). `src/lib/supabase.ts` is env-guarded:
   **no `VITE_SUPABASE_*` in `.env.local` = guest-only mode, auth UI hidden, no Supabase
   project needed for local dev**. `src/lib/auth.tsx` = AuthContext (session restore,
   sign in/up/out).
+- **Storage gotchas (hard-won, live-verified 2026-07-06)**: (1) storage.objects
+  policies that subquery public tables (vendors/shows ownership) are NOT reliably
+  evaluated by the storage service — legitimate owners get 403 on upload while the
+  identical subquery passes as a table policy. Every object path therefore starts with
+  the OWNER's uid and write policies are plain
+  `(storage.foldername(name))[1] = auth.uid()::text` prefix checks; readers use the
+  stored `*_path` columns, never reconstructed paths. (2) `upsert: true` on
+  `storage.upload()` 403s on buckets without a SELECT policy even for new objects —
+  `uploadImage` never sends upsert; overwrites are always removeImage-then-uploadImage
+  (`replaceImage`). (3) Blind `storage.download()` of a maybe-missing object logs a 400
+  console error — existence-check first (see remote.ts getBanner).
 
 ## Gotchas (hard-won, don't rediscover)
 
@@ -354,6 +365,16 @@ edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record typ
   `VendorsScreen`, `useVendors`/`useVendorInventory`, `screens/vendor/*`; (C) shows:
   `VendorSetupScreen` publish, `screens/shows/*` + `organizer/*`, seed script. Going
   live needs a Supabase project + `.env.local`; guest mode works without one.
+- **All three streams shipped + LIVE-verified** (2026-07-07, merged on `platform-phase0`,
+  17/17 guest regression + 17/17 live E2E, zero console errors, against the user's real
+  Supabase project — email provider ON, confirm-email OFF): guest seed → signup (instant
+  session) → cloud card add persists across reload → import wizard round-trips 2 cards +
+  1 vendor + 3 items → cloud vendor in registry with public-page link → booth assignment
+  → Publish to Card Shows → sign out → anonymous /shows lists it → /show/:id detail →
+  3D walk from remote data (canvas + minimap) → F-open binder shows the vendor's cloud
+  inventory → anonymous /vendor/:id renders visible inventory + "Appearing at". A demo
+  "Live Smoke Show" + "Live Vendor" (test account jason.a.dale2+live2917@gmail.com)
+  remain in the project as browsable seed data.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

@@ -54,7 +54,17 @@ Generate images in-page with a canvas, then upload through the real inputs:
   walk, repeat. Player is blocked ~0.8 m from a table; binders sit ~0.9 m
   below eye height, so once "stuck" against the booth, pitch down (-0.3 to
   -0.9 rad) and sweep yaw until "Press F to open the binder" appears in
-  body text.
+  body text. Hard-won navigation details (2026-07-06 M0 run):
+  - Match transform numbers permissively (`[-\d.eE+]+`) — near-zero rotate
+    renders in scientific notation — and retry when the regex misses (the
+    first frame can have an empty transform).
+  - Straight-line steering gets blocked by intervening booths on real
+    plans. Assign the **bottom-most, roughly central rect** (spawn is at
+    the south wall = bottom of the image) so the walk is obstacle-free,
+    and wall-slide (hold W + alternate A/D ~500 ms) when the minimap dist
+    stops changing.
+  - "Arrived" ≈ dist < 55 px on floorplan_example (~34 px/m; collision
+    stops you ~27 px out — a tighter threshold never triggers).
 - Binder: F opens, Arrow keys flip, F/Esc closes; the open-spread HUD text
   is "flip pages"; InspectOverlay shows "click anywhere to return".
 - Measure open-animation smoothness by recording rAF deltas around the F

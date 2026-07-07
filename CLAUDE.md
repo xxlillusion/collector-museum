@@ -201,6 +201,41 @@ stops at x=8.57). Rotated boxes: transform the player into the box's local frame
 (world→local = rotate by −rotY), run the same axis-of-least-penetration push-out
 against ±hx/±hz, transform back.
 
+## Platform groundwork (Phase 0, 2026-07-06, branch `platform-phase0`)
+
+The app is evolving into a multi-user platform (public shows, vendor/collector/organizer
+accounts, Supabase backend) per the approved roadmap
+(`~/.claude/plans/direction-take-a-streamed-river.md`). Phase 0 landed the shared seams;
+three parallel workstreams build on them. **Frozen files** (streams code against, never
+edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record types.
+
+- **Provider seam** (`src/lib/provider/`): `DataProvider` interface mirrors db.ts 1:1;
+  `local.ts` = guest IndexedDB, `remote.ts` = Supabase stub (accounts stream fills it in —
+  images are **downloaded to Blobs** so hooks/sleeve textures stay backend-agnostic).
+  Floor-plan **working-slot methods delegate to local even in remote** (drafting is
+  local; a future Publish snapshots up). All hooks consume `useProvider()`; return
+  shapes unchanged. `root.tsx` picks the provider from the auth session and remounts the
+  data subtree via `key` on identity change (never hot-swap provider state). Legacy
+  `vendorBanner:*` slots stay direct-db in `useVendorBanners`/`useSavedPlans` on purpose.
+- **Context does NOT cross the R3F Canvas root** — hall inventory reads are the
+  `fetchInventory` prop (App → VendorScene → VendorHallBinders; feeds both the prompt
+  prefetch and the open binder). Re-detect reads the plan via
+  `useVendorPlan().getPlanBlob` → prop.
+- **Routing** (`wouter`): `src/routes.tsx` is the frozen route table; every future
+  screen is pre-stubbed lazy under `src/screens/` (auth/* = accounts stream, vendor/* =
+  vendor portal, shows/* + organizer/* = shows stream; `PageShell` is shared chrome).
+  Default route = App's original view union; canvases stay outside route transitions.
+- **Code splitting**: Scene / VendorScene / VendorSetupScreen are `React.lazy` — entry
+  chunk 341 kB (98 kB gz); the ~1.07 MB three.js bundle loads only for 3D views. Don't
+  add eager imports from screens into anything that pulls three.
+- **Supabase**: `supabase/migrations/0001_init.sql` (profiles + auto-create trigger,
+  vendors, inventory_items, shows, booths — rect jsonb + vendor FK —, collections; RLS
+  everywhere; buckets banners/inventory/plans public + cards private, path convention
+  `<owning id>/<uuid>.webp` enforced by policies). `src/lib/supabase.ts` is env-guarded:
+  **no `VITE_SUPABASE_*` in `.env.local` = guest-only mode, auth UI hidden, no Supabase
+  project needed for local dev**. `src/lib/auth.tsx` = AuthContext (session restore,
+  sign in/up/out).
+
 ## Gotchas (hard-won, don't rediscover)
 
 1. **Type-check with `npm run build` (`tsc -b`), not bare `npx tsc --noEmit`** — bare tsc
@@ -309,6 +344,16 @@ against ±hx/±hz, transform back.
   Measured headless: first-open max frame gap 3212ms → 392ms (SwiftShader), warm reopen
   fully drawn at +700ms, last page clean in both scenes. A `.claude/skills/verify` skill
   now records the headless drive recipe (minimap-based navigation etc.).
+- **Platform Phase 0 shipped** (2026-07-06, branch `platform-phase0`, headless-verified
+  M0 PASS: home, route stubs, card upload, gallery walk, vendor+inventory, plan
+  detect/assign/save, hall walk, F-open binder through the new fetchInventory prop with
+  textures confirmed, close/shell-restore, saved-plan Walk→ — zero console errors):
+  provider seam + wouter routes + lazy 3D chunks + Supabase schema/auth plumbing (see
+  "Platform groundwork" section). Next: three parallel streams — (A) accounts/collector:
+  fills `provider/remote.ts` + `screens/auth/*` + import wizard; (B) vendor portal:
+  `VendorsScreen`, `useVendors`/`useVendorInventory`, `screens/vendor/*`; (C) shows:
+  `VendorSetupScreen` publish, `screens/shows/*` + `organizer/*`, seed script. Going
+  live needs a Supabase project + `.env.local`; guest mode works without one.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

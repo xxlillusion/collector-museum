@@ -31,6 +31,9 @@ interface VendorSceneProps {
    *  context does not cross the R3F Canvas root (see VendorHallBinders). */
   fetchInventory: FetchInventory;
   onBack: () => void;
+  /** Top-right exit button label — public show walks say "Leave Show"
+   *  instead of the editor's "Floor Plan". */
+  exitLabel?: string;
 }
 
 const PLAYER_HEIGHT = 1.7;
@@ -156,7 +159,7 @@ function tableColliders(tables: TablePlacement[]): Collider[] {
   });
 }
 
-export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, onBack }: VendorSceneProps) {
+export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, onBack, exitLabel }: VendorSceneProps) {
   const [locked, setLocked] = useState(false);
   const [binderOpen, setBinderOpen] = useState(false);
   const [binderPrompt, setBinderPrompt] = useState(false);
@@ -398,7 +401,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
         onUpload={onBack}
         binderPrompt={binderPrompt && locked && !binderOpen}
         binderOpen={binderOpen}
-        uploadLabel="🗺 Floor Plan"
+        uploadLabel={exitLabel ?? '🗺 Floor Plan'}
       />
       <MobileControls hidden={binderOpen} />
 

@@ -61,6 +61,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
           vendors={show.vendors}
           fetchInventory={show.fetchInventory}
           onBack={() => setWalking(false)}
+          exitLabel="← Leave Show"
         />
       </Suspense>
     );

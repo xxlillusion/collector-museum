@@ -27,6 +27,8 @@ function BannerDrape({ url, geometry }: { url: string; geometry: THREE.PlaneGeom
     let cancelled = false;
     let tex: THREE.CanvasTexture | null = null;
     const img = new Image();
+    // CORS opt-in for cloud banner URLs (canvas taint); no-op for blob: URLs.
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       if (cancelled) return;
       tex = makeBannerTexture(img);

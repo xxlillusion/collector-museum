@@ -27,6 +27,9 @@ interface SceneProps {
   captions?: Map<string, string>;
   bannerUrl: string | null;
   onManage: () => void;
+  /** Top-right exit button label — public museums say where "back" leads
+   *  (the default reads wrong when the walls aren't the viewer's cards). */
+  exitLabel?: string;
 }
 
 interface CardPlacement {
@@ -168,7 +171,7 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
   );
 }
 
-export default function Scene({ cards, captions, bannerUrl, onManage }: SceneProps) {
+export default function Scene({ cards, captions, bannerUrl, onManage, exitLabel }: SceneProps) {
   const [locked, setLocked] = useState(false);
   const [inspectUrl, setInspectUrl] = useState<string | null>(null);
   // "open or animating" — Binder owns the phase machine internally
@@ -385,6 +388,7 @@ export default function Scene({ cards, captions, bannerUrl, onManage }: ScenePro
       <HUD
         locked={locked}
         onUpload={onManage}
+        {...(exitLabel ? { uploadLabel: exitLabel } : {})}
         binderPrompt={binderPrompt && locked && !binderOpen}
         binderOpen={binderOpen}
       />

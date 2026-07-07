@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { getShowForWalk } from '../../lib/publicShows';
 import type { ShowWalkData } from '../../lib/publicShows';
 import { formatShowDate } from './ShowDirectory';
+import { formatLocation } from '../../lib/locations';
 
 const GOLD = '#d4af37';
 
@@ -77,6 +78,12 @@ export default function ShowDetail({ showId }: { showId: string }) {
         <>
           <p style={{ fontSize: 16, color: '#b7ad98', margin: '0 0 22px' }}>
             {formatShowDate(show.showDate) ?? 'Date to be announced'}
+            {formatLocation(show) && (
+              <>
+                <br />
+                <span style={{ fontSize: 15, color: '#8a816d' }}>{formatLocation(show)}</span>
+              </>
+            )}
           </p>
 
           <button

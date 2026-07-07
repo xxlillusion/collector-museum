@@ -4,6 +4,7 @@ import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import type { PublicVendorProfile } from '../../lib/publicVendors';
+import { formatLocation } from '../../lib/locations';
 
 // Public vendor profile page (/vendor/:id) — owned by the vendor-portal
 // workstream (Stream B). Anon-safe: reads via lib/publicVendors.ts (direct
@@ -109,9 +110,24 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   }
 
   const { profile } = state;
+  const location = formatLocation({ country: profile.country, state: profile.state });
+  const areaServed = profile.areaServed.trim();
 
   return (
     <PageShell title={profile.name}>
+      {(location || areaServed) && (
+        <div style={{ margin: '-14px 0 24px' }}>
+          {location && (
+            <div style={{ fontSize: 15, color: MUTED, letterSpacing: '0.04em' }}>{location}</div>
+          )}
+          {areaServed && (
+            <div style={{ fontSize: 14, color: MUTED, fontStyle: 'italic', marginTop: 4 }}>
+              Serves: {areaServed}
+            </div>
+          )}
+        </div>
+      )}
+
       {profile.bannerUrl && (
         <div
           style={{
@@ -136,17 +152,37 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
       )}
 
       <SectionHeading>INVENTORY</SectionHeading>
-      {profile.items.length === 0 ? (
+      {!profile.inventoryPublic ? (
+        <Note>This vendor keeps their inventory private.</Note>
+      ) : profile.items.length === 0 ? (
         <Note>Nothing on display yet — check back soon.</Note>
       ) : (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
-            gap: 22,
-            alignItems: 'start',
-          }}
-        >
+        <>
+          <Link
+            href={`/museum/vendor/${profile.id}`}
+            style={{
+              display: 'inline-block',
+              background: GOLD,
+              color: '#1a1614',
+              borderRadius: 2,
+              padding: '12px 32px',
+              fontSize: 13,
+              letterSpacing: '0.16em',
+              textDecoration: 'none',
+              fontFamily: SERIF,
+              marginBottom: 22,
+            }}
+          >
+            VIEW IN 3D MUSEUM →
+          </Link>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
+              gap: 22,
+              alignItems: 'start',
+            }}
+          >
           {profile.items.map((item) => (
             <figure key={item.id} style={{ margin: 0 }}>
               <img
@@ -183,7 +219,8 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
               )}
             </figure>
           ))}
-        </div>
+          </div>
+        </>
       )}
 
       <SectionHeading>APPEARING AT</SectionHeading>

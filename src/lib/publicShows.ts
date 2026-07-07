@@ -15,9 +15,18 @@ export interface PublicShowSummary {
   id: string;
   name: string;
   showDate: string | null; // ISO yyyy-mm-dd
+  country: string | null;
+  state: string | null;
+  city: string | null;
   planImageUrl: string | null;
   boothCount: number;
   vendorCount: number;
+}
+
+/** Optional location narrowing for the shows directory. */
+export interface ShowLocationFilter {
+  country?: string;
+  state?: string;
 }
 
 /** Everything the detail page + VendorScene need for one show. */
@@ -25,6 +34,9 @@ export interface ShowWalkData {
   id: string;
   name: string;
   showDate: string | null;
+  country: string | null;
+  state: string | null;
+  city: string | null;
   /** Reconstructed working-slot meta (plan_meta + rects from booths), or
    *  null when the stored meta lacks the essentials — Walk stays disabled. */
   meta: VendorPlanMeta | null;
@@ -37,13 +49,18 @@ export interface ShowWalkData {
 }
 
 /** Published shows: upcoming first (soonest→latest), then undated, then past (most recent first). */
-export async function listPublishedShows(): Promise<PublicShowSummary[]> {
+export async function listPublishedShows(
+  filter?: ShowLocationFilter,
+): Promise<PublicShowSummary[]> {
   if (!supabase) return [];
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('shows')
-      .select('id, name, show_date, plan_image_path, booths(vendor_id)')
+      .select('id, name, show_date, country, state, city, plan_image_path, booths(vendor_id)')
       .eq('published', true);
+    if (filter?.country) query = query.eq('country', filter.country);
+    if (filter?.state) query = query.eq('state', filter.state);
+    const { data, error } = await query;
     if (error || !data) return [];
     const today = new Date().toISOString().slice(0, 10);
     const rows: PublicShowSummary[] = data.map((raw) => {
@@ -51,6 +68,9 @@ export async function listPublishedShows(): Promise<PublicShowSummary[]> {
         id: string;
         name: string;
         show_date: string | null;
+        country: string | null;
+        state: string | null;
+        city: string | null;
         plan_image_path: string | null;
         booths: { vendor_id: string | null }[] | null;
       };
@@ -59,6 +79,9 @@ export async function listPublishedShows(): Promise<PublicShowSummary[]> {
         id: row.id,
         name: row.name,
         showDate: row.show_date ?? null,
+        country: row.country ?? null,
+        state: row.state ?? null,
+        city: row.city ?? null,
         planImageUrl: row.plan_image_path ? publicImageUrl('plans', row.plan_image_path) : null,
         boothCount: booths.length,
         vendorCount: new Set(booths.map((b) => b.vendor_id).filter(Boolean)).size,
@@ -92,6 +115,31 @@ function isPlausibleRect(r: unknown): r is VendorRect {
   );
 }
 
+/**
+ * Rebuild working-slot meta from a stored plan_meta jsonb + booth rects —
+ * shared by the public walk and the organizer edit screen (showService).
+ * Null when the stored meta lacks the essentials (walk/edit stay disabled).
+ */
+export function reconstructPlanMeta(
+  planMetaRaw: Partial<VendorPlanMeta>,
+  boothRects: unknown[],
+): VendorPlanMeta | null {
+  const rects = boothRects.filter(isPlausibleRect);
+  const metaValid =
+    typeof planMetaRaw.pxPerMeter === 'number' &&
+    planMetaRaw.pxPerMeter > 0 &&
+    typeof planMetaRaw.imgW === 'number' &&
+    planMetaRaw.imgW > 0 &&
+    typeof planMetaRaw.imgH === 'number' &&
+    planMetaRaw.imgH > 0;
+  if (!metaValid) return null;
+  return {
+    ...(planMetaRaw as Omit<VendorPlanMeta, 'rects'>),
+    rects,
+    updatedAt: typeof planMetaRaw.updatedAt === 'number' ? planMetaRaw.updatedAt : 0,
+  };
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
@@ -102,7 +150,9 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
   try {
     const { data, error } = await sb
       .from('shows')
-      .select('id, name, show_date, plan_image_path, plan_meta, booths(rect, vendor_id)')
+      .select(
+        'id, name, show_date, country, state, city, plan_image_path, plan_meta, booths(rect, vendor_id)',
+      )
       .eq('id', id)
       .maybeSingle();
     if (error || !data) return null;
@@ -110,6 +160,9 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
       id: string;
       name: string;
       show_date: string | null;
+      country: string | null;
+      state: string | null;
+      city: string | null;
       plan_image_path: string | null;
       plan_meta: Record<string, unknown> | null;
       booths: { rect: unknown; vendor_id: string | null }[] | null;
@@ -118,22 +171,10 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
 
     // Reconstruct the working-slot meta: plan_meta holds scale / start /
     // table size / image dims; the rects were normalized into booth rows.
-    const planMetaRaw = (show.plan_meta ?? {}) as Partial<VendorPlanMeta>;
-    const rects = booths.map((b) => b.rect).filter(isPlausibleRect);
-    const metaValid =
-      typeof planMetaRaw.pxPerMeter === 'number' &&
-      planMetaRaw.pxPerMeter > 0 &&
-      typeof planMetaRaw.imgW === 'number' &&
-      planMetaRaw.imgW > 0 &&
-      typeof planMetaRaw.imgH === 'number' &&
-      planMetaRaw.imgH > 0;
-    const meta: VendorPlanMeta | null = metaValid
-      ? {
-          ...(planMetaRaw as Omit<VendorPlanMeta, 'rects'>),
-          rects,
-          updatedAt: typeof planMetaRaw.updatedAt === 'number' ? planMetaRaw.updatedAt : 0,
-        }
-      : null;
+    const meta = reconstructPlanMeta(
+      (show.plan_meta ?? {}) as Partial<VendorPlanMeta>,
+      booths.map((b) => b.rect),
+    );
 
     const planUrl = show.plan_image_path
       ? publicImageUrl('plans', show.plan_image_path)
@@ -223,6 +264,9 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
       id: show.id,
       name: show.name,
       showDate: show.show_date ?? null,
+      country: show.country ?? null,
+      state: show.state ?? null,
+      city: show.city ?? null,
       meta,
       planUrl,
       vendors,

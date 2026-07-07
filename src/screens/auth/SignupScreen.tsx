@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
+import type { AccountType } from '../../lib/auth';
 import {
   authLabelStyle,
   authInputStyle,
@@ -12,12 +13,60 @@ import {
 } from './LoginScreen';
 
 const GOLD = '#d4af37';
+const HAIRLINE = 'rgba(212,175,55,0.28)';
 const MUTED = '#b7ad98';
+
+function TypeCard({
+  selected,
+  title,
+  blurb,
+  onSelect,
+}: {
+  selected: boolean;
+  title: string;
+  blurb: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      style={{
+        flex: 1,
+        textAlign: 'left',
+        background: selected ? 'rgba(212,175,55,0.08)' : 'transparent',
+        border: `1px solid ${selected ? GOLD : HAIRLINE}`,
+        borderRadius: 2,
+        padding: '14px 16px',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+      }}
+    >
+      <span
+        style={{
+          display: 'block',
+          fontSize: 13,
+          letterSpacing: '0.16em',
+          color: selected ? GOLD : '#e8e0d0',
+          marginBottom: 6,
+        }}
+      >
+        {title}
+      </span>
+      <span style={{ display: 'block', fontSize: 13, lineHeight: 1.55, color: MUTED }}>
+        {blurb}
+      </span>
+    </button>
+  );
+}
 
 // Owned by the accounts workstream (Stream A).
 export default function SignupScreen() {
   const { configured, session, signUp } = useAuth();
   const [, navigate] = useLocation();
+  const [displayName, setDisplayName] = useState('');
+  const [accountType, setAccountType] = useState<AccountType>('collector');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +83,10 @@ export default function SignupScreen() {
     setError(null);
     setBusy(true);
     try {
-      const { error: err } = await signUp(email.trim(), password);
+      const { error: err } = await signUp(email.trim(), password, {
+        displayName: displayName.trim(),
+        accountType,
+      });
       if (err) setError(err);
       else setSubmitted(true); // session effect handles the redirect if auto-confirmed
     } catch (err) {
@@ -62,7 +114,39 @@ export default function SignupScreen() {
           </p>
         </div>
       ) : (
-        <form onSubmit={onSubmit} style={{ maxWidth: 420 }}>
+        <form onSubmit={onSubmit} style={{ maxWidth: 460 }}>
+          <div style={{ marginBottom: 18 }}>
+            <label htmlFor="signup-display-name" style={authLabelStyle}>
+              DISPLAY NAME
+            </label>
+            <input
+              id="signup-display-name"
+              type="text"
+              required
+              autoComplete="nickname"
+              placeholder="How you appear across the museum"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              style={authInputStyle}
+            />
+          </div>
+          <div style={{ marginBottom: 18 }}>
+            <span style={authLabelStyle}>I AM A…</span>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <TypeCard
+                selected={accountType === 'collector'}
+                title="COLLECTOR"
+                blurb="I collect cards and want to show them off."
+                onSelect={() => setAccountType('collector')}
+              />
+              <TypeCard
+                selected={accountType === 'vendor'}
+                title="VENDOR"
+                blurb="I sell cards — get a vendor profile and appear in show booth assignments."
+                onSelect={() => setAccountType('vendor')}
+              />
+            </div>
+          </div>
           <div style={{ marginBottom: 18 }}>
             <label htmlFor="signup-email" style={authLabelStyle}>
               EMAIL

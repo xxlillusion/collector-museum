@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { publicImageUrl } from './supabaseImages';
+import type { VendorSummary } from './useVendors';
+import type { VendorShowEntry } from './db';
 
 /**
  * Anon-safe public reads for vendor profile pages (`/vendor/:id`).
@@ -33,14 +35,37 @@ export interface PublicVendorProfile {
   id: string;
   name: string;
   bannerUrl: string | null;
+  /** Non-null = a registered vendor account's canonical profile. */
+  profileId: string | null;
+  country: string | null;
+  state: string | null;
+  areaServed: string;
+  /** False = the vendor keeps inventory off their public profile/museum
+   *  (RLS already hides the items from anon; pages show a private note). */
+  inventoryPublic: boolean;
   items: PublicInventoryItem[];
   upcomingShows: PublicUpcomingShow[];
+}
+
+/** Directory entry for /vendors — a VendorSummary superset so the booth
+ *  assignment dropdown can consume registered vendors directly. */
+export interface RegisteredVendorSummary extends VendorSummary {
+  profileId: string;
+  country: string | null;
+  state: string | null;
+  areaServed: string;
+  inventoryPublic: boolean;
 }
 
 interface VendorRow {
   id: string;
   name: string;
   banner_path: string | null;
+  profile_id: string | null;
+  country: string | null;
+  state: string | null;
+  area_served: string | null;
+  inventory_public: boolean;
 }
 
 interface InventoryRow {
@@ -121,7 +146,7 @@ export async function getPublicVendorProfile(
   try {
     const { data, error } = await supabase
       .from('vendors')
-      .select('id, name, banner_path')
+      .select('id, name, banner_path, profile_id, country, state, area_served, inventory_public')
       .eq('id', vendorId)
       .maybeSingle();
     if (error || !data) return null;
@@ -136,10 +161,56 @@ export async function getPublicVendorProfile(
       id: vendor.id,
       name: vendor.name,
       bannerUrl: vendor.banner_path ? publicImageUrl('banners', vendor.banner_path) : null,
+      profileId: vendor.profile_id ?? null,
+      country: vendor.country ?? null,
+      state: vendor.state ?? null,
+      areaServed: vendor.area_served ?? '',
+      inventoryPublic: vendor.inventory_public !== false,
       items,
       upcomingShows,
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Registered vendors (accounts with a canonical vendor profile) for the
+ * public /vendors directory and the organizer's booth-assignment dropdown.
+ * Item counts reflect what the caller can see (RLS: anon counts public
+ * visible items only). Sorted by name.
+ */
+export async function listRegisteredVendors(): Promise<RegisteredVendorSummary[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('vendors')
+      .select(
+        'id, name, banner_path, profile_id, country, state, area_served, inventory_public, manual_shows, created_at, updated_at, inventory_items(count)',
+      )
+      .not('profile_id', 'is', null)
+      .order('name');
+    if (error || !data) return [];
+    return (data as unknown as (VendorRow & {
+      manual_shows: VendorShowEntry[] | null;
+      created_at: string;
+      updated_at: string;
+      inventory_items: { count: number }[] | null;
+    })[]).map((row) => ({
+      id: row.id,
+      name: row.name,
+      bannerUrl: row.banner_path ? publicImageUrl('banners', row.banner_path) : null,
+      inventoryCount: row.inventory_items?.[0]?.count ?? 0,
+      manualShows: row.manual_shows ?? [],
+      createdAt: Date.parse(row.created_at) || 0,
+      updatedAt: Date.parse(row.updated_at) || 0,
+      profileId: row.profile_id as string,
+      country: row.country ?? null,
+      state: row.state ?? null,
+      areaServed: row.area_served ?? '',
+      inventoryPublic: row.inventory_public !== false,
+    }));
+  } catch {
+    return [];
   }
 }

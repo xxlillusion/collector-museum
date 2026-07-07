@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'wouter';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { useVendorInventory } from '../lib/useVendorInventory';
 import { deriveShowsAttended } from '../lib/vendorShows';
 import type { VendorSummary } from '../lib/useVendors';
@@ -256,6 +258,17 @@ export default function VendorsScreen({
                 </button>
               </div>
 
+              {isSupabaseConfigured && (
+                <div style={{ margin: '-18px 0 28px' }}>
+                  <Link
+                    href={`/vendor/${selected.id}`}
+                    style={{ color: GOLD, textDecoration: 'none', fontSize: '12.5px', letterSpacing: '0.06em', fontFamily: SERIF }}
+                  >
+                    View public page →
+                  </Link>
+                </div>
+              )}
+
               {/* Banner */}
               <div style={{ marginBottom: '32px' }}>
                 <div style={{ fontFamily: SERIF, fontSize: '13px', letterSpacing: '0.14em', color: GOLD, marginBottom: '8px' }}>
@@ -454,7 +467,9 @@ export default function VendorsScreen({
                           onChange={(e) => inventory.setVisible(item.id, e.target.checked)}
                           style={{ accentColor: GOLD }}
                         />
-                        Public on profile (future)
+                        <span title="Shown on your public profile and in show binders">
+                          Public
+                        </span>
                       </label>
                     </figure>
                   ))}

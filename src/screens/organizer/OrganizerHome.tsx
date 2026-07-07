@@ -2,20 +2,31 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
+import { getMyProfile } from '../../lib/profileService';
 import { listMyShows, setShowPublished, deleteShow } from '../../lib/showService';
 import type { MyShow } from '../../lib/showService';
 import { formatShowDate } from '../shows/ShowDirectory';
 
 const GOLD = '#d4af37';
 
-// Owned by the shows workstream (Stream C).
 export default function OrganizerHome() {
   const { configured, session, loading } = useAuth();
   const [shows, setShows] = useState<MyShow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // null = still checking the profile
+  const [isOrganizer, setIsOrganizer] = useState<boolean | null>(null);
 
   const userId = session?.user.id ?? null;
+
+  useEffect(() => {
+    if (!configured || !userId) return;
+    let cancelled = false;
+    getMyProfile(userId)
+      .then((p) => { if (!cancelled) setIsOrganizer(Boolean(p?.isOrganizer)); })
+      .catch(() => { if (!cancelled) setIsOrganizer(false); });
+    return () => { cancelled = true; };
+  }, [configured, userId]);
 
   const reload = useCallback(async () => {
     if (!userId) return;
@@ -29,8 +40,8 @@ export default function OrganizerHome() {
   }, [userId]);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (isOrganizer) reload();
+  }, [isOrganizer, reload]);
 
   const handleTogglePublished = useCallback(
     async (show: MyShow) => {
@@ -85,33 +96,42 @@ export default function OrganizerHome() {
         </>
       )}
 
-      {configured && session && (
+      {configured && session && isOrganizer === null && (
+        <p style={noteStyle}>Checking your organizer status…</p>
+      )}
+
+      {configured && session && isOrganizer === false && (
         <>
-          <div
+          <p style={noteStyle}>
+            Only organizers can create shows — enable the organizer designation on your{' '}
+            <Link href="/account" style={{ color: GOLD }}>Account page</Link> and come back to
+            publish floor plans anyone can walk in 3D.
+          </p>
+          <p style={{ marginTop: 18 }}>
+            <Link href="/account" style={{ color: GOLD, fontSize: 15 }}>Go to my account →</Link>
+          </p>
+        </>
+      )}
+
+      {configured && session && isOrganizer && (
+        <>
+          <Link
+            href="/organizer/show/new"
             style={{
-              border: '1px solid #3a352c',
-              borderRadius: 10,
-              background: 'rgba(255,255,255,0.025)',
-              padding: '16px 20px',
-              marginBottom: 28,
+              display: 'inline-block',
+              background: GOLD,
+              color: '#1a1614',
+              textDecoration: 'none',
+              padding: '14px 34px',
               fontSize: 15,
-              lineHeight: 1.7,
-              color: '#b7ad98',
+              letterSpacing: '0.1em',
+              borderRadius: 8,
+              marginBottom: 30,
+              fontFamily: 'Georgia, serif',
             }}
           >
-            <span style={{ color: '#f0e6ce' }}>How to publish a show:</span> from the{' '}
-            <Link href="/" style={{ color: GOLD }}>
-              home screen
-            </Link>
-            , open <span style={{ color: '#e8e0d0' }}>WALK A CARD SHOW</span>, upload the floor
-            plan, fix up the detected booths and assign vendors, then press{' '}
-            <span style={{ color: '#e8e0d0' }}>Publish to Card Shows…</span> in the Saved Plans
-            section. Published shows appear in the{' '}
-            <Link href="/shows" style={{ color: GOLD }}>
-              public directory
-            </Link>{' '}
-            and can be walked in 3D by anyone.
-          </div>
+            ＋ CREATE A SHOW →
+          </Link>
 
           <h2
             style={{
@@ -183,6 +203,12 @@ export default function OrganizerHome() {
                     {s.boothCount === 1 ? '' : 's'}
                     {s.hasPlanImage ? '' : ' · no plan image'}
                   </span>
+                  <Link
+                    href={`/organizer/show/${s.id}/edit`}
+                    style={{ ...smallButton, textDecoration: 'none', display: 'inline-block' }}
+                  >
+                    Edit
+                  </Link>
                   <button
                     onClick={() => handleTogglePublished(s)}
                     disabled={busy}

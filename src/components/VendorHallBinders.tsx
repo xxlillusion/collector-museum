@@ -3,10 +3,12 @@ import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import Binder, { COVER_W, COVER_H, COVER_T } from './Binder';
+import Binder, { BinderMaterialWarmup, COVER_W, COVER_H, COVER_T, CARDS_PER_SHEET } from './Binder';
 import { isTouchDevice } from './GalleryControls';
 import { CLOTH_TOP_Y } from './tableGeometry';
 import { TABLE } from './Room';
+import { getInventoryItems } from '../lib/db';
+import { prefetchSleeveTexture } from '../lib/sleeveTextures';
 import { useVendorInventory } from '../lib/useVendorInventory';
 import type { TablePlacement } from '../lib/vendorPlan';
 import type { CardWithUrl } from '../lib/useCards';
@@ -161,6 +163,7 @@ function OpenHallBinder({
       onClosed={onClosed}
       restPose={{ position: pose.position, quaternion: pose.quaternion }}
       lazySheetWindow={1}
+      fillLight={false}
     />
   );
 }
@@ -218,6 +221,7 @@ export default function VendorHallBinders({
 
   const leatherRef = useRef<THREE.InstancedMesh>(null);
   const ringsRef = useRef<THREE.InstancedMesh>(null);
+  const fillLightRef = useRef<THREE.PointLight>(null);
 
   // Instance matrices = binder poses; the opened binder's instance collapses
   // to scale 0 so the real Binder replaces it seamlessly.
@@ -251,8 +255,42 @@ export default function VendorHallBinders({
   const openBinderRef = useRef(openBinder);
   openBinderRef.current = openBinder;
 
+  // Warm the first spread's sleeve textures as soon as the player shows
+  // intent (gazing prompt or hover), so opening doesn't start from a cold
+  // IndexedDB read + full decode. Keyed per binder — the blob read + decode
+  // only ever happens once; the sleeve cache dedupes repeat calls anyway.
+  const prefetchedRef = useRef(new Set<string>());
+  const prefetchBinder = (pose: BinderPose) => {
+    const key = `${pose.vendorId}:${pose.binderIndex}`;
+    if (prefetchedRef.current.has(key)) return;
+    prefetchedRef.current.add(key);
+    getInventoryItems(pose.vendorId)
+      .then((records) => {
+        const start = pose.binderIndex * ITEMS_PER_BINDER;
+        for (const r of records.slice(start, start + CARDS_PER_SHEET)) {
+          prefetchSleeveTexture(r.id, r.imageBlob);
+        }
+      })
+      .catch(() => {});
+  };
+
   // Proximity prompt: nearest closed binder in range and in the crosshair
   useFrame(({ camera }) => {
+    // Fill light for the open spread — permanently mounted (mount-toggling a
+    // light recompiles every hall material, see Binder.fillLight), parked at
+    // intensity 0 while closed, tucked just in front of the camera while open
+    // (≈ where Binder's own local fill light would sit at the view pose).
+    const light = fillLightRef.current;
+    if (light) {
+      if (openIdxRef.current !== null) {
+        light.intensity = 0.35;
+        camera.getWorldDirection(light.position);
+        light.position.multiplyScalar(0.2).add(camera.position);
+        light.position.y += 0.08;
+      } else {
+        light.intensity = 0;
+      }
+    }
     if (isTouchDevice) return;
     let best: number | null = null;
     let bestDist = PROMPT_DISTANCE;
@@ -273,6 +311,7 @@ export default function VendorHallBinders({
     if (best !== promptIdxRef.current) {
       const wasVisible = promptIdxRef.current !== null;
       promptIdxRef.current = best;
+      if (best !== null) prefetchBinder(poses[best]);
       if ((best !== null) !== wasVisible) onPromptChange(best !== null);
     }
   });
@@ -310,12 +349,20 @@ export default function VendorHallBinders({
         castShadow
         receiveShadow
         onClick={handleShellClick}
-        onPointerEnter={() => {
-          if (openIdxRef.current === null) document.body.style.cursor = 'pointer';
+        onPointerEnter={(e) => {
+          if (openIdxRef.current === null) {
+            document.body.style.cursor = 'pointer';
+            if (e.instanceId !== undefined) prefetchBinder(poses[e.instanceId]);
+          }
         }}
         onPointerLeave={() => { document.body.style.cursor = 'default'; }}
       />
       <instancedMesh ref={ringsRef} args={[geos.rings, mats.rings, poses.length]} />
+
+      {/* Permanent fill light + shader warmup — both exist so opening the
+          first binder doesn't trigger a hall-wide shader recompile burst */}
+      <pointLight ref={fillLightRef} intensity={0} distance={1.4} decay={2} color="#fff0dd" />
+      <BinderMaterialWarmup />
 
       {openIdx !== null && (
         // Own boundary: mounting inventory textures must not suspend the hall

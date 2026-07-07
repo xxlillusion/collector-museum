@@ -5,38 +5,17 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import type { PublicVendorProfile } from '../../lib/publicVendors';
 import { formatLocation } from '../../lib/locations';
+import {
+  GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF,
+  Section, primaryButtonStyle, noteStyle,
+} from '../../components/museumKit';
 
 // Public vendor profile page (/vendor/:id) — owned by the vendor-portal
 // workstream (Stream B). Anon-safe: reads via lib/publicVendors.ts (direct
 // Supabase queries, CDN image URLs), no auth or provider required.
 
-const GOLD = '#d4af37';
-const MUTED = '#9a8f7d';
-const HAIRLINE = 'rgba(212,175,55,0.28)';
-const SERIF = "Georgia, 'Times New Roman', serif";
-
-function SectionHeading({ children }: { children: string }) {
-  return (
-    <div
-      style={{
-        fontFamily: SERIF,
-        fontSize: 13,
-        letterSpacing: '0.16em',
-        color: GOLD,
-        margin: '38px 0 16px',
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 function Note({ children }: { children: string }) {
-  return (
-    <p style={{ fontSize: 17, lineHeight: 1.7, color: '#b7ad98', fontStyle: 'italic' }}>
-      {children}
-    </p>
-  );
+  return <p style={{ ...noteStyle, fontSize: 16 }}>{children}</p>;
 }
 
 function formatShowDate(iso: string): string {
@@ -73,7 +52,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
 
   if (!isSupabaseConfigured) {
     return (
-      <PageShell title="Vendor Profile">
+      <PageShell title="Vendor Profile" eyebrow="REGISTERED VENDOR">
         <Note>
           This gallery is running in guest mode — public vendor profiles need the cloud
           connection, which isn't configured here.
@@ -84,7 +63,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
 
   if (state.status === 'loading') {
     return (
-      <PageShell title="Vendor Profile">
+      <PageShell title="Vendor Profile" eyebrow="REGISTERED VENDOR">
         <Note>Unrolling the banner…</Note>
       </PageShell>
     );
@@ -92,7 +71,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
 
   if (state.status === 'notFound') {
     return (
-      <PageShell title="Vendor Profile">
+      <PageShell title="Vendor Profile" eyebrow="REGISTERED VENDOR">
         <Note>
           We couldn't find that vendor — the profile may have been removed, or the link may be
           incorrect.
@@ -100,9 +79,15 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
         <p style={{ marginTop: 24 }}>
           <Link
             href="/"
-            style={{ color: GOLD, textDecoration: 'none', fontSize: 14, letterSpacing: 1 }}
+            style={{
+              color: GOLD,
+              textDecoration: 'none',
+              fontFamily: SERIF,
+              fontSize: 12.5,
+              letterSpacing: '0.18em',
+            }}
           >
-            Return to the museum →
+            RETURN TO THE MUSEUM →
           </Link>
         </p>
       </PageShell>
@@ -114,14 +99,23 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   const areaServed = profile.areaServed.trim();
 
   return (
-    <PageShell title={profile.name}>
+    <PageShell title={profile.name} eyebrow="REGISTERED VENDOR">
       {(location || areaServed) && (
-        <div style={{ margin: '-14px 0 24px' }}>
+        <div style={{ margin: '-18px 0 30px', textAlign: 'center' }}>
           {location && (
-            <div style={{ fontSize: 15, color: MUTED, letterSpacing: '0.04em' }}>{location}</div>
+            <div
+              style={{
+                fontFamily: SERIF,
+                fontSize: 14.5,
+                color: MUTED,
+                letterSpacing: '0.08em',
+              }}
+            >
+              {location}
+            </div>
           )}
           {areaServed && (
-            <div style={{ fontSize: 14, color: MUTED, fontStyle: 'italic', marginTop: 4 }}>
+            <div style={{ ...noteStyle, fontSize: 13.5, marginTop: 5 }}>
               Serves: {areaServed}
             </div>
           )}
@@ -134,8 +128,8 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
             border: `1px solid ${HAIRLINE}`,
             borderRadius: 2,
             padding: 8,
-            background: '#1e1915',
-            marginBottom: 8,
+            background: PANEL,
+            marginBottom: 36,
           }}
         >
           <img
@@ -151,119 +145,126 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
         </div>
       )}
 
-      <SectionHeading>INVENTORY</SectionHeading>
-      {!profile.inventoryPublic ? (
-        <Note>This vendor keeps their inventory private.</Note>
-      ) : profile.items.length === 0 ? (
-        <Note>Nothing on display yet — check back soon.</Note>
-      ) : (
-        <>
-          <Link
-            href={`/museum/vendor/${profile.id}`}
-            style={{
-              display: 'inline-block',
-              background: GOLD,
-              color: '#1a1614',
-              borderRadius: 2,
-              padding: '12px 32px',
-              fontSize: 13,
-              letterSpacing: '0.16em',
-              textDecoration: 'none',
-              fontFamily: SERIF,
-              marginBottom: 22,
-            }}
-          >
-            VIEW IN 3D MUSEUM →
-          </Link>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
-              gap: 22,
-              alignItems: 'start',
-            }}
-          >
-          {profile.items.map((item) => (
-            <figure key={item.id} style={{ margin: 0 }}>
-              <img
-                src={item.imageUrl}
-                alt={item.caption || 'Inventory item'}
-                loading="lazy"
-                style={{
-                  width: '100%',
-                  aspectRatio: String(item.aspect),
-                  objectFit: 'cover',
-                  display: 'block',
-                  borderRadius: 2,
-                  border: '3px solid #3a2f1e',
-                  outline: `1px solid ${HAIRLINE}`,
-                  outlineOffset: 3,
-                  boxSizing: 'border-box',
-                  background: '#0d0b0a',
-                }}
-              />
-              {item.caption && (
-                <figcaption
-                  style={{
-                    marginTop: 10,
-                    fontFamily: SERIF,
-                    fontStyle: 'italic',
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    color: '#b7ad98',
-                    textAlign: 'center',
-                  }}
-                >
-                  {item.caption}
-                </figcaption>
-              )}
-            </figure>
-          ))}
-          </div>
-        </>
-      )}
-
-      <SectionHeading>APPEARING AT</SectionHeading>
-      {profile.upcomingShows.length === 0 ? (
-        <Note>No upcoming shows announced.</Note>
-      ) : (
-        <div>
-          {profile.upcomingShows.map((show) => (
+      <Section numeral="I." title="INVENTORY">
+        {!profile.inventoryPublic ? (
+          <Note>This vendor keeps their inventory private.</Note>
+        ) : profile.items.length === 0 ? (
+          <Note>Nothing on display yet — check back soon.</Note>
+        ) : (
+          <>
             <Link
-              key={show.showId}
-              href={`/show/${show.showId}`}
+              href={`/museum/vendor/${profile.id}`}
               style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                gap: 16,
-                padding: '13px 4px',
-                borderBottom: `1px solid rgba(212,175,55,0.12)`,
+                ...primaryButtonStyle,
+                display: 'inline-block',
                 textDecoration: 'none',
-                color: 'inherit',
+                marginBottom: 26,
               }}
             >
-              <span
+              WALK THE MUSEUM →
+            </Link>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
+                gap: 22,
+                alignItems: 'start',
+              }}
+            >
+              {profile.items.map((item) => (
+                <figure key={item.id} className="museum-lift" style={{ margin: 0 }}>
+                  <img
+                    src={item.imageUrl}
+                    alt={item.caption || 'Inventory item'}
+                    loading="lazy"
+                    style={{
+                      width: '100%',
+                      aspectRatio: String(item.aspect),
+                      objectFit: 'cover',
+                      display: 'block',
+                      borderRadius: 2,
+                      border: '3px solid #3a2f1e',
+                      outline: `1px solid ${HAIRLINE}`,
+                      outlineOffset: 3,
+                      boxSizing: 'border-box',
+                      background: '#0d0b0a',
+                    }}
+                  />
+                  {item.caption && (
+                    <figcaption
+                      style={{
+                        marginTop: 10,
+                        fontFamily: SERIF,
+                        fontStyle: 'italic',
+                        fontSize: 12.5,
+                        lineHeight: 1.5,
+                        color: MUTED,
+                        textAlign: 'center',
+                      }}
+                    >
+                      {item.caption}
+                    </figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+          </>
+        )}
+      </Section>
+
+      <Section numeral="II." title="APPEARING AT">
+        {profile.upcomingShows.length === 0 ? (
+          <Note>No upcoming shows announced.</Note>
+        ) : (
+          <div>
+            {profile.upcomingShows.map((show) => (
+              <Link
+                key={show.showId}
+                href={`/show/${show.showId}`}
+                className="museum-row"
                 style={{
-                  fontFamily: SERIF,
-                  fontSize: 16,
-                  color: '#f0e6ce',
-                  flex: 1,
-                  minWidth: 0,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 16,
+                  padding: '13px 10px',
+                  borderBottom: '1px solid rgba(212,175,55,0.12)',
+                  textDecoration: 'none',
+                  color: TEXT,
                 }}
               >
-                {show.name}
-              </span>
-              <span style={{ fontSize: 13, color: MUTED, whiteSpace: 'nowrap' }}>
-                {formatShowDate(show.date)}
-              </span>
-              <span style={{ color: GOLD, fontSize: 13, whiteSpace: 'nowrap' }}>→</span>
-            </Link>
-          ))}
-        </div>
-      )}
+                <span
+                  style={{
+                    fontFamily: SERIF,
+                    fontSize: 16,
+                    color: TEXT,
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {show.name}
+                </span>
+                <span style={{ ...noteStyle, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                  {formatShowDate(show.date)}
+                </span>
+                <span
+                  style={{
+                    fontFamily: SERIF,
+                    fontSize: 12,
+                    letterSpacing: '0.16em',
+                    color: GOLD,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  VIEW →
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Section>
     </PageShell>
   );
 }

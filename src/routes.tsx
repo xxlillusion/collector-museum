@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { Route, Switch } from 'wouter';
-import App from './App';
+import App, { SandboxApp } from './App';
 
 // Route table — FROZEN (extended once for Wave 2). Every workstream's entry
 // point is pre-stubbed here so no stream ever edits this file; streams
@@ -42,6 +42,9 @@ export default function AppRoutes() {
         <Route path="/shows" component={ShowDirectory} />
         <Route path="/show/:id">{(params) => <ShowDetail showId={params.id} />}</Route>
         <Route path="/organizer" component={OrganizerHome} />
+        {/* The local, no-account experience — forced local provider; shares
+            App's chunk (and its lazily loaded canvases) on purpose. */}
+        <Route path="/sandbox" component={SandboxApp} />
         <Route path="/organizer/show/new">
           <ShowEditorScreen />
         </Route>

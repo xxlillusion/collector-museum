@@ -4,18 +4,17 @@ import { useAuth } from '../lib/auth';
 import type { CardWithUrl } from '../lib/useCards';
 import type { SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
+import {
+  GOLD, BG, PANEL, HAIRLINE, TEXT, MUTED, SERIF, SANS,
+  Ornament, QuickAction, Section, museumHoverCss,
+} from './museumKit';
 
 // Home screen — the "Museum Refined" design (graduated from the 2026-07 UI
 // Lab beta): upload cards, manage the banner, and enter either 3D experience.
-
-const GOLD = '#d4af37';
-const BG = '#171310';
-const PANEL = '#1e1915';
-const HAIRLINE = 'rgba(212,175,55,0.28)';
-const TEXT = '#e8e4dc';
-const MUTED = '#9a8f7d';
-const SERIF = 'Georgia, "Times New Roman", serif';
-const SANS = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+// Serves two hosts: the signed-in home (default route) and the /sandbox page
+// (`sandbox` — the local, no-account experience with its own banner/chrome).
+// Logged-out visitors on a configured deployment never reach this component;
+// they get LandingScreen instead.
 
 interface HomeScreenProps {
   cards: CardWithUrl[];
@@ -34,59 +33,12 @@ interface HomeScreenProps {
   onEnter: () => void;
   onVendor: () => void;
   onVendors: () => void;
-}
-
-function Ornament({ width = 60 }: { width?: number }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', justifyContent: 'center' }}>
-      <div style={{ width: `${width}px`, height: '1px', background: HAIRLINE }} />
-      <span style={{ color: GOLD, fontSize: '11px' }}>❖</span>
-      <div style={{ width: `${width}px`, height: '1px', background: HAIRLINE }} />
-    </div>
-  );
-}
-
-function QuickAction({ label, sub, onClick }: {
-  label: string; sub?: string; onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        background: 'transparent', color: GOLD, border: `1px solid ${HAIRLINE}`,
-        padding: '11px 22px', maxWidth: '230px',
-        fontSize: '12px', letterSpacing: '0.16em', fontFamily: SERIF,
-        cursor: 'pointer', borderRadius: '2px', textAlign: 'center',
-      }}
-    >
-      {label}
-      {sub && (
-        <span style={{
-          display: 'block', marginTop: '5px', fontSize: '10.5px', letterSpacing: '0.05em',
-          color: MUTED, fontStyle: 'italic', textTransform: 'none',
-        }}>
-          {sub}
-        </span>
-      )}
-    </button>
-  );
-}
-
-function Section({ numeral, title, children }: {
-  numeral: string; title: string; children: React.ReactNode;
-}) {
-  return (
-    <section style={{ marginBottom: '44px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px', marginBottom: '6px' }}>
-        <span style={{ fontFamily: SERIF, fontSize: '13px', color: GOLD, letterSpacing: '0.1em' }}>{numeral}</span>
-        <h2 style={{ margin: 0, fontFamily: SERIF, fontSize: '19px', fontWeight: 500, letterSpacing: '0.14em', color: TEXT }}>
-          {title}
-        </h2>
-      </div>
-      <div style={{ height: '1px', background: `linear-gradient(90deg, ${HAIRLINE}, transparent)`, marginBottom: '20px' }} />
-      {children}
-    </section>
-  );
+  /** Sandbox page mode: local-only banner, back-to-main link, no auth corner. */
+  sandbox?: boolean;
+  /** Show the Vendor Registry CTA (vendors; always on in sandbox/guest-only). */
+  showRegistry?: boolean;
+  /** Show the organizer-tools CTA (organizer accounts). */
+  showOrganizer?: boolean;
 }
 
 export default function HomeScreen({
@@ -105,6 +57,9 @@ export default function HomeScreen({
   onEnter,
   onVendor,
   onVendors,
+  sandbox = false,
+  showRegistry = true,
+  showOrganizer = false,
 }: HomeScreenProps) {
   const [, navigate] = useLocation();
   const [dragging, setDragging] = useState(false);
@@ -169,9 +124,16 @@ export default function HomeScreen({
 
   return (
     <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: BG, color: TEXT, fontFamily: SANS, position: 'relative' }}>
-      {/* Auth corner — hidden entirely when accounts aren't configured */}
-      {authConfigured && (
-        <div style={{ position: 'absolute', top: '18px', right: '22px', fontFamily: SERIF, fontSize: '12px', letterSpacing: '0.12em' }}>
+      {/* Sandbox: back to the main site. Otherwise: auth corner (hidden when
+          accounts aren't configured). */}
+      {sandbox ? (
+        <div style={{ position: 'absolute', top: 18, left: 22, fontFamily: SERIF, fontSize: 12, letterSpacing: '0.12em' }}>
+          <Link href="/" style={{ color: GOLD, textDecoration: 'none' }}>
+            ← VENDOR MUSEUM
+          </Link>
+        </div>
+      ) : authConfigured && (
+        <div style={{ position: 'absolute', top: 18, right: 22, fontFamily: SERIF, fontSize: 12, letterSpacing: '0.12em' }}>
           <Link
             href={session ? '/account' : '/login'}
             style={{ color: GOLD, textDecoration: 'none', border: `1px solid ${HAIRLINE}`, borderRadius: '999px', padding: '8px 18px' }}
@@ -180,17 +142,12 @@ export default function HomeScreen({
           </Link>
         </div>
       )}
-      <style>{`
-        .home-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
-        .home-lift:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
-        .home-row { transition: background 0.15s ease; }
-        .home-row:hover { background: rgba(212,175,55,0.06); }
-      `}</style>
+      <style>{museumHoverCss}</style>
       <div style={{ maxWidth: '860px', margin: '0 auto', padding: '64px 28px 80px' }}>
         {/* Masthead */}
         <header style={{ textAlign: 'center', marginBottom: '56px' }}>
           <div style={{ fontSize: '11px', letterSpacing: '0.4em', color: MUTED, marginBottom: '14px' }}>
-            EST. 2026 · PRIVATE COLLECTION
+            {sandbox ? 'LOCAL SANDBOX · THIS BROWSER ONLY' : 'EST. 2026 · PRIVATE COLLECTION'}
           </div>
           <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: '44px', fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
             VENDOR MUSEUM
@@ -201,6 +158,23 @@ export default function HomeScreen({
           <p style={{ margin: 0, fontSize: '13.5px', color: MUTED, letterSpacing: '0.12em' }}>
             {loading ? 'OPENING THE ARCHIVES…' : countsLine}
           </p>
+          {sandbox && (
+            <div style={{
+              margin: '22px auto 0', maxWidth: 560,
+              border: `1px solid ${HAIRLINE}`, borderRadius: '4px',
+              background: 'rgba(212,175,55,0.05)', padding: '10px 18px',
+              fontSize: '12.5px', lineHeight: 1.6, color: MUTED, fontFamily: SERIF, fontStyle: 'italic',
+            }}>
+              Everything on this page lives in this browser — no account required.
+              Collections and shows built here can't be shared or published
+              {authConfigured && (
+                <>
+                  {' '}(<Link href="/signup" style={{ color: GOLD }}>create an account</Link> to
+                  take them online)
+                </>
+              )}.
+            </div>
+          )}
           {showableVendors.length > 0 && (
             <div style={{ marginTop: '28px' }}>
               <span style={{ fontSize: '11px', letterSpacing: '0.14em', color: MUTED, marginRight: '10px' }}>
@@ -244,26 +218,43 @@ export default function HomeScreen({
             </p>
           )}
           <div style={{ marginTop: '12px', display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', alignItems: 'stretch' }}>
+            {authConfigured && (
+              <QuickAction
+                label="EXPLORE CARD SHOWS →"
+                sub="browse published shows by location and walk them"
+                onClick={() => navigate('/shows')}
+              />
+            )}
             <QuickAction
-              label="EXPLORE CARD SHOWS →"
-              sub="browse real shows by location and walk them"
-              onClick={() => navigate('/shows')}
-            />
-            <QuickAction
-              label="BUILD A SHOW (LOCAL SANDBOX) →"
-              sub="local floor-plan editor, this browser only"
+              label="BUILD A SHOW →"
+              sub={sandbox || !authConfigured
+                ? 'floor-plan editor, this browser only'
+                : 'draft a floor plan and walk it in 3D'}
               onClick={onVendor}
             />
-            <QuickAction
-              label="VENDOR DIRECTORY →"
-              sub="registered vendors across the platform"
-              onClick={() => navigate('/vendors')}
-            />
-            <QuickAction
-              label="VENDOR REGISTRY →"
-              sub="manage your own vendors and inventory"
-              onClick={onVendors}
-            />
+            {authConfigured && !sandbox && (
+              <QuickAction
+                label="VENDOR DIRECTORY →"
+                sub="registered vendors across the platform"
+                onClick={() => navigate('/vendors')}
+              />
+            )}
+            {showRegistry && (
+              <QuickAction
+                label="VENDOR REGISTRY →"
+                sub={sandbox || !authConfigured
+                  ? 'local vendors and their inventory'
+                  : 'manage your stores and inventory'}
+                onClick={onVendors}
+              />
+            )}
+            {showOrganizer && !sandbox && (
+              <QuickAction
+                label="ORGANIZER TOOLS →"
+                sub="create and manage your public shows"
+                onClick={() => navigate('/organizer')}
+              />
+            )}
           </div>
         </header>
 
@@ -305,7 +296,7 @@ export default function HomeScreen({
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '20px' }}>
             {cards.map((card) => (
-              <figure key={card.id} className="home-lift" style={{ margin: 0, position: 'relative' }}>
+              <figure key={card.id} className="museum-lift" style={{ margin: 0, position: 'relative' }}>
                 <img
                   src={card.imageUrl}
                   alt={card.name}
@@ -350,7 +341,7 @@ export default function HomeScreen({
             {planSummaries.map((p) => (
               <div
                 key={p.id}
-                className="home-row"
+                className="museum-row"
                 onClick={() => { if (!walkingId) handleWalk(p.id); }}
                 style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -369,7 +360,7 @@ export default function HomeScreen({
               </div>
             ))}
             <div
-              className="home-row"
+              className="museum-row"
               onClick={onVendor}
               style={{ padding: '13px 10px', cursor: 'pointer', fontSize: '12.5px', color: MUTED, letterSpacing: '0.06em' }}
             >
@@ -435,8 +426,18 @@ export default function HomeScreen({
             <Ornament width={40} />
           </div>
           <p style={{ margin: 0, fontSize: '11px', letterSpacing: '0.2em', color: MUTED }}>
-            EVERYTHING LIVES IN YOUR BROWSER · NO ACCOUNT REQUIRED
+            {sandbox || !authConfigured
+              ? 'EVERYTHING LIVES IN YOUR BROWSER · NO ACCOUNT REQUIRED'
+              : 'SYNCED TO YOUR ACCOUNT'}
           </p>
+          {!sandbox && authConfigured && (
+            <p style={{ margin: '12px 0 0', fontSize: '12px', fontFamily: SERIF, fontStyle: 'italic', color: MUTED }}>
+              Prefer to keep things offline?{' '}
+              <Link href="/sandbox" style={{ color: GOLD }}>
+                Open the local sandbox →
+              </Link>
+            </p>
+          )}
         </footer>
       </div>
     </div>

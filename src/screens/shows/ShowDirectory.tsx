@@ -1,30 +1,30 @@
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { listPublishedShows } from '../../lib/publicShows';
 import type { PublicShowSummary, ShowLocationFilter } from '../../lib/publicShows';
 import { COUNTRIES, regionOptions, formatLocation } from '../../lib/locations';
+import {
+  GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF,
+  inputStyle, labelStyle, noteStyle,
+} from '../../components/museumKit';
 
-const GOLD = '#d4af37';
-
-export const filterSelectStyle: React.CSSProperties = {
-  background: '#0d0b0a',
-  color: '#e8e0d0',
-  border: '1px solid rgba(212,175,55,0.28)',
-  borderRadius: 2,
-  padding: '8px 12px',
+/** Museum-styled inline select for the filter row (also used by /vendors). */
+export const filterSelectStyle: CSSProperties = {
+  ...inputStyle,
+  display: 'inline-block',
+  width: 'auto',
   fontSize: 13,
-  fontFamily: "Georgia, 'Times New Roman', serif",
-  letterSpacing: '0.04em',
+  padding: '8px 12px',
   cursor: 'pointer',
 };
 
-export const filterLabelStyle: React.CSSProperties = {
-  fontSize: 11,
-  letterSpacing: '0.14em',
-  color: '#8a816d',
-  marginRight: 8,
+export const filterLabelStyle: CSSProperties = {
+  ...labelStyle,
+  display: 'inline-block',
+  margin: '0 8px 0 0',
 };
 
 export function formatShowDate(iso: string | null): string | null {
@@ -63,9 +63,9 @@ export default function ShowDirectory() {
   const filtered = Boolean(country || state);
 
   return (
-    <PageShell title="Card Shows">
+    <PageShell title="Card Shows" eyebrow="PUBLIC EXHIBITIONS">
       {!isSupabaseConfigured && (
-        <p style={noteStyle}>
+        <p style={{ ...noteStyle, fontSize: 16 }}>
           The shows directory needs a configured backend — this deployment runs in
           guest-only mode. You can still build and walk floor plans from the home screen.
         </p>
@@ -119,10 +119,12 @@ export default function ShowDirectory() {
         </div>
       )}
 
-      {isSupabaseConfigured && shows === null && <p style={noteStyle}>Loading shows…</p>}
+      {isSupabaseConfigured && shows === null && (
+        <p style={{ ...noteStyle, fontSize: 16 }}>Loading shows…</p>
+      )}
 
       {isSupabaseConfigured && shows !== null && shows.length === 0 && (
-        <p style={noteStyle}>
+        <p style={{ ...noteStyle, fontSize: 16 }}>
           {filtered
             ? 'No shows in this area yet — try widening the search.'
             : 'No shows published yet — check back soon.'}
@@ -138,16 +140,17 @@ export default function ShowDirectory() {
               <Link
                 key={s.id}
                 href={`/show/${s.id}`}
+                className="museum-row"
                 style={{
                   display: 'flex',
-                  gap: 18,
+                  gap: 20,
                   alignItems: 'center',
                   padding: '16px 18px',
-                  border: '1px solid #3a352c',
-                  borderRadius: 10,
-                  background: 'rgba(255,255,255,0.025)',
+                  border: `1px solid ${HAIRLINE}`,
+                  borderRadius: 4,
+                  background: PANEL,
                   textDecoration: 'none',
-                  color: '#e8e0d0',
+                  color: TEXT,
                 }}
               >
                 <div
@@ -155,9 +158,9 @@ export default function ShowDirectory() {
                     width: 120,
                     height: 84,
                     flexShrink: 0,
-                    borderRadius: 6,
-                    border: '1px solid #4a4436',
-                    background: '#0d0b09',
+                    borderRadius: 2,
+                    border: `1px solid ${HAIRLINE}`,
+                    background: '#0d0b0a',
                     overflow: 'hidden',
                     display: 'flex',
                     alignItems: 'center',
@@ -171,24 +174,33 @@ export default function ShowDirectory() {
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   ) : (
-                    <span style={{ color: '#5c5546', fontSize: 12, fontStyle: 'italic' }}>
+                    <span style={{ fontFamily: SERIF, fontStyle: 'italic', color: MUTED, fontSize: 12 }}>
                       no plan
                     </span>
                   )}
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 20, color: '#f0e6ce', marginBottom: 4 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    style={{
+                      fontFamily: SERIF,
+                      fontSize: 19,
+                      letterSpacing: '0.06em',
+                      color: TEXT,
+                      marginBottom: 5,
+                    }}
+                  >
                     {s.name}
                     {upcoming && (
                       <span
                         style={{
                           marginLeft: 10,
-                          fontSize: 11,
-                          letterSpacing: 1.5,
+                          fontFamily: SERIF,
+                          fontSize: 10,
+                          letterSpacing: '0.2em',
                           color: GOLD,
-                          border: `1px solid ${GOLD}`,
-                          borderRadius: 4,
-                          padding: '2px 7px',
+                          border: `1px solid ${HAIRLINE}`,
+                          borderRadius: 2,
+                          padding: '2px 8px',
                           verticalAlign: 'middle',
                         }}
                       >
@@ -196,19 +208,30 @@ export default function ShowDirectory() {
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 14, color: '#b7ad98' }}>
+                  <div style={{ ...noteStyle, fontSize: 13.5, lineHeight: 1.55 }}>
                     {formatShowDate(s.showDate) ?? 'Date to be announced'}
                   </div>
                   {location && (
-                    <div style={{ fontSize: 13, color: '#b7ad98', marginTop: 2 }}>
+                    <div style={{ ...noteStyle, fontSize: 13, lineHeight: 1.55 }}>
                       {location}
                     </div>
                   )}
-                  <div style={{ fontSize: 13, color: '#8a816d', marginTop: 4 }}>
-                    {s.boothCount} booth{s.boothCount === 1 ? '' : 's'} ·{' '}
-                    {s.vendorCount} vendor{s.vendorCount === 1 ? '' : 's'}
+                  <div style={{ fontSize: 11, letterSpacing: '0.14em', color: MUTED, marginTop: 6 }}>
+                    {s.boothCount} BOOTH{s.boothCount === 1 ? '' : 'S'} ·{' '}
+                    {s.vendorCount} VENDOR{s.vendorCount === 1 ? '' : 'S'}
                   </div>
                 </div>
+                <span
+                  style={{
+                    fontFamily: SERIF,
+                    fontSize: 12,
+                    letterSpacing: '0.18em',
+                    color: GOLD,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  VIEW →
+                </span>
               </Link>
             );
           })}
@@ -217,10 +240,3 @@ export default function ShowDirectory() {
     </PageShell>
   );
 }
-
-const noteStyle: React.CSSProperties = {
-  fontSize: 17,
-  lineHeight: 1.7,
-  color: '#b7ad98',
-  fontStyle: 'italic',
-};

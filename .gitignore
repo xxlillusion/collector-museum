@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Secrets — never commit keys
+git_key
+git_key.pub
+
+# Throwaway debug scripts
+*.tmp.mjs
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,33 +1,300 @@
 import type { DataProvider } from './types';
+import type {
+  CardRecord,
+  SavedPlanRecord,
+  VendorRecord,
+  InventoryItemRecord,
+  VendorShowEntry,
+} from '../db';
+import { downscaleImage } from '../db';
 import { localProvider } from './local';
-
-function notImplemented(method: string): never {
-  throw new Error(
-    `Remote provider: ${method} not implemented yet (filled in by the accounts workstream)`,
-  );
-}
+import { supabase } from '../supabase';
+import {
+  uploadImage,
+  downloadImage,
+  downloadImageIfExists,
+  removeImage,
+} from '../supabaseImages';
 
 /**
- * Supabase-backed provider for signed-in users. Phase 0 ships this as a stub;
- * the accounts workstream fills in the data domains (cards, vendors,
- * inventory, plans) against Postgres + Storage, downloading images to blobs
- * so downstream consumers are backend-agnostic.
+ * Supabase-backed provider for signed-in users (accounts workstream).
+ *
+ * Blob is the currency on both sides: every image is downloaded to a Blob so
+ * hooks, object-URL lifecycles and sleeve textures work identically to the
+ * local provider. Tables/buckets per supabase/migrations/0001_init.sql:
+ *   cards     ⇄ collections + cards/<userId>/<cardId>.webp (private bucket)
+ *   banner    ⇄ cards/<userId>/_banner.webp (storage only, no table)
+ *   vendors   ⇄ vendors + banners/<vendorId>/banner.webp
+ *   inventory ⇄ inventory_items + inventory/<vendorId>/<itemId>.webp
+ *   plans     ⇄ shows (drafts, published=false) + booths + plans/<showId>/plan.webp
  *
  * The floor-plan working slot stays local-backed on purpose (drafting surface
  * — see types.ts); those delegations are final, not stubs.
+ *
+ * The `upsertCloud*` primitives are exported for the guest→account import
+ * wizard (src/lib/importLocal.ts): they accept full records so client-side
+ * UUIDs are preserved and re-running the import is idempotent.
  */
+
+// ---------------------------------------------------------------- row shapes
+
+interface CollectionRow {
+  id: string;
+  name: string;
+  image_path: string;
+  added_at: string;
+}
+
+interface VendorRow {
+  id: string;
+  name: string;
+  banner_path: string | null;
+  manual_shows: VendorShowEntry[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface InventoryRow {
+  id: string;
+  vendor_id: string;
+  image_path: string;
+  caption: string;
+  visible: boolean;
+  aspect: number;
+  added_at: string;
+}
+
+interface ShowRow {
+  id: string;
+  name: string;
+  show_date: string | null;
+  plan_image_path: string | null;
+  plan_meta: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  booths: { rect: unknown }[];
+}
+
+// ------------------------------------------------------------------- helpers
+
+/** The remote provider is only constructed with a live session (root.tsx). */
+function db() {
+  return supabase!;
+}
+
+function ts(iso: string): number {
+  return new Date(iso).getTime();
+}
+
+function iso(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+// Same computation as db.ts's private imageAspect — replicated on purpose
+// (db.ts is frozen; the helper is three lines).
+async function imageAspect(blob: Blob): Promise<number> {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const aspect = bmp.width / bmp.height;
+    bmp.close();
+    return aspect;
+  } catch {
+    return 2.5 / 3.5; // card-shaped fallback
+  }
+}
+
+/**
+ * Overwrite-safe upload. The storage RLS in 0001_init.sql grants insert +
+ * delete but no UPDATE policy, so `upsert: true` on an existing object is
+ * rejected — remove first (a no-op when absent), then upload fresh.
+ */
+async function replaceImage(
+  bucket: Parameters<typeof uploadImage>[0],
+  path: string,
+  blob: Blob,
+): Promise<void> {
+  await removeImage(bucket, path);
+  await uploadImage(bucket, path, blob);
+}
+
+const cardPath = (userId: string, cardId: string) => `${userId}/${cardId}.webp`;
+const bannerSlotPath = (userId: string) => `${userId}/_banner.webp`;
+const vendorBannerPath = (vendorId: string) => `${vendorId}/banner.webp`;
+const inventoryPath = (vendorId: string, itemId: string) => `${vendorId}/${itemId}.webp`;
+const planPath = (showId: string) => `${showId}/plan.webp`;
+
+// --------------------------------------------- id-preserving upsert primitives
+// (used by the provider below AND by the import wizard)
+
+export async function upsertCloudCard(userId: string, card: CardRecord): Promise<void> {
+  const path = cardPath(userId, card.id);
+  await replaceImage('cards', path, card.imageBlob);
+  const { error } = await db()
+    .from('collections')
+    .upsert({
+      id: card.id,
+      owner_id: userId,
+      image_path: path,
+      name: card.name,
+      aspect: await imageAspect(card.imageBlob),
+      added_at: iso(card.addedAt),
+    });
+  if (error) throw new Error(`save card: ${error.message}`);
+}
+
+export async function upsertCloudVendor(userId: string, record: VendorRecord): Promise<void> {
+  // Row first: the banners-bucket insert policy checks the vendors row exists
+  // and is owned by the caller.
+  const { error } = await db()
+    .from('vendors')
+    .upsert({
+      id: record.id,
+      owner_id: userId,
+      name: record.name,
+      manual_shows: record.manualShows,
+      created_at: iso(record.createdAt),
+      updated_at: iso(record.updatedAt),
+    });
+  if (error) throw new Error(`save vendor: ${error.message}`);
+  if (record.bannerBlob) {
+    const path = vendorBannerPath(record.id);
+    await replaceImage('banners', path, record.bannerBlob);
+    const { error: patchError } = await db()
+      .from('vendors')
+      .update({ banner_path: path })
+      .eq('id', record.id);
+    if (patchError) throw new Error(`save vendor banner: ${patchError.message}`);
+  }
+}
+
+export async function upsertCloudInventoryItem(item: InventoryItemRecord): Promise<void> {
+  const path = inventoryPath(item.vendorId, item.id);
+  await replaceImage('inventory', path, item.imageBlob);
+  const { error } = await db()
+    .from('inventory_items')
+    .upsert({
+      id: item.id,
+      vendor_id: item.vendorId,
+      image_path: path,
+      caption: item.caption,
+      visible: item.visible,
+      aspect: item.aspect,
+      added_at: iso(item.addedAt),
+    });
+  if (error) throw new Error(`save inventory item: ${error.message}`);
+}
+
+/**
+ * Saved plan → draft show: show row (plan_meta = VendorPlanMeta minus rects),
+ * booths rows (rect jsonb verbatim; vendor_id FK only when that vendor exists
+ * in the cloud — the id inside the rect json is kept either way), plan image.
+ */
+export async function upsertCloudPlan(userId: string, record: SavedPlanRecord): Promise<void> {
+  const meta = JSON.parse(record.metaJson) as Record<string, unknown> & {
+    rects?: { vendorId?: string }[];
+  };
+  const { rects = [], ...planMeta } = meta;
+
+  // Which assigned vendors actually exist in the cloud (avoid FK violations
+  // for dangling / not-yet-imported vendor ids).
+  const vendorIds = [
+    ...new Set(rects.map((r) => r.vendorId).filter((v): v is string => Boolean(v))),
+  ];
+  let existingVendors = new Set<string>();
+  if (vendorIds.length > 0) {
+    const { data } = await db().from('vendors').select('id').in('id', vendorIds);
+    existingVendors = new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
+  }
+
+  const imagePath = planPath(record.id);
+  // Show row first: the plans-bucket insert policy checks the show exists and
+  // is organized by the caller.
+  const { error: showError } = await db()
+    .from('shows')
+    .upsert({
+      id: record.id,
+      organizer_id: userId,
+      name: record.name,
+      show_date: record.showDate ?? null,
+      plan_image_path: imagePath,
+      plan_meta: planMeta,
+      published: false,
+      created_at: iso(record.createdAt),
+      updated_at: iso(record.updatedAt),
+    });
+  if (showError) throw new Error(`save plan: ${showError.message}`);
+
+  // Replace booths wholesale (rect ids live inside the jsonb).
+  const { error: clearError } = await db().from('booths').delete().eq('show_id', record.id);
+  if (clearError) throw new Error(`save plan booths: ${clearError.message}`);
+  if (rects.length > 0) {
+    const rows = rects.map((rect) => ({
+      show_id: record.id,
+      rect,
+      vendor_id: rect.vendorId && existingVendors.has(rect.vendorId) ? rect.vendorId : null,
+    }));
+    const { error: boothError } = await db().from('booths').insert(rows);
+    if (boothError) throw new Error(`save plan booths: ${boothError.message}`);
+  }
+
+  await replaceImage('plans', imagePath, record.planBlob);
+}
+
+// ------------------------------------------------------------------ provider
+
 export function makeRemoteProvider(userId: string): DataProvider {
-  void userId; // used by the real implementation to scope queries
   return {
     kind: 'remote',
 
-    saveCard: () => notImplemented('saveCard'),
-    getCards: () => notImplemented('getCards'),
-    deleteCard: () => notImplemented('deleteCard'),
+    // ---- cards ----
+    saveCard: async (file) => {
+      const record: CardRecord = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        imageBlob: await downscaleImage(file),
+        addedAt: Date.now(),
+      };
+      await upsertCloudCard(userId, record);
+      return record;
+    },
+    getCards: async () => {
+      const { data, error } = await db()
+        .from('collections')
+        .select('id,name,image_path,added_at')
+        .eq('owner_id', userId)
+        .order('added_at', { ascending: true });
+      if (error) throw new Error(`load cards: ${error.message}`);
+      const rows = (data ?? []) as CollectionRow[];
+      return Promise.all(
+        rows.map(
+          async (row): Promise<CardRecord> => ({
+            id: row.id,
+            name: row.name,
+            imageBlob: await downloadImage('cards', row.image_path),
+            addedAt: ts(row.added_at),
+          }),
+        ),
+      );
+    },
+    deleteCard: async (id) => {
+      const { data, error } = await db()
+        .from('collections')
+        .delete()
+        .eq('id', id)
+        .select('image_path');
+      if (error) throw new Error(`delete card: ${error.message}`);
+      const path = (data as { image_path: string }[] | null)?.[0]?.image_path;
+      await removeImage('cards', path ?? cardPath(userId, id));
+    },
 
-    saveBanner: () => notImplemented('saveBanner'),
-    getBanner: () => notImplemented('getBanner'),
-    deleteBanner: () => notImplemented('deleteBanner'),
+    // ---- tablecloth banner (storage-only slot in the private cards bucket) ----
+    saveBanner: async (file) => {
+      const blob = await downscaleImage(file);
+      await replaceImage('cards', bannerSlotPath(userId), blob);
+      return blob;
+    },
+    getBanner: () => downloadImageIfExists('cards', bannerSlotPath(userId)),
+    deleteBanner: () => removeImage('cards', bannerSlotPath(userId)),
 
     // Working slot: local by design, even when signed in.
     saveFloorPlan: localProvider.saveFloorPlan,
@@ -38,21 +305,189 @@ export function makeRemoteProvider(userId: string): DataProvider {
     getPlanMetaBlob: localProvider.getPlanMetaBlob,
     deletePlanMeta: localProvider.deletePlanMeta,
 
-    savePlanRecord: () => notImplemented('savePlanRecord'),
-    getPlanRecords: () => notImplemented('getPlanRecords'),
-    deletePlanRecord: () => notImplemented('deletePlanRecord'),
+    // ---- saved plan snapshots ⇄ draft shows ----
+    savePlanRecord: (record) => upsertCloudPlan(userId, record),
+    getPlanRecords: async () => {
+      const { data, error } = await db()
+        .from('shows')
+        .select('id,name,show_date,plan_image_path,plan_meta,created_at,updated_at,booths(rect)')
+        .eq('organizer_id', userId)
+        .order('updated_at', { ascending: false });
+      if (error) throw new Error(`load plans: ${error.message}`);
+      const rows = (data ?? []) as ShowRow[];
+      return Promise.all(
+        rows.map(async (row): Promise<SavedPlanRecord> => {
+          const planBlob = row.plan_image_path
+            ? await downloadImageIfExists('plans', row.plan_image_path)
+            : undefined;
+          return {
+            id: row.id,
+            name: row.name,
+            createdAt: ts(row.created_at),
+            updatedAt: ts(row.updated_at),
+            planBlob: planBlob ?? new Blob([], { type: 'image/webp' }),
+            metaJson: JSON.stringify({
+              ...(row.plan_meta ?? {}),
+              rects: row.booths.map((b) => b.rect),
+            }),
+            banners: [],
+            showDate: row.show_date ?? undefined,
+          };
+        }),
+      );
+    },
+    deletePlanRecord: async (id) => {
+      // Image first — the plans-bucket delete policy needs the show row alive.
+      const { data } = await db()
+        .from('shows')
+        .select('plan_image_path')
+        .eq('id', id)
+        .maybeSingle();
+      const path = (data as { plan_image_path: string | null } | null)?.plan_image_path;
+      if (path) await removeImage('plans', path);
+      const { error } = await db().from('shows').delete().eq('id', id);
+      if (error) throw new Error(`delete plan: ${error.message}`);
+    },
 
-    createVendor: () => notImplemented('createVendor'),
-    getVendors: () => notImplemented('getVendors'),
-    updateVendor: () => notImplemented('updateVendor'),
-    setVendorBannerBlob: () => notImplemented('setVendorBannerBlob'),
-    removeVendorBannerBlob: () => notImplemented('removeVendorBannerBlob'),
-    deleteVendorRecord: () => notImplemented('deleteVendorRecord'),
+    // ---- vendors ----
+    createVendor: async (name) => {
+      const now = Date.now();
+      const record: VendorRecord = {
+        id: crypto.randomUUID(),
+        name,
+        createdAt: now,
+        updatedAt: now,
+        manualShows: [],
+      };
+      await upsertCloudVendor(userId, record);
+      return record;
+    },
+    getVendors: async () => {
+      const { data, error } = await db()
+        .from('vendors')
+        .select('id,name,banner_path,manual_shows,created_at,updated_at')
+        .eq('owner_id', userId)
+        .order('created_at', { ascending: true });
+      if (error) throw new Error(`load vendors: ${error.message}`);
+      const rows = (data ?? []) as VendorRow[];
+      return Promise.all(
+        rows.map(async (row): Promise<VendorRecord> => {
+          const record: VendorRecord = {
+            id: row.id,
+            name: row.name,
+            createdAt: ts(row.created_at),
+            updatedAt: ts(row.updated_at),
+            manualShows: row.manual_shows ?? [],
+          };
+          if (row.banner_path) {
+            const blob = await downloadImageIfExists('banners', row.banner_path);
+            if (blob) record.bannerBlob = blob;
+          }
+          return record;
+        }),
+      );
+    },
+    updateVendor: async (id, patch) => {
+      const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (patch.name !== undefined) row.name = patch.name;
+      if (patch.manualShows !== undefined) row.manual_shows = patch.manualShows;
+      // bannerBlob is managed by set/removeVendorBannerBlob (Storage-backed).
+      const { error } = await db().from('vendors').update(row).eq('id', id);
+      if (error) throw new Error(`update vendor: ${error.message}`);
+    },
+    setVendorBannerBlob: async (id, file) => {
+      const blob = await downscaleImage(file);
+      const path = vendorBannerPath(id);
+      await replaceImage('banners', path, blob);
+      const { error } = await db()
+        .from('vendors')
+        .update({ banner_path: path, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw new Error(`set vendor banner: ${error.message}`);
+    },
+    removeVendorBannerBlob: async (id) => {
+      await removeImage('banners', vendorBannerPath(id));
+      const { error } = await db()
+        .from('vendors')
+        .update({ banner_path: null, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw new Error(`remove vendor banner: ${error.message}`);
+    },
+    deleteVendorRecord: async (id) => {
+      // Storage objects first — their delete policies check the vendors row.
+      const { data } = await db().from('inventory_items').select('image_path').eq('vendor_id', id);
+      const paths = ((data ?? []) as { image_path: string }[]).map((r) => r.image_path);
+      await Promise.all([
+        removeImage('banners', vendorBannerPath(id)),
+        ...paths.map((p) => removeImage('inventory', p)),
+      ]);
+      // Row delete cascades inventory_items.
+      const { error } = await db().from('vendors').delete().eq('id', id);
+      if (error) throw new Error(`delete vendor: ${error.message}`);
+    },
 
-    saveInventoryItem: () => notImplemented('saveInventoryItem'),
-    getInventoryItems: () => notImplemented('getInventoryItems'),
-    countInventory: () => notImplemented('countInventory'),
-    updateInventoryItem: () => notImplemented('updateInventoryItem'),
-    deleteInventoryItem: () => notImplemented('deleteInventoryItem'),
+    // ---- inventory ----
+    saveInventoryItem: async (vendorId, file) => {
+      const imageBlob = await downscaleImage(file);
+      const record: InventoryItemRecord = {
+        id: crypto.randomUUID(),
+        vendorId,
+        imageBlob,
+        caption: '',
+        visible: true,
+        aspect: await imageAspect(imageBlob),
+        addedAt: Date.now(),
+      };
+      await upsertCloudInventoryItem(record);
+      return record;
+    },
+    getInventoryItems: async (vendorId) => {
+      const { data, error } = await db()
+        .from('inventory_items')
+        .select('id,vendor_id,image_path,caption,visible,aspect,added_at')
+        .eq('vendor_id', vendorId)
+        .order('added_at', { ascending: true });
+      if (error) throw new Error(`load inventory: ${error.message}`);
+      const rows = (data ?? []) as InventoryRow[];
+      return Promise.all(
+        rows.map(
+          async (row): Promise<InventoryItemRecord> => ({
+            id: row.id,
+            vendorId: row.vendor_id,
+            imageBlob: await downloadImage('inventory', row.image_path),
+            caption: row.caption,
+            visible: row.visible,
+            aspect: row.aspect,
+            addedAt: ts(row.added_at),
+          }),
+        ),
+      );
+    },
+    countInventory: async (vendorId) => {
+      const { count, error } = await db()
+        .from('inventory_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('vendor_id', vendorId);
+      if (error) throw new Error(`count inventory: ${error.message}`);
+      return count ?? 0;
+    },
+    updateInventoryItem: async (id, patch) => {
+      const row: Record<string, unknown> = {};
+      if (patch.caption !== undefined) row.caption = patch.caption;
+      if (patch.visible !== undefined) row.visible = patch.visible;
+      if (Object.keys(row).length === 0) return;
+      const { error } = await db().from('inventory_items').update(row).eq('id', id);
+      if (error) throw new Error(`update inventory item: ${error.message}`);
+    },
+    deleteInventoryItem: async (id) => {
+      const { data, error } = await db()
+        .from('inventory_items')
+        .delete()
+        .eq('id', id)
+        .select('image_path');
+      if (error) throw new Error(`delete inventory item: ${error.message}`);
+      const path = (data as { image_path: string }[] | null)?.[0]?.image_path;
+      if (path) await removeImage('inventory', path);
+    },
   };
 }

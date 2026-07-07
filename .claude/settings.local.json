@@ -23,7 +23,12 @@
       "Bash(npm --version)",
       "mcp__claude-in-chrome__tabs_context_mcp",
       "Bash(curl -sS -o /dev/null -w 'http %{http_code}\\\\n' http://localhost:5176/)",
-      "Bash(mkdir -p /Users/jasondale/.claude/plans)"
+      "Bash(mkdir -p /Users/jasondale/.claude/plans)",
+      "PowerShell(npm run *)",
+      "PowerShell(npm ls *)",
+      "PowerShell($env:BASE_URL = 'http://localhost:5176'; node verify.tmp.mjs)",
+      "PowerShell($env:BASE_URL = 'http://localhost:5176'; node startprobe.tmp.mjs)",
+      "PowerShell($env:BASE_URL = 'http://localhost:5176'; node museum.tmp.mjs)"
     ]
   }
 }

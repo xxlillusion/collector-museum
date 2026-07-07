@@ -379,11 +379,16 @@ edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record typ
 - **Platform Wave 2 shipped** (2026-07-07, branch `platform-wave2`; Phase-0 scaffolding +
   3 parallel worktree streams; merged build green; 22/22 headless guest regression incl.
   the PlanWorkbench sandbox flow, zero console errors):
-  - **Migration `0003_accounts_locations.sql`** — ⚠ **NOT YET APPLIED to the
-    live project** (only the anon key is available locally; paste it into the dashboard
-    SQL editor). Until applied, cloud reads that select the new columns 400 and degrade
-    to empty states, new-signup account types are ignored, and organizer gating is
-    UI-only. Adds: `profiles.account_type ('collector'|'vendor') + is_organizer +
+  - **Migration `0003_accounts_locations.sql`** — applied to the live project
+    2026-07-07 (user, via dashboard SQL editor) and live-verified: 30/30 E2E —
+    vendor signup (trigger created the canonical vendor from metadata) → account
+    location/organizer/vendor settings → cloud inventory → create show at a location →
+    anon browse-by-state → walk → vendor directory/page/**vendor museum** → collector
+    signup → cloud cards → public collection → anon collector page/**collector museum**
+    → change-password + re-login round trip → reset-email send. Live seed data:
+    show "Wave2 Live Show" (f5d11599), vendor "Wave2 Live Vendor" (159d0c42, account
+    jason.a.dale2+w2v1783412552@gmail.com), collector "Wave2 Collector" (114e1767).
+    Adds: `profiles.account_type ('collector'|'vendor') + is_organizer +
     country/state/city/bio/collection_public` (legacy `role` kept, deprecated);
     `vendors.profile_id (unique → canonical vendor of a vendor account) +
     country/state/area_served/inventory_public`; `shows.country/state/city`; signup
@@ -413,8 +418,9 @@ edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record typ
     public museums `/museum/vendor/:id` + `/museum/collector/:id` — tiny lazy wrappers
     that download image blobs (museum binder needs `imageBlob`) and mount the museum
     `Scene` with captions; three.js stays in its lazy chunk (wrappers ≈ 2.8 kB).
-  - Deferred: vendor claiming flow for placeholder vendors; live E2E of signup/organizer/
-    public-museum flows blocked on applying 0003.
+  - Deferred: vendor claiming flow for placeholder vendors; clicking a reset-email link
+    end-to-end (send verified; needs an inbox — also add `/reset-password` to the
+    Supabase Auth redirect-URL allowlist per deploy origin).
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

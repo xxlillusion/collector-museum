@@ -117,11 +117,19 @@ async function replaceImage(
   await uploadImage(bucket, path, blob);
 }
 
+// Every object path starts with the OWNER's uid: the storage policies are
+// plain `(storage.foldername(name))[1] = auth.uid()::text` prefix checks
+// (0002 migration). Policies that subqueried public tables (vendors/shows)
+// were not reliably evaluated by the storage service — legitimate owners got
+// 403s — while this uid-prefix pattern is proven. Readers never rebuild these
+// paths; they use the stored *_path columns.
 const cardPath = (userId: string, cardId: string) => `${userId}/${cardId}.webp`;
 const bannerSlotPath = (userId: string) => `${userId}/_banner.webp`;
-const vendorBannerPath = (vendorId: string) => `${vendorId}/banner.webp`;
-const inventoryPath = (vendorId: string, itemId: string) => `${vendorId}/${itemId}.webp`;
-const planPath = (showId: string) => `${showId}/plan.webp`;
+const vendorBannerPath = (userId: string, vendorId: string) =>
+  `${userId}/${vendorId}/banner.webp`;
+const inventoryPath = (userId: string, vendorId: string, itemId: string) =>
+  `${userId}/${vendorId}/${itemId}.webp`;
+const planPath = (userId: string, showId: string) => `${userId}/${showId}/plan.webp`;
 
 // --------------------------------------------- id-preserving upsert primitives
 // (used by the provider below AND by the import wizard)
@@ -157,7 +165,7 @@ export async function upsertCloudVendor(userId: string, record: VendorRecord): P
     });
   if (error) throw new Error(`save vendor: ${error.message}`);
   if (record.bannerBlob) {
-    const path = vendorBannerPath(record.id);
+    const path = vendorBannerPath(userId, record.id);
     await replaceImage('banners', path, record.bannerBlob);
     const { error: patchError } = await db()
       .from('vendors')
@@ -167,8 +175,11 @@ export async function upsertCloudVendor(userId: string, record: VendorRecord): P
   }
 }
 
-export async function upsertCloudInventoryItem(item: InventoryItemRecord): Promise<void> {
-  const path = inventoryPath(item.vendorId, item.id);
+export async function upsertCloudInventoryItem(
+  userId: string,
+  item: InventoryItemRecord,
+): Promise<void> {
+  const path = inventoryPath(userId, item.vendorId, item.id);
   await replaceImage('inventory', path, item.imageBlob);
   const { error } = await db()
     .from('inventory_items')
@@ -206,7 +217,7 @@ export async function upsertCloudPlan(userId: string, record: SavedPlanRecord): 
     existingVendors = new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
   }
 
-  const imagePath = planPath(record.id);
+  const imagePath = planPath(userId, record.id);
   // Show row first: the plans-bucket insert policy checks the show exists and
   // is organized by the caller.
   const { error: showError } = await db()
@@ -293,7 +304,15 @@ export function makeRemoteProvider(userId: string): DataProvider {
       await replaceImage('cards', bannerSlotPath(userId), blob);
       return blob;
     },
-    getBanner: () => downloadImageIfExists('cards', bannerSlotPath(userId)),
+    getBanner: async () => {
+      // Existence check first — a blind download of a missing object logs a
+      // 400 "Failed to load resource" console error on every signed-in load.
+      const { data } = await supabase!.storage
+        .from('cards')
+        .list(userId, { search: '_banner.webp' });
+      if (!data?.some((f) => f.name === '_banner.webp')) return undefined;
+      return downloadImageIfExists('cards', bannerSlotPath(userId));
+    },
     deleteBanner: () => removeImage('cards', bannerSlotPath(userId)),
 
     // Working slot: local by design, even when signed in.
@@ -397,7 +416,7 @@ export function makeRemoteProvider(userId: string): DataProvider {
     },
     setVendorBannerBlob: async (id, file) => {
       const blob = await downscaleImage(file);
-      const path = vendorBannerPath(id);
+      const path = vendorBannerPath(userId, id);
       await replaceImage('banners', path, blob);
       const { error } = await db()
         .from('vendors')
@@ -406,7 +425,7 @@ export function makeRemoteProvider(userId: string): DataProvider {
       if (error) throw new Error(`set vendor banner: ${error.message}`);
     },
     removeVendorBannerBlob: async (id) => {
-      await removeImage('banners', vendorBannerPath(id));
+      await removeImage('banners', vendorBannerPath(userId, id));
       const { error } = await db()
         .from('vendors')
         .update({ banner_path: null, updated_at: new Date().toISOString() })
@@ -418,7 +437,7 @@ export function makeRemoteProvider(userId: string): DataProvider {
       const { data } = await db().from('inventory_items').select('image_path').eq('vendor_id', id);
       const paths = ((data ?? []) as { image_path: string }[]).map((r) => r.image_path);
       await Promise.all([
-        removeImage('banners', vendorBannerPath(id)),
+        removeImage('banners', vendorBannerPath(userId, id)),
         ...paths.map((p) => removeImage('inventory', p)),
       ]);
       // Row delete cascades inventory_items.
@@ -438,7 +457,7 @@ export function makeRemoteProvider(userId: string): DataProvider {
         aspect: await imageAspect(imageBlob),
         addedAt: Date.now(),
       };
-      await upsertCloudInventoryItem(record);
+      await upsertCloudInventoryItem(userId, record);
       return record;
     },
     getInventoryItems: async (vendorId) => {

@@ -73,7 +73,7 @@ export async function importLocalData(
     }
     for (let i = 0; i < snapshot.inventory.length; i++) {
       onProgress(`Uploading inventory item ${i + 1} of ${snapshot.inventory.length}…`);
-      await upsertCloudInventoryItem(snapshot.inventory[i]);
+      await upsertCloudInventoryItem(userId, snapshot.inventory[i]);
     }
   }
   if (selection.plans) {

@@ -5,8 +5,10 @@ import { supabase } from './supabase';
  * use these; none edit them). Blob is the currency on both sides so hooks,
  * object-URL lifecycles and sleeve textures stay backend-agnostic.
  *
- * Buckets (see supabase/migrations/0001_init.sql): banners / inventory /
- * plans are public, cards is private. Path convention: <owning id>/<name>.webp
+ * Buckets (see supabase/migrations/): banners / inventory / plans are public,
+ * cards is private. Path convention: every path starts with the OWNER's uid
+ * (`<ownerId>/...`) — the storage write policies are plain auth.uid()
+ * path-prefix checks (0002 migration).
  */
 export type ImageBucket = 'banners' | 'inventory' | 'plans' | 'cards';
 

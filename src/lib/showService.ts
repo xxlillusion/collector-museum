@@ -63,7 +63,9 @@ export async function publishShow(args: {
   }
   const showId = show.id as string;
 
-  const planPath = `${showId}/plan.webp`;
+  // Owner-uid prefix — the storage insert policy is a plain auth.uid() path
+  // check (0002 migration); readers use the stored plan_image_path column.
+  const planPath = `${args.organizerId}/${showId}/plan.webp`;
   await uploadImage('plans', planPath, args.planBlob);
   const { error: pathErr } = await sb
     .from('shows')

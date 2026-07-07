@@ -1,0 +1,48 @@
+# VPS deployment — runs the museum beside the existing n8n stack, with that
+# stack's Traefik terminating TLS (cert resolver `mytlschallenge`, matching
+# the n8n compose file).
+#
+# One-time setup on the VPS:
+#   1. DNS: A record  museum.maybesomething.tech  ->  the VPS IP.
+#   2. git clone the repo, then create `.env` next to this file:
+#        MUSEUM_HOST=museum.maybesomething.tech
+#        VITE_SUPABASE_URL=https://<project>.supabase.co
+#        VITE_SUPABASE_ANON_KEY=sb_publishable_...
+#   3. Verify the n8n project's network name (`docker network ls` — the
+#      containers are named n8n-traefik-1 etc., so the compose project is
+#      "n8n" and its default network is `n8n_default`). Adjust below if yours
+#      differs.
+#   4. In Supabase: Authentication -> URL Configuration -> Site URL =
+#      https://museum.maybesomething.tech (email links point there).
+#
+# Deploy / update:
+#   docker compose -f docker-compose.deploy.yml up -d --build
+#
+# (Local dev/preview lives in docker-compose.yml; this file is VPS-only.)
+
+services:
+  museum:
+    build:
+      context: .
+      target: production
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    restart: always
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      # Traefik must talk to this container on the shared network.
+      - traefik.docker.network=n8n_default
+      - traefik.http.routers.museum.rule=Host(`${MUSEUM_HOST}`)
+      # The web (:80) entrypoint already redirects to https globally.
+      - traefik.http.routers.museum.entrypoints=websecure
+      - traefik.http.routers.museum.tls=true
+      - traefik.http.routers.museum.tls.certresolver=mytlschallenge
+      - traefik.http.services.museum.loadbalancer.server.port=80
+
+networks:
+  traefik:
+    name: n8n_default
+    external: true

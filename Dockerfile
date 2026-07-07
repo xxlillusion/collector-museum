@@ -21,6 +21,13 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+# Vite bakes these into the JS at BUILD time (they are public client values —
+# the anon key is Supabase's publishable key). Omitting them builds a
+# guest-only site: IndexedDB persistence, no auth UI, no shows directory.
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
+    VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 RUN npm run build
 
 FROM nginx:alpine AS production

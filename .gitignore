@@ -15,6 +15,7 @@ dist-ssr
 # Secrets — never commit keys
 git_key
 git_key.pub
+.env
 
 # Throwaway debug scripts
 *.tmp.mjs

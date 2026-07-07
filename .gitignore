@@ -19,6 +19,9 @@ git_key.pub
 # Throwaway debug scripts
 *.tmp.mjs
 
+# Agent worktrees
+.claude/worktrees/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

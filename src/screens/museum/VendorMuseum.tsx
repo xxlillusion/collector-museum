@@ -148,6 +148,7 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
           captions={state.captions}
           bannerUrl={null}
           onManage={() => navigate(`/vendor/${vendorId}`)}
+          exitLabel="← Back to Vendor"
         />
       </Suspense>
     </div>

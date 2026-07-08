@@ -1,5 +1,8 @@
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
-import { useProvider } from './lib/provider/context';
+import { useAuth } from './lib/auth';
+import { useMyProfile } from './lib/useMyProfile';
+import { useProvider, DataProviderBoundary } from './lib/provider/context';
+import { localProvider } from './lib/provider/local';
 import { useCards } from './lib/useCards';
 import type { CardWithUrl } from './lib/useCards';
 import { useBanner } from './lib/useBanner';
@@ -9,6 +12,7 @@ import { useSavedPlans } from './lib/useSavedPlans';
 import { useVendors } from './lib/useVendors';
 import { useVendorInventory } from './lib/useVendorInventory';
 import HomeScreen from './components/HomeScreen';
+import LandingScreen from './components/LandingScreen';
 import VendorsScreen from './components/VendorsScreen';
 
 // The three.js-heavy subtrees load on demand — the home screen and the
@@ -27,7 +31,55 @@ function ChunkFallback() {
 
 type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk' | 'vendors';
 
+/**
+ * Default route. Logged-out visitors on a configured deployment get the
+ * landing page (published shows are public; the local experience lives at
+ * /sandbox). Signed-in users — and guest-only deployments with no Supabase
+ * env — get the full museum home. CTAs gate on the profile: Vendor Registry
+ * for vendor accounts, Organizer Tools for organizer-designated ones.
+ */
 export default function App() {
+  const { configured, session, loading } = useAuth();
+  const { profile } = useMyProfile();
+
+  if (configured && !session) {
+    // Brief session-restore window: hold a blank museum background rather
+    // than flashing the landing page at a user who is actually signed in.
+    if (loading) return <div style={{ height: '100vh', background: '#171310' }} />;
+    return <LandingScreen />;
+  }
+
+  return (
+    <MuseumApp
+      showRegistry={!configured || profile?.accountType === 'vendor'}
+      showOrganizer={Boolean(profile?.isOrganizer)}
+    />
+  );
+}
+
+/**
+ * /sandbox — the no-account experience, everything in this browser's
+ * IndexedDB regardless of who is signed in. Forcing the local provider (and
+ * a fixed identity key) keeps a signed-in user's sandbox visit from touching
+ * their cloud data — and keeps the sandbox intact across sign-ins.
+ */
+export function SandboxApp() {
+  return (
+    <DataProviderBoundary provider={localProvider} identity="sandbox">
+      <MuseumApp sandbox />
+    </DataProviderBoundary>
+  );
+}
+
+function MuseumApp({
+  sandbox = false,
+  showRegistry = true,
+  showOrganizer = false,
+}: {
+  sandbox?: boolean;
+  showRegistry?: boolean;
+  showOrganizer?: boolean;
+}) {
   const [view, setView] = useState<View>('home');
   const provider = useProvider();
   const { cards, loading, addCard, removeCard } = useCards();
@@ -178,6 +230,9 @@ export default function App() {
       onEnter={() => setView('gallery')}
       onVendor={() => setView('vendorSetup')}
       onVendors={() => setView('vendors')}
+      sandbox={sandbox}
+      showRegistry={showRegistry}
+      showOrganizer={showOrganizer}
     />
   );
 }

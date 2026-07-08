@@ -2,22 +2,33 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useVendorInventory } from '../lib/useVendorInventory';
+import { useProvider } from '../lib/provider/context';
 import { deriveShowsAttended } from '../lib/vendorShows';
 import type { VendorSummary } from '../lib/useVendors';
 import type { SavedPlanRecord } from '../lib/db';
+import {
+  GOLD,
+  HAIRLINE,
+  TEXT,
+  MUTED,
+  SERIF,
+  SANS,
+  PAGE_BG,
+  panelStyle,
+  panelTitleStyle,
+  ghostButtonStyle,
+  primaryButtonStyle,
+  primaryButtonDisabledStyle,
+  inputStyle,
+  noteStyle,
+  errorTextStyle,
+  museumHoverCss,
+  Ornament,
+} from './museumKit';
 
 // Vendor registry — create vendors, manage their banner, inventory (captioned
-// images) and shows attended. Same "Museum Refined" visual language as
-// HomeScreen. Inventory loads lazily for the selected vendor only.
-
-const GOLD = '#d4af37';
-const BG = '#171310';
-const PANEL = '#1e1915';
-const HAIRLINE = 'rgba(212,175,55,0.28)';
-const TEXT = '#e8e4dc';
-const MUTED = '#9a8f7d';
-const SERIF = 'Georgia, "Times New Roman", serif';
-const SANS = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+// images) and shows attended. "Museum Refined" language via museumKit.
+// Inventory loads lazily for the selected vendor only.
 
 interface VendorsScreenProps {
   vendors: VendorSummary[];
@@ -34,26 +45,54 @@ interface VendorsScreenProps {
   onBack: () => void;
 }
 
-const inputStyle: React.CSSProperties = {
-  background: '#0d0b0a',
-  color: TEXT,
-  border: '1px solid #555',
-  borderRadius: '4px',
+/** Kit input adapted for flex rows (kit default is block + 100% width). */
+const rowInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  display: 'inline-block',
+  width: 'auto',
+  fontSize: 13.5,
   padding: '9px 11px',
-  fontSize: '13.5px',
-  fontFamily: SERIF,
 };
 
-const smallButton: React.CSSProperties = {
-  background: 'transparent',
+/** Compact ghost button for inline row actions. */
+const smallGhostStyle: React.CSSProperties = {
+  ...ghostButtonStyle,
+  padding: '8px 14px',
+  fontSize: 12,
+  letterSpacing: '0.08em',
+};
+
+/** Compact solid-gold action. */
+const smallPrimaryStyle: React.CSSProperties = {
+  ...primaryButtonStyle,
+  padding: '9px 18px',
+  fontSize: 12,
+  letterSpacing: '0.1em',
+};
+
+const smallPrimaryDisabledStyle: React.CSSProperties = {
+  ...primaryButtonDisabledStyle,
+  padding: '9px 18px',
+  fontSize: 12,
+  letterSpacing: '0.1em',
+};
+
+/** Floating ✕ over images (banner / inventory tiles). */
+const removeBadgeStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 6,
+  right: 6,
+  background: 'rgba(0,0,0,0.75)',
   color: TEXT,
   border: `1px solid ${HAIRLINE}`,
-  borderRadius: '3px',
-  padding: '8px 14px',
-  fontSize: '12px',
-  letterSpacing: '0.08em',
+  borderRadius: '50%',
+  width: 22,
+  height: 22,
   cursor: 'pointer',
-  fontFamily: SERIF,
+  fontSize: 11,
+  lineHeight: '20px',
+  textAlign: 'center',
+  padding: 0,
 };
 
 /** Caption input with debounced persist so typing doesn't hammer IndexedDB. */
@@ -87,7 +126,7 @@ function CaptionInput({
       placeholder="Add a caption…"
       value={value}
       onChange={(e) => handleChange(e.target.value)}
-      style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', padding: '7px 9px', fontSize: '12px', fontStyle: value ? 'normal' : 'italic' }}
+      style={{ ...inputStyle, padding: '7px 9px', fontSize: 12, fontStyle: value ? 'normal' : 'italic' }}
     />
   );
 }
@@ -105,6 +144,7 @@ export default function VendorsScreen({
   onInventoryChanged,
   onBack,
 }: VendorsScreenProps) {
+  const provider = useProvider();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [nameDraft, setNameDraft] = useState('');
@@ -113,8 +153,23 @@ export default function VendorsScreen({
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // "Import my collection" — one-time copy of the user's own cards into the
+  // selected vendor's inventory. Count loads up-front; records on demand.
+  const [collectionCount, setCollectionCount] = useState(0);
+  const [importProgress, setImportProgress] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importing = importProgress !== null;
+
   const selected = vendors.find((v) => v.id === selectedId) ?? null;
   const inventory = useVendorInventory(selectedId);
+
+  useEffect(() => {
+    let cancelled = false;
+    provider.getCards().then((cards) => {
+      if (!cancelled) setCollectionCount(cards.length);
+    });
+    return () => { cancelled = true; };
+  }, [provider]);
 
   // Keep something sensibly selected as the list changes
   useEffect(() => {
@@ -127,6 +182,11 @@ export default function VendorsScreen({
   useEffect(() => {
     setNameDraft(selected?.name ?? '');
   }, [selected?.id, selected?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stale import feedback shouldn't follow you to another vendor
+  useEffect(() => {
+    setImportError(null);
+  }, [selectedId]);
 
   const handleCreate = useCallback(async () => {
     const name = newName.trim();
@@ -154,6 +214,52 @@ export default function VendorsScreen({
     }
   }, [inventory, onInventoryChanged]);
 
+  /**
+   * One-time copy: every card in the user's collection becomes an inventory
+   * item for the selected vendor (card name → caption). No linkage remains
+   * after the copy — later card edits/deletes don't touch the inventory.
+   */
+  const handleImportCollection = useCallback(async () => {
+    if (!selected || importing) return;
+    const vendorId = selected.id;
+    const vendorName = selected.name;
+    setImportError(null);
+
+    const cards = await provider.getCards();
+    setCollectionCount(cards.length);
+    if (cards.length === 0) return;
+
+    const ok = window.confirm(
+      `Copy all ${cards.length} cards from your collection into ${vendorName}'s inventory? Existing inventory is untouched.`,
+    );
+    if (!ok) return;
+
+    let copied = 0;
+    try {
+      for (const card of cards) {
+        copied += 1;
+        setImportProgress(`Importing ${copied} / ${cards.length}…`);
+        const file = new File(
+          [card.imageBlob],
+          `${card.name || 'card'}.webp`,
+          { type: card.imageBlob.type || 'image/webp' },
+        );
+        const item = await provider.saveInventoryItem(vendorId, file);
+        if (card.name) {
+          await provider.updateInventoryItem(item.id, { caption: card.name });
+        }
+      }
+    } catch (err) {
+      setImportError(
+        `Import stopped after ${copied - 1} of ${cards.length} cards: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setImportProgress(null);
+      await inventory.reload();
+      onInventoryChanged();
+    }
+  }, [selected, importing, provider, inventory, onInventoryChanged]);
+
   const handleAddShow = useCallback(async () => {
     if (!selected || !showName.trim() || !showDate) return;
     await onAddManualShow(selected.id, showName.trim(), showDate);
@@ -166,17 +272,18 @@ export default function VendorsScreen({
     : [];
 
   return (
-    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: BG, color: TEXT, fontFamily: SANS }}>
-      <style>{`
-        .vendor-row { transition: background 0.15s ease; cursor: pointer; }
-        .vendor-row:hover { background: rgba(212,175,55,0.06); }
-      `}</style>
+    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: PAGE_BG, color: TEXT, fontFamily: SANS }}>
+      <style>{museumHoverCss}</style>
       <div style={{ maxWidth: '980px', margin: '0 auto', padding: '56px 28px 80px' }}>
-        <header style={{ textAlign: 'center', marginBottom: '40px' }}>
+        <header style={{ textAlign: 'center', marginBottom: '44px' }}>
           <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: '34px', fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
             VENDOR REGISTRY
           </h1>
-          <p style={{ margin: '12px 0 0', fontSize: '12px', color: MUTED, letterSpacing: '0.12em' }}>
+          <p style={{ margin: '12px 0 16px', fontSize: '12px', color: MUTED, letterSpacing: '0.24em' }}>
+            YOUR STORES &amp; THEIR INVENTORY
+          </p>
+          <Ornament />
+          <p style={{ margin: '16px 0 0', fontSize: '11.5px', color: MUTED, letterSpacing: '0.12em' }}>
             {vendors.length === 0
               ? 'NO VENDORS YET — ADD YOUR FIRST BELOW'
               : `${vendors.length} ${vendors.length === 1 ? 'VENDOR' : 'VENDORS'} ON FILE`}
@@ -185,7 +292,7 @@ export default function VendorsScreen({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 280px) 1fr', gap: '36px', alignItems: 'start' }}>
           {/* ---- Vendor list ---- */}
-          <div>
+          <div style={{ ...panelStyle, padding: '18px 16px', marginBottom: 0 }}>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
               <input
                 type="text"
@@ -193,30 +300,25 @@ export default function VendorsScreen({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
-                style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                style={{ ...rowInputStyle, flex: 1, minWidth: 0 }}
               />
               <button
                 onClick={handleCreate}
                 disabled={!newName.trim()}
-                style={{
-                  ...smallButton,
-                  background: newName.trim() ? GOLD : '#332b1e',
-                  color: newName.trim() ? '#1a1614' : '#7a6c50',
-                  border: 'none',
-                  cursor: newName.trim() ? 'pointer' : 'not-allowed',
-                }}
+                style={newName.trim() ? smallPrimaryStyle : smallPrimaryDisabledStyle}
               >
-                Add
+                ADD
               </button>
             </div>
 
             {vendors.map((v) => (
               <div
                 key={v.id}
-                className="vendor-row"
+                className="museum-row"
                 onClick={() => setSelectedId(v.id)}
                 style={{
                   padding: '12px 12px',
+                  cursor: 'pointer',
                   borderLeft: v.id === selectedId ? `2px solid ${GOLD}` : '2px solid transparent',
                   borderBottom: '1px solid rgba(212,175,55,0.12)',
                   background: v.id === selectedId ? 'rgba(212,175,55,0.08)' : 'transparent',
@@ -237,14 +339,14 @@ export default function VendorsScreen({
           {selected ? (
             <div>
               {/* Name + delete */}
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '28px' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '24px' }}>
                 <input
                   type="text"
                   value={nameDraft}
                   onChange={(e) => setNameDraft(e.target.value)}
                   onBlur={commitRename}
                   onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                  style={{ ...inputStyle, fontSize: '19px', fontFamily: SERIF, flex: 1, minWidth: 0, letterSpacing: '0.06em' }}
+                  style={{ ...rowInputStyle, fontSize: '19px', flex: 1, minWidth: 0, letterSpacing: '0.06em' }}
                 />
                 <button
                   onClick={() => {
@@ -252,14 +354,14 @@ export default function VendorsScreen({
                       onDeleteVendor(selected.id);
                     }
                   }}
-                  style={{ ...smallButton, color: '#c66', borderColor: 'rgba(204,102,102,0.4)' }}
+                  style={{ ...smallGhostStyle, color: '#c66', borderColor: 'rgba(204,102,102,0.4)' }}
                 >
-                  Delete
+                  DELETE
                 </button>
               </div>
 
               {isSupabaseConfigured && (
-                <div style={{ margin: '-18px 0 28px' }}>
+                <div style={{ margin: '-14px 0 24px' }}>
                   <Link
                     href={`/vendor/${selected.id}`}
                     style={{ color: GOLD, textDecoration: 'none', fontSize: '12.5px', letterSpacing: '0.06em', fontFamily: SERIF }}
@@ -270,11 +372,9 @@ export default function VendorsScreen({
               )}
 
               {/* Banner */}
-              <div style={{ marginBottom: '32px' }}>
-                <div style={{ fontFamily: SERIF, fontSize: '13px', letterSpacing: '0.14em', color: GOLD, marginBottom: '8px' }}>
-                  TABLE BANNER
-                </div>
-                <div style={{ fontSize: '11.5px', color: MUTED, marginBottom: '10px', letterSpacing: '0.04em' }}>
+              <div style={panelStyle}>
+                <div style={panelTitleStyle}>TABLE BANNER</div>
+                <div style={{ ...noteStyle, fontSize: 12.5, marginBottom: '12px' }}>
                   Shown on the front of their tables in the hall — their name on the cloth if empty.
                 </div>
                 <div
@@ -282,7 +382,7 @@ export default function VendorsScreen({
                   style={{
                     position: 'relative', borderRadius: '2px',
                     border: `1px ${selected.bannerUrl ? 'solid' : 'dashed'} ${HAIRLINE}`,
-                    background: PANEL, cursor: 'pointer', padding: selected.bannerUrl ? '8px' : '22px',
+                    background: '#171310', cursor: 'pointer', padding: selected.bannerUrl ? '8px' : '22px',
                     textAlign: 'center', maxWidth: '420px',
                   }}
                 >
@@ -296,12 +396,7 @@ export default function VendorsScreen({
                       <button
                         onClick={(e) => { e.stopPropagation(); onRemoveVendorBanner(selected.id); }}
                         title="Remove banner"
-                        style={{
-                          position: 'absolute', top: '6px', right: '6px',
-                          background: 'rgba(0,0,0,0.75)', color: TEXT, border: `1px solid ${HAIRLINE}`,
-                          borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
-                          fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
-                        }}
+                        style={removeBadgeStyle}
                       >
                         ✕
                       </button>
@@ -326,15 +421,13 @@ export default function VendorsScreen({
               </div>
 
               {/* Shows attended */}
-              <div style={{ marginBottom: '32px' }}>
-                <div style={{ fontFamily: SERIF, fontSize: '13px', letterSpacing: '0.14em', color: GOLD, marginBottom: '8px' }}>
-                  SHOWS ATTENDED
-                </div>
-                <div style={{ fontSize: '11.5px', color: MUTED, marginBottom: '10px', letterSpacing: '0.04em' }}>
+              <div style={panelStyle}>
+                <div style={panelTitleStyle}>SHOWS ATTENDED</div>
+                <div style={{ ...noteStyle, fontSize: 12.5, marginBottom: '12px' }}>
                   Past shows from saved floor plans they're assigned in appear automatically.
                 </div>
                 {shows.length === 0 && (
-                  <p style={{ margin: '0 0 12px', fontFamily: SERIF, fontStyle: 'italic', fontSize: '13px', color: MUTED }}>
+                  <p style={{ ...noteStyle, margin: '0 0 12px', fontSize: 13 }}>
                     None yet.
                   </p>
                 )}
@@ -358,48 +451,40 @@ export default function VendorsScreen({
                       <button
                         onClick={() => onRemoveManualShow(selected.id, s.id)}
                         title="Remove"
-                        style={{ ...smallButton, padding: '3px 8px', fontSize: '11px', color: '#c66' }}
+                        style={{ ...smallGhostStyle, padding: '3px 8px', fontSize: 11, color: '#c66' }}
                       >
                         ✕
                       </button>
                     )}
                   </div>
                 ))}
-                <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
                   <input
                     type="text"
                     placeholder="Show name"
                     value={showName}
                     onChange={(e) => setShowName(e.target.value)}
-                    style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
+                    style={{ ...rowInputStyle, flex: 1, minWidth: '140px' }}
                   />
                   <input
                     type="date"
                     value={showDate}
                     onChange={(e) => setShowDate(e.target.value)}
-                    style={{ ...inputStyle, colorScheme: 'dark' }}
+                    style={rowInputStyle}
                   />
                   <button
                     onClick={handleAddShow}
                     disabled={!showName.trim() || !showDate}
-                    style={{
-                      ...smallButton,
-                      background: showName.trim() && showDate ? GOLD : '#332b1e',
-                      color: showName.trim() && showDate ? '#1a1614' : '#7a6c50',
-                      border: 'none',
-                      cursor: showName.trim() && showDate ? 'pointer' : 'not-allowed',
-                    }}
+                    style={showName.trim() && showDate ? smallPrimaryStyle : smallPrimaryDisabledStyle}
                   >
-                    Add show
+                    ADD SHOW
                   </button>
                 </div>
               </div>
 
               {/* Inventory */}
-              <div>
-                <div style={{ fontFamily: SERIF, fontSize: '13px', letterSpacing: '0.14em', color: GOLD, marginBottom: '8px' }}>
-                  INVENTORY
-                </div>
+              <div style={{ ...panelStyle, marginBottom: 0 }}>
+                <div style={panelTitleStyle}>INVENTORY</div>
                 <div
                   onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
                   onDragLeave={() => setDragging(false)}
@@ -408,8 +493,8 @@ export default function VendorsScreen({
                   style={{
                     border: `1px dashed ${dragging ? GOLD : HAIRLINE}`,
                     borderRadius: '4px', padding: '22px', textAlign: 'center', cursor: 'pointer',
-                    background: dragging ? 'rgba(212,175,55,0.08)' : PANEL,
-                    transition: 'all 0.2s', marginBottom: '20px',
+                    background: dragging ? 'rgba(212,175,55,0.08)' : '#171310',
+                    transition: 'all 0.2s', marginBottom: '14px',
                   }}
                 >
                   <div style={{ fontFamily: SERIF, fontSize: '13.5px' }}>
@@ -428,8 +513,37 @@ export default function VendorsScreen({
                   />
                 </div>
 
+                {/* One-time copy from the user's own card collection */}
+                {collectionCount > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
+                    <button
+                      onClick={handleImportCollection}
+                      disabled={importing || uploading}
+                      style={{
+                        ...smallGhostStyle,
+                        opacity: importing || uploading ? 0.5 : 1,
+                        cursor: importing || uploading ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      IMPORT MY COLLECTION ({collectionCount})
+                    </button>
+                    {importProgress ? (
+                      <span style={{ fontFamily: SERIF, fontSize: '12.5px', color: GOLD, letterSpacing: '0.04em' }}>
+                        {importProgress}
+                      </span>
+                    ) : (
+                      <span style={{ ...noteStyle, fontSize: 11.5 }}>
+                        A one-time copy — captions from card names.
+                      </span>
+                    )}
+                  </div>
+                )}
+                {importError && (
+                  <p style={{ ...errorTextStyle, margin: '0 0 18px' }}>{importError}</p>
+                )}
+
                 {inventory.items.length === 0 && !inventory.loading && (
-                  <p style={{ margin: 0, fontFamily: SERIF, fontStyle: 'italic', fontSize: '13px', color: MUTED }}>
+                  <p style={{ ...noteStyle, margin: 0, fontSize: 13 }}>
                     No inventory yet.
                   </p>
                 )}
@@ -448,12 +562,7 @@ export default function VendorsScreen({
                       <button
                         onClick={() => { inventory.removeItem(item.id).then(onInventoryChanged); }}
                         title="Remove item"
-                        style={{
-                          position: 'absolute', top: '6px', right: '6px',
-                          background: 'rgba(0,0,0,0.75)', color: TEXT, border: `1px solid ${HAIRLINE}`,
-                          borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
-                          fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
-                        }}
+                        style={removeBadgeStyle}
                       >
                         ✕
                       </button>
@@ -477,7 +586,7 @@ export default function VendorsScreen({
               </div>
             </div>
           ) : (
-            <p style={{ fontFamily: SERIF, fontStyle: 'italic', fontSize: '14px', color: MUTED, marginTop: '8px' }}>
+            <p style={{ ...noteStyle, marginTop: '8px' }}>
               Add a vendor to start building their profile — banner, inventory and show history.
             </p>
           )}
@@ -486,7 +595,7 @@ export default function VendorsScreen({
         <footer style={{ textAlign: 'center', marginTop: '56px' }}>
           <button
             onClick={onBack}
-            style={{ ...smallButton, border: 'none', color: MUTED, fontSize: '13px' }}
+            style={{ background: 'transparent', border: 'none', color: MUTED, fontSize: '13px', letterSpacing: '0.08em', fontFamily: SERIF, cursor: 'pointer', padding: '8px 14px' }}
           >
             ← Back to the museum
           </button>

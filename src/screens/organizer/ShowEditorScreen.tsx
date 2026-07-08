@@ -17,12 +17,18 @@ import { useProvider } from '../../lib/provider/context';
 // replacing it wipes them, exactly like App.tsx's handleSetPlan wrapper.
 import { deleteAllVendorBanners } from '../../lib/db';
 import type { PlanWorkbenchHandle, PlanWorkbenchState } from '../../components/PlanWorkbench';
+import {
+  GOLD, MUTED, TEXT, SERIF,
+  noteStyle as kitNoteStyle, inputStyle, labelStyle, errorTextStyle,
+  primaryButtonStyle, primaryButtonDisabledStyle, ghostButtonStyle, subtleButtonStyle,
+} from '../../components/museumKit';
 
 // The workbench carries the detection pipeline + plan editor — lazy so the
 // organizer list / gate pages never pull that chunk.
 const PlanWorkbench = lazy(() => import('../../components/PlanWorkbench'));
 
-const GOLD = '#d4af37';
+// Kit note, sized up for the gate / status pages.
+const noteStyle: React.CSSProperties = { ...kitNoteStyle, fontSize: 17, lineHeight: 1.7 };
 
 /**
  * Organizer-only show create (/organizer/show/new) and edit
@@ -217,7 +223,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   // ---- gates ----
   if (!configured) {
     return (
-      <PageShell title={title}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>
           Organizer accounts need a configured backend — this deployment runs in guest-only
           mode. You can still build and walk floor plans from the home screen.
@@ -227,30 +233,30 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   }
   if (authLoading || (session && profile === undefined)) {
     return (
-      <PageShell title={title}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>Checking your session…</p>
       </PageShell>
     );
   }
   if (!session) {
     return (
-      <PageShell title={title}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>Sign in to create and manage card shows.</p>
         <p style={{ marginTop: 18 }}>
-          <Link href="/login" style={{ color: GOLD, fontSize: 15 }}>Sign in →</Link>
+          <Link href="/login" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>Sign in →</Link>
         </p>
       </PageShell>
     );
   }
   if (!isOrganizer) {
     return (
-      <PageShell title={title}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>
           Only organizers can create shows — enable the organizer designation on your{' '}
           <Link href="/account" style={{ color: GOLD }}>Account page</Link> and come back.
         </p>
         <p style={{ marginTop: 18 }}>
-          <Link href="/account" style={{ color: GOLD, fontSize: 15 }}>Go to my account →</Link>
+          <Link href="/account" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>Go to my account →</Link>
         </p>
       </PageShell>
     );
@@ -259,18 +265,18 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   // ---- edit mode load states ----
   if (isEdit && show === undefined) {
     return (
-      <PageShell title={title}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>Loading the show…</p>
       </PageShell>
     );
   }
   if (isEdit && show === null) {
     return (
-      <PageShell title={title}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>That show doesn't exist (or isn't yours).</p>
-        {error && <p style={{ color: '#c66', fontSize: 14, marginTop: 12 }}>{error}</p>}
+        {error && <p style={{ ...errorTextStyle, marginTop: 12 }}>{error}</p>}
         <p style={{ marginTop: 18 }}>
-          <Link href="/organizer" style={{ color: GOLD, fontSize: 15 }}>← Back to my shows</Link>
+          <Link href="/organizer" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>← Back to my shows</Link>
         </p>
       </PageShell>
     );
@@ -279,15 +285,15 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   // ---- create success ----
   if (createdId) {
     return (
-      <PageShell title={title}>
-        <p style={{ ...noteStyle, fontStyle: 'normal', color: '#f0e6ce' }}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
+        <p style={{ ...noteStyle, fontStyle: 'normal', color: TEXT, fontFamily: SERIF }}>
           Your show is live in the public directory.
         </p>
         <p style={{ marginTop: 22, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          <Link href={`/show/${createdId}`} style={{ color: GOLD, fontSize: 15 }}>
+          <Link href={`/show/${createdId}`} style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
             View the show page →
           </Link>
-          <Link href="/organizer" style={{ color: GOLD, fontSize: 15 }}>
+          <Link href="/organizer" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
             My shows →
           </Link>
         </p>
@@ -298,17 +304,17 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   // ---- confirm working-draft clobber ----
   if (!confirmed) {
     return (
-      <PageShell title={title}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>
           {isEdit
             ? 'Editing this show loads its floor plan into the editor, replacing the draft in your local sandbox (Convention View).'
             : 'Start a new show? Your local sandbox draft will be replaced.'}
         </p>
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 24 }}>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 24, alignItems: 'center' }}>
           {isEdit ? (
             <button
               onClick={() => setConfirmed(true)}
-              style={primaryButton}
+              style={primaryButtonStyle}
             >
               CONTINUE →
             </button>
@@ -319,19 +325,19 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
                   await handleClearPlan();
                   setConfirmed(true);
                 }}
-                style={primaryButton}
+                style={primaryButtonStyle}
               >
                 START FRESH →
               </button>
               <button
                 onClick={() => setConfirmed(true)}
-                style={secondaryButton}
+                style={ghostButtonStyle}
               >
                 Keep the sandbox draft as this show's plan
               </button>
             </>
           )}
-          <Link href="/organizer" style={{ ...secondaryButton, textDecoration: 'none', display: 'inline-block' }}>
+          <Link href="/organizer" style={{ ...subtleButtonStyle, textDecoration: 'none', display: 'inline-block' }}>
             Cancel
           </Link>
         </div>
@@ -341,70 +347,90 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
 
   if (!seeded) {
     return (
-      <PageShell title={title}>
+      <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>Preparing the floor plan editor…</p>
-        {error && <p style={{ color: '#c66', fontSize: 14, marginTop: 12 }}>{error}</p>}
+        {error && <p style={{ ...errorTextStyle, marginTop: 12 }}>{error}</p>}
       </PageShell>
     );
   }
 
   // ---- the editor ----
   return (
-    <PageShell title={title}>
+    <PageShell title={title} eyebrow="ORGANIZER TOOLS" wide>
       {isEdit && show && !show.published && (
-        <p style={{ ...noteStyle, fontSize: 14, marginBottom: 18 }}>
+        <p style={{ ...kitNoteStyle, fontSize: 14, marginBottom: 18 }}>
           This show is currently hidden — publish it from{' '}
           <Link href="/organizer" style={{ color: GOLD }}>My Shows</Link> when it's ready.
         </p>
       )}
 
       {/* Show details */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-        <input
-          type="text"
-          placeholder="Show name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={{ ...inputStyle, width: 280 }}
-        />
-        <input
-          type="date"
-          title="Show date (optional) — shown in the public directory"
-          value={showDate}
-          onChange={(e) => setShowDate(e.target.value)}
-          style={{ ...inputStyle, color: showDate ? '#e8e4dc' : '#777', colorScheme: 'dark' }}
-        />
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+        <div>
+          <label htmlFor="show-editor-name" style={labelStyle}>SHOW NAME</label>
+          <input
+            id="show-editor-name"
+            type="text"
+            placeholder="Show name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            style={{ ...inputStyle, width: 280 }}
+          />
+        </div>
+        <div>
+          <label htmlFor="show-editor-date" style={labelStyle}>DATE</label>
+          <input
+            id="show-editor-date"
+            type="date"
+            title="Show date (optional) — shown in the public directory"
+            value={showDate}
+            onChange={(e) => setShowDate(e.target.value)}
+            style={{ ...inputStyle, width: 180, color: showDate ? TEXT : '#777' }}
+          />
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 26 }}>
-        <select
-          value={country}
-          onChange={(e) => { setCountry(e.target.value); setStateCode(''); }}
-          style={inputStyle}
-        >
-          <option value="">— country —</option>
-          {COUNTRIES.map((c) => (
-            <option key={c.code} value={c.code}>{c.name}</option>
-          ))}
-        </select>
-        {regions.length > 0 && (
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 30 }}>
+        <div>
+          <label htmlFor="show-editor-country" style={labelStyle}>COUNTRY</label>
           <select
-            value={stateCode}
-            onChange={(e) => setStateCode(e.target.value)}
-            style={inputStyle}
+            id="show-editor-country"
+            value={country}
+            onChange={(e) => { setCountry(e.target.value); setStateCode(''); }}
+            style={{ ...inputStyle, width: 200 }}
           >
-            <option value="">— state / province —</option>
-            {regions.map((r) => (
-              <option key={r.code} value={r.code}>{r.name}</option>
+            <option value="">— country —</option>
+            {COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>{c.name}</option>
             ))}
           </select>
+        </div>
+        {regions.length > 0 && (
+          <div>
+            <label htmlFor="show-editor-state" style={labelStyle}>STATE / PROVINCE</label>
+            <select
+              id="show-editor-state"
+              value={stateCode}
+              onChange={(e) => setStateCode(e.target.value)}
+              style={{ ...inputStyle, width: 200 }}
+            >
+              <option value="">— state / province —</option>
+              {regions.map((r) => (
+                <option key={r.code} value={r.code}>{r.name}</option>
+              ))}
+            </select>
+          </div>
         )}
-        <input
-          type="text"
-          placeholder="City / venue"
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-          style={{ ...inputStyle, width: 220 }}
-        />
+        <div>
+          <label htmlFor="show-editor-city" style={labelStyle}>CITY / VENUE</label>
+          <input
+            id="show-editor-city"
+            type="text"
+            placeholder="City / venue"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            style={{ ...inputStyle, width: 220 }}
+          />
+        </div>
       </div>
 
       {/* Floor plan workbench — detect, fix up, assign vendors */}
@@ -424,10 +450,10 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       </Suspense>
 
       {error && (
-        <p style={{ color: '#c66', fontSize: 14, margin: '18px 0 0' }}>{error}</p>
+        <p style={{ ...errorTextStyle, margin: '18px 0 0' }}>{error}</p>
       )}
       {savedNote && !error && (
-        <p style={{ color: GOLD, fontSize: 14, margin: '18px 0 0' }}>
+        <p style={{ color: GOLD, fontSize: 14, fontFamily: SERIF, margin: '18px 0 0' }}>
           Changes saved.{' '}
           {show?.published && (
             <Link href={`/show/${showId}`} style={{ color: GOLD }}>View the show page →</Link>
@@ -439,62 +465,20 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         <button
           onClick={handleSubmit}
           disabled={busy || !name.trim() || !wb.hasMeta || wb.detecting}
-          style={{
-            ...primaryButton,
-            background: !busy && name.trim() && wb.hasMeta && !wb.detecting ? GOLD : '#333',
-            color: !busy && name.trim() && wb.hasMeta && !wb.detecting ? '#1a1614' : '#666',
-            cursor: !busy && name.trim() && wb.hasMeta && !wb.detecting ? 'pointer' : 'not-allowed',
-          }}
+          style={
+            !busy && name.trim() && wb.hasMeta && !wb.detecting
+              ? primaryButtonStyle
+              : primaryButtonDisabledStyle
+          }
         >
           {busy
             ? (isEdit ? 'Saving…' : 'Creating…')
             : (isEdit ? 'SAVE CHANGES' : 'CREATE SHOW →')}
         </button>
-        <Link href="/organizer" style={{ color: '#8a816d', fontSize: 14 }}>
+        <Link href="/organizer" style={{ color: MUTED, fontSize: 14, fontFamily: SERIF, fontStyle: 'italic' }}>
           ← Back to my shows
         </Link>
       </div>
     </PageShell>
   );
 }
-
-const noteStyle: React.CSSProperties = {
-  fontSize: 17,
-  lineHeight: 1.7,
-  color: '#b7ad98',
-  fontStyle: 'italic',
-};
-
-const inputStyle: React.CSSProperties = {
-  background: '#0d0b0a',
-  color: '#e8e4dc',
-  border: '1px solid #555',
-  borderRadius: 6,
-  padding: '10px 12px',
-  fontSize: 14,
-  fontFamily: 'Georgia, serif',
-};
-
-const primaryButton: React.CSSProperties = {
-  background: GOLD,
-  color: '#1a1614',
-  border: 'none',
-  padding: '13px 34px',
-  fontSize: 15,
-  letterSpacing: '0.1em',
-  borderRadius: 8,
-  cursor: 'pointer',
-  fontFamily: 'Georgia, serif',
-};
-
-const secondaryButton: React.CSSProperties = {
-  background: 'transparent',
-  color: '#e8e4dc',
-  border: '1px solid #555',
-  padding: '13px 22px',
-  fontSize: 14,
-  letterSpacing: '0.05em',
-  borderRadius: 8,
-  cursor: 'pointer',
-  fontFamily: 'Georgia, serif',
-};

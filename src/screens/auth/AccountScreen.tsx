@@ -4,13 +4,15 @@ import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
 import {
+  STORE_LIMIT,
   getMyProfile,
   updateMyProfile,
-  getMyVendor,
-  ensureCanonicalVendor,
-  updateMyVendorSettings,
+  listMyStores,
+  createStore,
+  setFlagshipStore,
+  updateMyStoreSettings,
 } from '../../lib/profileService';
-import type { ProfileRecord, MyVendorRecord } from '../../lib/profileService';
+import type { ProfileRecord, MyStoreRecord } from '../../lib/profileService';
 import { COUNTRIES, regionOptions } from '../../lib/locations';
 import {
   readLocalSnapshot,
@@ -19,6 +21,18 @@ import {
 } from '../../lib/importLocal';
 import type { LocalSnapshot, ImportSelection } from '../../lib/importLocal';
 import {
+  GOLD,
+  HAIRLINE,
+  TEXT,
+  MUTED,
+  ERROR,
+  panelStyle,
+  panelTitleStyle,
+  ghostButtonStyle,
+  noteStyle,
+  errorTextStyle,
+} from '../../components/museumKit';
+import {
   authLabelStyle,
   authInputStyle,
   authButtonStyle,
@@ -26,35 +40,13 @@ import {
   NotConfiguredNote,
 } from './LoginScreen';
 
-const GOLD = '#d4af37';
-const HAIRLINE = 'rgba(212,175,55,0.28)';
-const MUTED = '#b7ad98';
-
-const sectionStyle: CSSProperties = {
+/** Inner bordered card for one store inside the MY STORES panel. */
+const storeCardStyle: CSSProperties = {
   border: `1px solid ${HAIRLINE}`,
   borderRadius: 4,
-  padding: '24px 26px',
-  marginBottom: 28,
-};
-
-const sectionTitleStyle: CSSProperties = {
-  margin: '0 0 18px',
-  fontSize: 13,
-  fontWeight: 400,
-  letterSpacing: '0.22em',
-  color: GOLD,
-};
-
-const ghostButtonStyle: CSSProperties = {
-  background: 'transparent',
-  color: GOLD,
-  border: `1px solid ${HAIRLINE}`,
-  padding: '11px 30px',
-  fontSize: 12,
-  letterSpacing: '0.16em',
-  fontFamily: 'inherit',
-  cursor: 'pointer',
-  borderRadius: 2,
+  background: 'rgba(0,0,0,0.18)',
+  padding: '18px 20px',
+  marginBottom: 18,
 };
 
 const checkLabelStyle: CSSProperties = {
@@ -62,7 +54,7 @@ const checkLabelStyle: CSSProperties = {
   alignItems: 'baseline',
   gap: 12,
   fontSize: 15,
-  color: '#e8e0d0',
+  color: TEXT,
   cursor: 'pointer',
 };
 
@@ -78,7 +70,7 @@ function StatusLine({ status, error }: { status: SaveStatus; error?: string | nu
       style={{
         margin: '6px 0 0',
         fontSize: 12,
-        color: status === 'error' ? '#e0967e' : MUTED,
+        color: status === 'error' ? ERROR : MUTED,
         minHeight: 15,
       }}
     >
@@ -110,7 +102,7 @@ function ImportRow({
         gap: 12,
         padding: '8px 0',
         fontSize: 15,
-        color: disabled ? MUTED : '#e8e0d0',
+        color: disabled ? MUTED : TEXT,
         cursor: disabled ? 'default' : 'pointer',
       }}
     >
@@ -124,6 +116,184 @@ function ImportRow({
       <span>{label}</span>
       <span style={{ fontSize: 13, color: MUTED }}>{count}</span>
     </label>
+  );
+}
+
+/**
+ * One store's settings card. Owns its optimistic record slice + save status
+ * (the old saveVendor pattern, per store): patch state, call
+ * updateMyStoreSettings, revert on error. Flagship state comes from the
+ * parent's list (refreshed after setFlagshipStore) via the `store` prop.
+ */
+function StorePanel({
+  store,
+  flagshipBusy,
+  onMakeFlagship,
+}: {
+  store: MyStoreRecord;
+  flagshipBusy: boolean;
+  onMakeFlagship: (storeId: string) => void;
+}) {
+  const [rec, setRec] = useState<MyStoreRecord>(store);
+  const [nameDraft, setNameDraft] = useState(store.name);
+  const [areaDraft, setAreaDraft] = useState(store.areaServed);
+  const [status, setStatus] = useState<SaveStatus>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const save = useCallback(
+    async (patch: Partial<Omit<MyStoreRecord, 'id' | 'isFlagship'>>) => {
+      const prev = rec;
+      setRec({ ...rec, ...patch });
+      setStatus('saving');
+      setSaveError(null);
+      try {
+        await updateMyStoreSettings(rec.id, patch);
+        setStatus('saved');
+      } catch (err) {
+        setRec(prev);
+        setStatus('error');
+        setSaveError(errMsg(err));
+      }
+    },
+    [rec],
+  );
+
+  function onCountryChange(nextRaw: string) {
+    const next = nextRaw || null;
+    // Keep the region only when it exists in the new country's list.
+    const keep = next !== null && regionOptions(next).some((r) => r.code === rec.state);
+    void save({ country: next, state: keep ? rec.state : null });
+  }
+
+  const regions = regionOptions(rec.country);
+  const id = store.id;
+
+  return (
+    <div style={storeCardStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        {store.isFlagship ? (
+          <span>
+            <span style={{ color: GOLD, fontSize: 12, letterSpacing: '0.18em' }}>
+              ★ FLAGSHIP
+            </span>
+            <span style={{ marginLeft: 10, fontSize: 12, color: MUTED, fontStyle: 'italic' }}>
+              your default store
+            </span>
+          </span>
+        ) : (
+          <button
+            onClick={() => onMakeFlagship(id)}
+            disabled={flagshipBusy}
+            style={{
+              ...ghostButtonStyle,
+              padding: '6px 14px',
+              fontSize: 11,
+              opacity: flagshipBusy ? 0.6 : 1,
+            }}
+          >
+            MAKE FLAGSHIP
+          </button>
+        )}
+        <Link href={`/vendor/${id}`} style={{ color: GOLD, fontSize: 13 }}>
+          View public page →
+        </Link>
+      </div>
+      <div style={{ maxWidth: 420 }}>
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-name`} style={authLabelStyle}>
+            STORE NAME
+          </label>
+          <input
+            id={`store-${id}-name`}
+            type="text"
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = nameDraft.trim();
+              if (!trimmed) {
+                setNameDraft(rec.name); // never save an empty name
+                return;
+              }
+              if (trimmed !== rec.name) void save({ name: trimmed });
+            }}
+            style={authInputStyle}
+          />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-country`} style={authLabelStyle}>
+            COUNTRY
+          </label>
+          <select
+            id={`store-${id}-country`}
+            value={rec.country ?? ''}
+            onChange={(e) => onCountryChange(e.target.value)}
+            style={authInputStyle}
+          >
+            <option value="">—</option>
+            {COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {regions.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <label htmlFor={`store-${id}-state`} style={authLabelStyle}>
+              {rec.country === 'CA' ? 'PROVINCE' : 'STATE'}
+            </label>
+            <select
+              id={`store-${id}-state`}
+              value={rec.state ?? ''}
+              onChange={(e) => void save({ state: e.target.value || null })}
+              style={authInputStyle}
+            >
+              <option value="">—</option>
+              {regions.map((r) => (
+                <option key={r.code} value={r.code}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-area`} style={authLabelStyle}>
+            AREA SERVED
+          </label>
+          <input
+            id={`store-${id}-area`}
+            type="text"
+            value={areaDraft}
+            placeholder='e.g. "Greater Philadelphia / tri-state shows"'
+            onChange={(e) => setAreaDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = areaDraft.trim();
+              if (trimmed !== rec.areaServed) void save({ areaServed: trimmed });
+            }}
+            style={authInputStyle}
+          />
+        </div>
+        <label style={checkLabelStyle}>
+          <input
+            type="checkbox"
+            checked={rec.inventoryPublic}
+            onChange={(e) => void save({ inventoryPublic: e.target.checked })}
+            style={{ accentColor: GOLD }}
+          />
+          <span>Show my inventory publicly</span>
+        </label>
+        <StatusLine status={status} error={saveError} />
+      </div>
+    </div>
   );
 }
 
@@ -162,18 +332,14 @@ export default function AccountScreen() {
   const [collStatus, setCollStatus] = useState<SaveStatus>('idle');
   const [collError, setCollError] = useState<string | null>(null);
 
-  // ---- canonical vendor (vendor accounts) ----
-  const [vendor, setVendor] = useState<MyVendorRecord | null>(null);
-  const [vendorLoading, setVendorLoading] = useState(false);
-  const [vendorLoadError, setVendorLoadError] = useState<string | null>(null);
-  const [vendorName, setVendorName] = useState('');
-  const [areaServed, setAreaServed] = useState('');
-  const [vendorStatus, setVendorStatus] = useState<SaveStatus>('idle');
-  const [vendorSaveError, setVendorSaveError] = useState<string | null>(null);
-
-  // ---- become a vendor (collectors) ----
-  const [becoming, setBecoming] = useState(false);
-  const [becomeError, setBecomeError] = useState<string | null>(null);
+  // ---- my stores (any account may hold up to STORE_LIMIT) ----
+  const [stores, setStores] = useState<MyStoreRecord[] | null>(null); // null = loading
+  const [storesLoadError, setStoresLoadError] = useState<string | null>(null);
+  const [newStoreName, setNewStoreName] = useState('');
+  const [creatingStore, setCreatingStore] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [flagshipBusy, setFlagshipBusy] = useState(false);
+  const [flagshipError, setFlagshipError] = useState<string | null>(null);
 
   // ---- import wizard ----
   const [snapshot, setSnapshot] = useState<LocalSnapshot | null>(null);
@@ -218,33 +384,26 @@ export default function AccountScreen() {
     };
   }, [userId]);
 
-  // Load (or lazily create, for legacy accounts) the canonical vendor row.
-  const accountType = profile?.accountType ?? null;
+  // Load the account's stores — every account type may hold them.
   useEffect(() => {
-    if (!userId || accountType !== 'vendor') return;
+    if (!userId) return;
     let cancelled = false;
-    setVendorLoading(true);
-    setVendorLoadError(null);
-    (async () => {
-      try {
-        let v = await getMyVendor(userId);
-        if (!v) v = await ensureCanonicalVendor(userId, profile?.displayName ?? '');
+    setStores(null);
+    setStoresLoadError(null);
+    listMyStores(userId)
+      .then((list) => {
+        if (!cancelled) setStores(list);
+      })
+      .catch((err) => {
         if (!cancelled) {
-          setVendor(v);
-          setVendorName(v.name);
-          setAreaServed(v.areaServed);
+          setStores([]);
+          setStoresLoadError(errMsg(err));
         }
-      } catch (err) {
-        if (!cancelled) setVendorLoadError(errMsg(err));
-      } finally {
-        if (!cancelled) setVendorLoading(false);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- displayName is only a creation fallback
-  }, [userId, accountType]);
+  }, [userId]);
 
   // Count what the guest (local IndexedDB) side holds.
   useEffect(() => {
@@ -367,51 +526,40 @@ export default function AccountScreen() {
     }
   }
 
-  const saveVendor = useCallback(
-    async (patch: Partial<Omit<MyVendorRecord, 'id'>>) => {
-      if (!vendor) return;
-      const prev = vendor;
-      setVendor({ ...vendor, ...patch });
-      setVendorStatus('saving');
-      setVendorSaveError(null);
-      try {
-        await updateMyVendorSettings(vendor.id, patch);
-        setVendorStatus('saved');
-      } catch (err) {
-        setVendor(prev);
-        setVendorStatus('error');
-        setVendorSaveError(errMsg(err));
+  async function openStore() {
+    if (!userId || !stores) return;
+    const name = newStoreName.trim();
+    if (!name || creatingStore) return;
+    setCreatingStore(true);
+    setCreateError(null);
+    try {
+      const wasFirst = stores.length === 0;
+      const created = await createStore(userId, name);
+      setStores([...stores, created]);
+      setNewStoreName('');
+      if (wasFirst) {
+        // createStore flips account_type server-side; mirror it locally so the
+        // page reflects vendor status without a reload.
+        setProfile((p) => (p ? { ...p, accountType: 'vendor' } : p));
       }
-    },
-    [vendor],
-  );
-
-  function onVendorCountryChange(nextRaw: string) {
-    if (!vendor) return;
-    const next = nextRaw || null;
-    const keep = next !== null && regionOptions(next).some((r) => r.code === vendor.state);
-    void saveVendor({ country: next, state: keep ? vendor.state : null });
+    } catch (err) {
+      setCreateError(errMsg(err));
+    } finally {
+      setCreatingStore(false);
+    }
   }
 
-  async function becomeVendor() {
-    if (!userId || !profile) return;
-    const ok = window.confirm(
-      'Become a vendor? Your account gains a vendor profile that appears in the vendor directory and show booth assignments.',
-    );
-    if (!ok) return;
-    setBecoming(true);
-    setBecomeError(null);
+  async function makeFlagship(storeId: string) {
+    if (!userId || flagshipBusy) return;
+    setFlagshipBusy(true);
+    setFlagshipError(null);
     try {
-      await updateMyProfile(userId, { accountType: 'vendor' });
-      const v = await ensureCanonicalVendor(userId, profile.displayName || displayName);
-      setVendor(v);
-      setVendorName(v.name);
-      setAreaServed(v.areaServed);
-      setProfile({ ...profile, accountType: 'vendor' });
+      await setFlagshipStore(storeId);
+      setStores(await listMyStores(userId));
     } catch (err) {
-      setBecomeError(errMsg(err));
+      setFlagshipError(errMsg(err));
     } finally {
-      setBecoming(false);
+      setFlagshipBusy(false);
     }
   }
 
@@ -433,14 +581,14 @@ export default function AccountScreen() {
 
   if (!configured) {
     return (
-      <PageShell title="My Account">
+      <PageShell title="My Account" eyebrow="MEMBERS">
         <NotConfiguredNote />
       </PageShell>
     );
   }
   if (!session) {
     // Redirecting (effect above) — render the shell so there's no flash.
-    return <PageShell title="My Account">{null}</PageShell>;
+    return <PageShell title="My Account" eyebrow="MEMBERS">{null}</PageShell>;
   }
 
   const alreadyImported = userId ? localStorage.getItem(importedFlagKey(userId)) : null;
@@ -452,14 +600,47 @@ export default function AccountScreen() {
     snapshot.plans.length === 0;
 
   const regions = regionOptions(country);
-  const vendorRegions = regionOptions(vendor?.country ?? null);
+  const canOpenStore = stores !== null && stores.length < STORE_LIMIT;
+
+  const openStoreForm = (
+    <div style={{ display: 'flex', gap: 12, maxWidth: 420, alignItems: 'stretch' }}>
+      <input
+        type="text"
+        value={newStoreName}
+        placeholder="Store name"
+        onChange={(e) => {
+          setNewStoreName(e.target.value);
+          setCreateError(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void openStore();
+        }}
+        style={{ ...authInputStyle, flex: 1 }}
+      />
+      <button
+        onClick={() => void openStore()}
+        disabled={creatingStore || !newStoreName.trim()}
+        style={{
+          ...ghostButtonStyle,
+          whiteSpace: 'nowrap',
+          opacity: creatingStore || !newStoreName.trim() ? 0.6 : 1,
+        }}
+      >
+        {creatingStore
+          ? 'OPENING…'
+          : stores && stores.length > 0
+            ? 'OPEN A SECOND STORE'
+            : 'OPEN A STORE'}
+      </button>
+    </div>
+  );
 
   return (
-    <PageShell title="My Account">
-      <section style={sectionStyle}>
-        <h2 style={sectionTitleStyle}>PROFILE</h2>
+    <PageShell title="My Account" eyebrow="MEMBERS">
+      <section style={panelStyle}>
+        <h2 style={panelTitleStyle}>PROFILE</h2>
         <p style={{ margin: '0 0 18px', fontSize: 15, color: MUTED }}>
-          Signed in as <span style={{ color: '#e8e0d0' }}>{session.user.email}</span>
+          Signed in as <span style={{ color: TEXT }}>{session.user.email}</span>
         </p>
         <div style={{ maxWidth: 420, marginBottom: 20 }}>
           <label htmlFor="account-display-name" style={authLabelStyle}>
@@ -491,20 +672,20 @@ export default function AccountScreen() {
       </section>
 
       {profileLoadError && (
-        <section style={sectionStyle}>
+        <section style={panelStyle}>
           <p style={{ ...authErrorStyle, margin: 0 }}>{profileLoadError}</p>
         </section>
       )}
       {!profile && !profileLoadError && (
-        <section style={sectionStyle}>
+        <section style={panelStyle}>
           <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading profile…</p>
         </section>
       )}
 
       {profile && (
         <>
-          <section style={sectionStyle}>
-            <h2 style={sectionTitleStyle}>LOCATION &amp; BIO</h2>
+          <section style={panelStyle}>
+            <h2 style={panelTitleStyle}>LOCATION &amp; BIO</h2>
             <div style={{ maxWidth: 420 }}>
               <div style={{ marginBottom: 18 }}>
                 <label htmlFor="account-country" style={authLabelStyle}>
@@ -580,128 +761,52 @@ export default function AccountScreen() {
             </div>
           </section>
 
-          {profile.accountType === 'vendor' ? (
-            <section style={sectionStyle}>
-              <h2 style={sectionTitleStyle}>MY VENDOR TABLE</h2>
-              {vendorLoadError ? (
-                <p style={{ ...authErrorStyle, margin: 0 }}>{vendorLoadError}</p>
-              ) : vendorLoading || !vendor ? (
-                <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading vendor profile…</p>
-              ) : (
-                <div style={{ maxWidth: 420 }}>
-                  <div style={{ marginBottom: 18 }}>
-                    <label htmlFor="vendor-name" style={authLabelStyle}>
-                      VENDOR NAME
-                    </label>
-                    <input
-                      id="vendor-name"
-                      type="text"
-                      value={vendorName}
-                      onChange={(e) => setVendorName(e.target.value)}
-                      onBlur={() => {
-                        const trimmed = vendorName.trim();
-                        if (!trimmed) {
-                          setVendorName(vendor.name); // never save an empty name
-                          return;
-                        }
-                        if (trimmed !== vendor.name) void saveVendor({ name: trimmed });
-                      }}
-                      style={authInputStyle}
-                    />
+          <section style={panelStyle}>
+            <h2 style={panelTitleStyle}>MY STORES</h2>
+            {storesLoadError ? (
+              <p style={{ ...authErrorStyle, margin: 0 }}>{storesLoadError}</p>
+            ) : stores === null ? (
+              <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading stores…</p>
+            ) : stores.length === 0 ? (
+              <>
+                <p style={{ ...noteStyle, margin: '0 0 16px' }}>
+                  Sell cards? Open a store — it lists you in the vendor directory and lets
+                  organizers assign you to show booths.
+                </p>
+                {openStoreForm}
+                {createError && <p style={authErrorStyle}>{createError}</p>}
+              </>
+            ) : (
+              <>
+                {stores.map((s) => (
+                  <StorePanel
+                    key={s.id}
+                    store={s}
+                    flagshipBusy={flagshipBusy}
+                    onMakeFlagship={(id) => void makeFlagship(id)}
+                  />
+                ))}
+                {flagshipError && <p style={errorTextStyle}>{flagshipError}</p>}
+                {canOpenStore ? (
+                  <div style={{ marginTop: 4 }}>
+                    {openStoreForm}
+                    {createError && <p style={authErrorStyle}>{createError}</p>}
                   </div>
-                  <div style={{ marginBottom: 18 }}>
-                    <label htmlFor="vendor-country" style={authLabelStyle}>
-                      COUNTRY
-                    </label>
-                    <select
-                      id="vendor-country"
-                      value={vendor.country ?? ''}
-                      onChange={(e) => onVendorCountryChange(e.target.value)}
-                      style={authInputStyle}
-                    >
-                      <option value="">—</option>
-                      {COUNTRIES.map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {vendorRegions.length > 0 && (
-                    <div style={{ marginBottom: 18 }}>
-                      <label htmlFor="vendor-state" style={authLabelStyle}>
-                        {vendor.country === 'CA' ? 'PROVINCE' : 'STATE'}
-                      </label>
-                      <select
-                        id="vendor-state"
-                        value={vendor.state ?? ''}
-                        onChange={(e) => void saveVendor({ state: e.target.value || null })}
-                        style={authInputStyle}
-                      >
-                        <option value="">—</option>
-                        {vendorRegions.map((r) => (
-                          <option key={r.code} value={r.code}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  <div style={{ marginBottom: 18 }}>
-                    <label htmlFor="vendor-area" style={authLabelStyle}>
-                      AREA SERVED
-                    </label>
-                    <input
-                      id="vendor-area"
-                      type="text"
-                      value={areaServed}
-                      placeholder='e.g. "Greater Philadelphia / tri-state shows"'
-                      onChange={(e) => setAreaServed(e.target.value)}
-                      onBlur={() => {
-                        const trimmed = areaServed.trim();
-                        if (trimmed !== vendor.areaServed) void saveVendor({ areaServed: trimmed });
-                      }}
-                      style={authInputStyle}
-                    />
-                  </div>
-                  <label style={checkLabelStyle}>
-                    <input
-                      type="checkbox"
-                      checked={vendor.inventoryPublic}
-                      onChange={(e) => void saveVendor({ inventoryPublic: e.target.checked })}
-                      style={{ accentColor: GOLD }}
-                    />
-                    <span>Show my inventory publicly</span>
-                  </label>
-                  <StatusLine status={vendorStatus} error={vendorSaveError} />
-                  <p style={{ margin: '14px 0 0', fontSize: 14, color: MUTED }}>
-                    <Link href={`/vendor/${vendor.id}`} style={{ color: GOLD }}>
-                      View my public vendor page →
-                    </Link>
+                ) : (
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: MUTED, fontStyle: 'italic' }}>
+                    Store limit reached ({STORE_LIMIT} per account).
                   </p>
-                  <p style={{ margin: '8px 0 0', fontSize: 13, color: MUTED, lineHeight: 1.6 }}>
-                    Your inventory itself is managed in the Vendor Registry (home → Vendor
-                    Registry).
-                  </p>
-                </div>
-              )}
-            </section>
-          ) : (
-            <section style={sectionStyle}>
-              <h2 style={sectionTitleStyle}>BECOME A VENDOR</h2>
-              <p style={{ margin: '0 0 16px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
-                Sell cards? A vendor profile lists you in the vendor directory and lets
-                organizers assign you to show booths.
-              </p>
-              <button onClick={() => void becomeVendor()} disabled={becoming} style={ghostButtonStyle}>
-                {becoming ? 'SETTING UP…' : 'BECOME A VENDOR'}
-              </button>
-              {becomeError && <p style={authErrorStyle}>{becomeError}</p>}
-            </section>
-          )}
+                )}
+                <p style={{ margin: '16px 0 0', fontSize: 13, color: MUTED, lineHeight: 1.6 }}>
+                  Store inventory itself is managed in the Vendor Registry (home → Vendor
+                  Registry).
+                </p>
+              </>
+            )}
+          </section>
 
-          <section style={sectionStyle}>
-            <h2 style={sectionTitleStyle}>MY COLLECTION</h2>
+          <section style={panelStyle}>
+            <h2 style={panelTitleStyle}>MY COLLECTION</h2>
             <label style={checkLabelStyle}>
               <input
                 type="checkbox"
@@ -721,8 +826,8 @@ export default function AccountScreen() {
             )}
           </section>
 
-          <section style={sectionStyle}>
-            <h2 style={sectionTitleStyle}>ORGANIZER</h2>
+          <section style={panelStyle}>
+            <h2 style={panelTitleStyle}>ORGANIZER</h2>
             <label style={checkLabelStyle}>
               <input
                 type="checkbox"
@@ -742,8 +847,8 @@ export default function AccountScreen() {
             )}
           </section>
 
-          <section style={sectionStyle}>
-            <h2 style={sectionTitleStyle}>CHANGE PASSWORD</h2>
+          <section style={panelStyle}>
+            <h2 style={panelTitleStyle}>CHANGE PASSWORD</h2>
             <form onSubmit={onChangePassword} style={{ maxWidth: 420 }}>
               <div style={{ marginBottom: 18 }}>
                 <label htmlFor="account-new-password" style={authLabelStyle}>
@@ -791,8 +896,8 @@ export default function AccountScreen() {
         </>
       )}
 
-      <section style={sectionStyle}>
-        <h2 style={sectionTitleStyle}>BRING IN THIS BROWSER&rsquo;S COLLECTION</h2>
+      <section style={panelStyle}>
+        <h2 style={panelTitleStyle}>BRING IN THIS BROWSER&rsquo;S COLLECTION</h2>
         <p style={{ margin: '0 0 14px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
           Anything added while browsing as a guest lives only in this browser. Copy it into
           your account — the local data stays untouched, and running the import again simply

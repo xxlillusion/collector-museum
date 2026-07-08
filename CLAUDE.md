@@ -38,7 +38,7 @@ npm run build    # tsc -b && vite build — USE THIS to type-check (see gotchas)
 
 ## Architecture
 
-Five top-level views, switched in `src/App.tsx` (plain state union, no router):
+Five top-level views, switched inside `MuseumApp` in `src/App.tsx` (plain state union):
 
 ```
 HomeScreen (DOM) ←→ Scene (museum, R3F Canvas + DOM overlays)
@@ -52,6 +52,23 @@ VendorSetupScreen (DOM: upload / detect / edit / assign) ←→ VendorScene (hal
 guards on `planMeta` existing and falls back to setup. DOM screens are their own scroll
 containers (`height: 100vh; overflow-y: auto`) because `html/body/#root` keep
 `overflow: hidden` for the fullscreen canvases.
+
+**App hosts (2026-07-07 restructure)**: `App` (default route) renders `LandingScreen`
+for logged-out visitors on a configured deployment (museum-styled landing: explore
+shows / vendor directory / sign in / sandbox link — NO local-collection sections), and
+`MuseumApp` otherwise (signed-in users; also guest-only deployments with no Supabase
+env). `SandboxApp` (route `/sandbox`) is the no-account experience: `MuseumApp` wrapped
+in a forced-local `DataProviderBoundary` (identity `"sandbox"`), so a signed-in user's
+sandbox visit never touches cloud data. HomeScreen takes `sandbox` (local-only banner,
+back-to-main link, no auth corner), `showRegistry` (Vendor Registry CTA — vendor
+accounts only when configured; always in sandbox/guest-only) and `showOrganizer`
+(Organizer Tools CTA) — gating comes from `useMyProfile()` (`src/lib/useMyProfile.ts`).
+
+**Museum style kit** (`src/components/museumKit.tsx`): the "Museum Refined" colors
+(GOLD/BG/PANEL/HAIRLINE/TEXT/MUTED), SERIF/SANS, PAGE_BG, `Ornament`/`Section`/
+`QuickAction`, button/input/panel/note styles and `museumHoverCss`. ALL DOM pages
+(PageShell chrome, auth, shows, organizer, vendor directory/pages, VendorsScreen,
+HomeScreen, LandingScreen) consume it — never re-declare these colors per screen.
 
 ### Data flow
 
@@ -421,6 +438,24 @@ edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record typ
   - Deferred: vendor claiming flow for placeholder vendors; clicking a reset-email link
     end-to-end (send verified; needs an inbox — also add `/reset-password` to the
     Supabase Auth redirect-URL allowlist per deploy origin).
+- **Cohesion wave (this branch, 2026-07-07)**: guest landing page (`LandingScreen`) with
+  numbered home sections gated to signed-in users; local sandbox moved to `/sandbox`
+  (forced-local provider, own chrome incl. local vendor registry); museum style kit
+  (`museumKit.tsx`) applied across every platform page (shows, show detail, organizer,
+  account, vendor directory/pages, collector, auth, registry); Vendor Registry CTA
+  gated to vendor accounts, Organizer Tools CTA to organizers; **multi-store vendors**
+  (migration `0004_multi_store.sql` — vendors.profile_id unique DROPPED, max 2 stores
+  per profile via trigger, one flagship per profile via partial unique index +
+  `set_flagship_store` RPC; profileService rewritten: `MyStoreRecord`, `listMyStores`,
+  `createStore` (first store flips account_type to vendor + becomes flagship),
+  `setFlagshipStore`, `ensureFirstStore`, `updateMyStoreSettings`); Account page "MY
+  STORES" section (all account types; open/second store, flagship badge/switch,
+  per-store settings) replacing MY VENDOR TABLE + BECOME A VENDOR; VendorsScreen
+  "IMPORT MY COLLECTION" (one-time copy of collection cards into a store's inventory,
+  captions = card names). `listRegisteredVendors` already returns every profile-linked
+  store, so both of an account's stores appear in booth assignment + /vendors
+  automatically. ⚠ Migration 0004 must be applied to the live project before
+  multi-store/flagship works against Supabase.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

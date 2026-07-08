@@ -149,6 +149,7 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
           captions={state.captions}
           bannerUrl={null}
           onManage={() => navigate(`/collector/${profileId}`)}
+          exitLabel="← Back to Collector"
         />
       </Suspense>
     </div>

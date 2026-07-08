@@ -120,6 +120,11 @@ function useDrapeTextures(descs: DrapeDesc[]): Map<string, THREE.CanvasTexture> 
     let pending = images.length;
     for (const d of images) {
       const img = new Image();
+      // Cloud banners are Supabase CDN URLs: without CORS opt-in the canvas
+      // taints and texSubImage2D throws (the drape silently falls back to
+      // plain cloth). blob: object URLs ignore the attribute, so the
+      // local/guest path is unaffected.
+      img.crossOrigin = 'anonymous';
       img.onload = () => {
         if (!cancelled) {
           const tex = makeBannerTexture(img);

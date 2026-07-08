@@ -456,6 +456,18 @@ edit): `src/lib/provider/types.ts`, `src/routes.tsx`, `src/lib/db.ts` record typ
   store, so both of an account's stores appear in booth assignment + /vendors
   automatically. ⚠ Migration 0004 must be applied to the live project before
   multi-store/flagship works against Supabase.
+- **Deferred UX-test items shipped** (2026-07-07, browser-verified live + touch headless,
+  zero console errors): create-show visibility choice (publish now / create hidden —
+  `publishShow` gained `published?`, ShowEditorScreen radio + hidden-aware success page;
+  hidden shows verified absent from /shows and PUBLISHable from OrganizerHome); museum
+  404 (`screens/NotFoundScreen`, routes.tsx catch-all now only matches non-root unknown
+  paths — `/` still renders App); touch binder discoverability (VendorHallBinders
+  proximity scan no longer skips touch, HUD shows "Tap the binder to open it", prompt
+  gating is `locked || isTouchDevice`; verified via Playwright `hasTouch` — prompt +
+  projected tap-open + prefetch all live); Account "MY STORES" → real "MANAGE INVENTORY
+  IN THE REGISTRY" button (App consumes a one-shot `/?view=vendors` query param, stripped
+  via replaceState); "◈ WALKABLE IN 3D" badge on show detail (directory thumbnails
+  already existed).
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

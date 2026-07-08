@@ -98,6 +98,23 @@ export default function ShowDetail({ showId }: { showId: string }) {
               textAlign: 'center',
             }}
           >
+            {canWalk && (
+              <div
+                style={{
+                  display: 'inline-block',
+                  fontFamily: SERIF,
+                  fontSize: 10,
+                  letterSpacing: '0.22em',
+                  color: GOLD,
+                  border: `1px solid ${HAIRLINE}`,
+                  borderRadius: 2,
+                  padding: '3px 10px',
+                  marginBottom: 12,
+                }}
+              >
+                ◈ WALKABLE IN 3D
+              </div>
+            )}
             <div style={{ fontFamily: SERIF, fontSize: 17, letterSpacing: '0.05em', color: TEXT }}>
               {formatShowDate(show.showDate) ?? 'Date to be announced'}
             </div>

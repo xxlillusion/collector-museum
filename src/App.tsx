@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './lib/auth';
 import { useMyProfile } from './lib/useMyProfile';
 import { useProvider, DataProviderBoundary } from './lib/provider/context';
@@ -30,6 +30,15 @@ function ChunkFallback() {
 }
 
 type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk' | 'vendors';
+
+/** The view union is plain state, so DOM pages deep-link into it with
+ *  `/?view=vendors` (the Account page's registry button). Read once at
+ *  mount; the effect below strips the param so refresh/back land on home. */
+function initialViewFromUrl(): View {
+  return new URLSearchParams(window.location.search).get('view') === 'vendors'
+    ? 'vendors'
+    : 'home';
+}
 
 /**
  * Default route. Logged-out visitors on a configured deployment get the
@@ -80,7 +89,18 @@ function MuseumApp({
   showRegistry?: boolean;
   showOrganizer?: boolean;
 }) {
-  const [view, setView] = useState<View>('home');
+  const [view, setView] = useState<View>(initialViewFromUrl);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('view')) return;
+    params.delete('view');
+    const rest = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash,
+    );
+  }, []);
   const provider = useProvider();
   const { cards, loading, addCard, removeCard } = useCards();
   const { bannerUrl, setBanner, removeBanner } = useBanner();

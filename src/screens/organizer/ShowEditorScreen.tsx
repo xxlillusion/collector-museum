@@ -69,6 +69,9 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   const [wb, setWb] = useState<PlanWorkbenchState>({ hasMeta: false, detecting: false, totalTables: 0 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Create mode: publish to the public directory right away, or create
+  // hidden and publish later from My Shows (OrganizerHome's toggle).
+  const [publishNow, setPublishNow] = useState(true);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [savedNote, setSavedNote] = useState(false);
 
@@ -207,6 +210,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           ...location,
           planBlob: blob,
           meta,
+          published: publishNow,
         });
         setCreatedId(id);
       }
@@ -215,7 +219,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     } finally {
       setBusy(false);
     }
-  }, [userId, busy, name, showDate, country, stateCode, city, isEdit, showId, imageReplaced, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
+  }, [userId, busy, name, showDate, country, stateCode, city, isEdit, showId, imageReplaced, publishNow, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
 
   const title = isEdit ? 'Edit Show' : 'Create a Show';
   const regions = regionOptions(country);
@@ -287,12 +291,16 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={{ ...noteStyle, fontStyle: 'normal', color: TEXT, fontFamily: SERIF }}>
-          Your show is live in the public directory.
+          {publishNow
+            ? 'Your show is live in the public directory.'
+            : 'Your show was created hidden — publish it from My Shows whenever it’s ready.'}
         </p>
         <p style={{ marginTop: 22, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          <Link href={`/show/${createdId}`} style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
-            View the show page →
-          </Link>
+          {publishNow && (
+            <Link href={`/show/${createdId}`} style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
+              View the show page →
+            </Link>
+          )}
           <Link href="/organizer" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
             My shows →
           </Link>
@@ -461,6 +469,37 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         </p>
       )}
 
+      {!isEdit && (
+        <div style={{ marginTop: 26 }}>
+          <span style={labelStyle}>VISIBILITY</span>
+          <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+            {([
+              [true, 'Publish immediately', 'appears in the public directory right away'],
+              [false, 'Create hidden', 'publish it later from My Shows'],
+            ] as const).map(([value, label, sub]) => (
+              <label
+                key={label}
+                style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer' }}
+              >
+                <input
+                  type="radio"
+                  name="show-editor-visibility"
+                  checked={publishNow === value}
+                  onChange={() => setPublishNow(value)}
+                  style={{ accentColor: GOLD }}
+                />
+                <span style={{ fontFamily: SERIF, fontSize: 14.5, color: TEXT }}>
+                  {label}
+                  <span style={{ display: 'block', fontSize: 12, color: MUTED, fontStyle: 'italic', marginTop: 2 }}>
+                    {sub}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', marginTop: 22 }}>
         <button
           onClick={handleSubmit}
@@ -473,7 +512,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         >
           {busy
             ? (isEdit ? 'Saving…' : 'Creating…')
-            : (isEdit ? 'SAVE CHANGES' : 'CREATE SHOW →')}
+            : (isEdit ? 'SAVE CHANGES' : (publishNow ? 'CREATE & PUBLISH →' : 'CREATE HIDDEN →'))}
         </button>
         <Link href="/organizer" style={{ color: MUTED, fontSize: 14, fontFamily: SERIF, fontStyle: 'italic' }}>
           ← Back to my shows

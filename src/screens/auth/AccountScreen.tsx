@@ -797,10 +797,17 @@ export default function AccountScreen() {
                     Store limit reached ({STORE_LIMIT} per account).
                   </p>
                 )}
-                <p style={{ margin: '16px 0 0', fontSize: 13, color: MUTED, lineHeight: 1.6 }}>
-                  Store inventory itself is managed in the Vendor Registry (home → Vendor
-                  Registry).
-                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 20 }}>
+                  <Link
+                    href="/?view=vendors"
+                    style={{ ...ghostButtonStyle, textDecoration: 'none', display: 'inline-block' }}
+                  >
+                    MANAGE INVENTORY IN THE REGISTRY →
+                  </Link>
+                  <span style={{ fontSize: 13, color: MUTED, lineHeight: 1.6 }}>
+                    banners, captioned items and shows attended
+                  </span>
+                </div>
               </>
             )}
           </section>

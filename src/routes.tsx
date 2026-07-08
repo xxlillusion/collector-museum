@@ -19,6 +19,7 @@ const ShowDirectory = lazy(() => import('./screens/shows/ShowDirectory'));
 const ShowDetail = lazy(() => import('./screens/shows/ShowDetail'));
 const OrganizerHome = lazy(() => import('./screens/organizer/OrganizerHome'));
 const ShowEditorScreen = lazy(() => import('./screens/organizer/ShowEditorScreen'));
+const NotFoundScreen = lazy(() => import('./screens/NotFoundScreen'));
 
 function PageFallback() {
   return <div style={{ height: '100vh', background: '#0b0a08' }} />;
@@ -51,12 +52,14 @@ export default function AppRoutes() {
         <Route path="/organizer/show/:id/edit">
           {(params) => <ShowEditorScreen showId={params.id} />}
         </Route>
-        {/* Default: the original app — museum / registry / convention view,
+        {/* The root: the original app — museum / registry / convention view,
             still driven by App's internal view union (the fullscreen R3F
             canvases must stay outside any route transition). */}
-        <Route>
+        <Route path="/">
           <App />
         </Route>
+        {/* Anything else is a genuine unknown URL. */}
+        <Route component={NotFoundScreen} />
       </Switch>
     </Suspense>
   );

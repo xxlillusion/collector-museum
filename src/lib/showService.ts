@@ -87,6 +87,8 @@ export async function publishShow(args: {
   city?: string;
   planBlob: Blob;
   meta: VendorPlanMeta;
+  /** false = create hidden; the organizer publishes later from My Shows. */
+  published?: boolean;
 }): Promise<string> {
   const sb = client();
   const { rects, ...planMeta } = args.meta;
@@ -101,7 +103,7 @@ export async function publishShow(args: {
       state: args.state ?? null,
       city: args.city ?? null,
       plan_meta: planMeta,
-      published: true,
+      published: args.published ?? true,
     })
     .select('id')
     .single();

@@ -399,7 +399,9 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
       <HUD
         locked={locked}
         onUpload={onBack}
-        binderPrompt={binderPrompt && locked && !binderOpen}
+        // Touch never pointer-locks — the gaze scan still runs, so surface
+        // the tap prompt whenever a binder is in front of the camera.
+        binderPrompt={binderPrompt && (locked || isTouchDevice) && !binderOpen}
         binderOpen={binderOpen}
         uploadLabel={exitLabel ?? '🗺 Floor Plan'}
       />

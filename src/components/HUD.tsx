@@ -66,7 +66,7 @@ export default function HUD({
           border: '1px solid rgba(255,255,255,0.25)',
           whiteSpace: 'nowrap',
         }}>
-          Press <b>F</b> to open the binder
+          {isTouchDevice ? <>Tap the binder to open it</> : <>Press <b>F</b> to open the binder</>}
         </div>
       )}
 

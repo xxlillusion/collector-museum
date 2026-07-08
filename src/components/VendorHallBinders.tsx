@@ -4,7 +4,6 @@ import type { ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import Binder, { BinderMaterialWarmup, COVER_W, COVER_H, COVER_T, CARDS_PER_SHEET } from './Binder';
-import { isTouchDevice } from './GalleryControls';
 import { CLOTH_TOP_Y } from './tableGeometry';
 import { TABLE } from './Room';
 import { prefetchSleeveTexture } from '../lib/sleeveTextures';
@@ -320,7 +319,6 @@ export default function VendorHallBinders({
         light.intensity = 0;
       }
     }
-    if (isTouchDevice) return;
     let best: number | null = null;
     let bestDist = PROMPT_DISTANCE;
     if (openIdxRef.current === null && !suspendedRef.current) {

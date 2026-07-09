@@ -21,6 +21,11 @@ export interface PublicCollectorItem {
   aspect: number;
   /** Card metadata from collections.metadata jsonb (set / number / year / grade / notes). */
   meta: CardMetaFields;
+  // Wall curation, from the same metadata jsonb (typed, non-string values):
+  // featured hangs first, hangOrder orders manually, onWalls false = binder-only.
+  featured?: boolean;
+  hangOrder?: number;
+  onWalls?: boolean;
 }
 
 export interface PublicCollectorProfile {
@@ -80,13 +85,21 @@ export async function getPublicCollectorProfile(
             const v = row.metadata?.[k];
             if (typeof v === 'string' && v) meta[k] = v;
           }
-          return {
+          const item: PublicCollectorItem = {
             id: row.id,
             imageUrl: publicImageUrl('cards', row.image_path),
             name: row.name ?? '',
             aspect: row.aspect > 0 ? row.aspect : 0.714,
             meta,
           };
+          // Typed curation fields — same jsonb, boolean/number values
+          const featured = row.metadata?.['featured'];
+          if (typeof featured === 'boolean') item.featured = featured;
+          const hangOrder = row.metadata?.['hangOrder'];
+          if (typeof hangOrder === 'number') item.hangOrder = hangOrder;
+          const onWalls = row.metadata?.['onWalls'];
+          if (typeof onWalls === 'boolean') item.onWalls = onWalls;
+          return item;
         });
       }
     }

@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import type { PublicCollectorProfile } from '../../lib/publicCollectors';
 import { cardDetailsLine } from '../../lib/cardMeta';
+import { orderForWalls, hiddenFromWalls } from '../../lib/wallOrder';
 import { formatLocation } from '../../lib/locations';
 import {
   GOLD, HAIRLINE, TEXT, MUTED, SERIF,
@@ -86,6 +87,12 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
   const location = formatLocation(profile);
   const bio = profile.bio.trim();
 
+  // Grid follows the curated wall order, then the binder-only items (the
+  // public grid shows the whole public collection — the walls are just the
+  // exhibit, so no dimming here). Index-based addedAt feeds the tiebreak.
+  const indexed = profile.items.map((item, i) => ({ ...item, addedAt: i }));
+  const orderedItems = [...orderForWalls(indexed), ...hiddenFromWalls(indexed)];
+
   return (
     <PageShell title={profile.displayName || 'Collector'} eyebrow="PRIVATE GALLERY">
       {location && (
@@ -145,7 +152,7 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
                 alignItems: 'start',
               }}
             >
-              {profile.items.map((item) => (
+              {orderedItems.map((item) => (
                 <figure key={item.id} className="museum-lift" style={{ margin: 0 }}>
                   <img
                     src={item.imageUrl}

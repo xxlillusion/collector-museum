@@ -115,6 +115,19 @@ export default function Room() {
         </mesh>
       ))}
 
+      {/* Ceiling light tracks (east + west display walls) — same recipe,
+          rotated 90°, so the four-wall layout's fixtures have rails too */}
+      {[-1, 1].map((side) => (
+        <mesh
+          key={`track-ew-${side}`}
+          position={[side * (ROOM.width / 2 - TRACK_OFFSET), ROOM.height - 0.05, 0]}
+          rotation={[0, Math.PI / 2, 0]}
+        >
+          <boxGeometry args={[ROOM.depth - 3, 0.07, 0.09]} />
+          <meshStandardMaterial color="#0e0e0e" roughness={0.4} metalness={0.8} />
+        </mesh>
+      ))}
+
       {/* Central bench */}
       <group position={[0, 0, 0]}>
         <mesh position={[0, 0.46, 0]} castShadow receiveShadow>

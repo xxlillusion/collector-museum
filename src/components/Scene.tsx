@@ -24,6 +24,10 @@ const WALL_MARGIN = 1.2;         // keep-clear zone at wall ends
 
 interface SceneProps {
   cards: CardWithUrl[];
+  /** What hangs on the walls (curated order — featured first, manual order,
+   *  hidden excluded). Defaults to `cards`; the binder always pages the full
+   *  `cards` list, so curation never shrinks the browsable collection. */
+  wallCards?: CardWithUrl[];
   /** imageUrl → caption, shown in the inspect overlay (vendor inventory). */
   captions?: Map<string, string>;
   /** imageUrl → details line (card metadata: set · number · year · grade). */
@@ -59,22 +63,49 @@ function sizeFor(aspect: number): { w: number; h: number } {
   return { w, h };
 }
 
+/** A display wall: packing-axis length, frame yaw, and how the packing
+ *  coordinate maps into world space. `mirror` negates the packing coordinate
+ *  so reading order stays left-to-right when *facing* the wall. */
+interface WallDesc {
+  length: number;
+  rotY: number;
+  mirror: boolean;
+  place: (lateral: number, rowY: number) => [number, number, number];
+}
+
 /**
  * Greedy row packing: fill each row of each display wall left-to-right with
  * variable-width frames, then center the row. No overlap by construction.
+ * Walls fill in order N → S → E → W; the north/south math is identical to
+ * the original two-wall layout, so collections that fit there render exactly
+ * as before. (Descriptors built per call — ROOM stays lazily accessed.)
  */
 function computeLayout(cards: CardWithUrl[]): CardPlacement[] {
   const placements: CardPlacement[] = [];
-  const usableLength = ROOM.width - WALL_MARGIN * 2;
 
-  const walls = [
-    { z: -(ROOM.depth / 2) + 0.12, rotY: 0 },       // north, faces into room
-    { z: (ROOM.depth / 2) - 0.12, rotY: Math.PI },  // south, faces into room
+  const walls: WallDesc[] = [
+    { // north, faces into room
+      length: ROOM.width, rotY: 0, mirror: false,
+      place: (x, rowY) => [x, rowY, -(ROOM.depth / 2) + 0.12],
+    },
+    { // south — mirror x so cards keep upload order when viewed facing it
+      length: ROOM.width, rotY: Math.PI, mirror: true,
+      place: (x, rowY) => [x, rowY, (ROOM.depth / 2) - 0.12],
+    },
+    { // east — facing +x, "right" is +z: reads naturally unmirrored
+      length: ROOM.depth, rotY: -Math.PI / 2, mirror: false,
+      place: (z, rowY) => [(ROOM.width / 2) - 0.12, rowY, z],
+    },
+    { // west — facing -x, "right" is -z: mirrored like the south wall
+      length: ROOM.depth, rotY: Math.PI / 2, mirror: true,
+      place: (z, rowY) => [-(ROOM.width / 2) + 0.12, rowY, z],
+    },
   ];
 
   let idx = 0;
 
   for (const wall of walls) {
+    const usableLength = wall.length - WALL_MARGIN * 2;
     for (const rowY of ROW_CENTERS) {
       if (idx >= cards.length) return placements;
 
@@ -91,14 +122,14 @@ function computeLayout(cards: CardWithUrl[]): CardPlacement[] {
         idx++;
       }
 
-      // Center the row and lay out left-to-right.
-      // Mirror x on the south wall so cards keep upload order when viewed.
+      // Center the row and lay out left-to-right (mirrored walls negate the
+      // packing coordinate so viewing order matches list order).
       let cursor = -rowWidth / 2;
       for (const item of row) {
-        const xCenter = cursor + item.frameW / 2;
-        const x = wall.rotY === 0 ? xCenter : -xCenter;
+        const center = cursor + item.frameW / 2;
+        const lateral = wall.mirror ? -center : center;
         placements.push({
-          position: [x, rowY, wall.z],
+          position: wall.place(lateral, rowY),
           rotation: [0, wall.rotY, 0],
           width: item.w,
           height: item.h,
@@ -124,20 +155,30 @@ function clusterXs(xs: number[], minGap = 1.5): number[] {
   return clusters.map((c) => c.reduce((a, b) => a + b, 0) / c.length);
 }
 
+/** World-space spot placement: fixture position on the ceiling track,
+ *  aim point on the wall, and the fixture head's yaw (= the wall's rotY). */
+interface SpotPlacement {
+  fx: number;
+  fz: number;
+  tx: number;
+  tz: number;
+  yaw: number;
+}
+
 /**
  * Warm gallery spotlight on the ceiling track, aimed at the wall.
- * Includes the physical fixture geometry.
+ * Includes the physical fixture geometry. The head keeps the original
+ * north-wall tilt and is yawed toward its wall — yaw π reproduces the old
+ * south-wall pose exactly; ±π/2 serve the east/west walls the same way.
  */
-function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
+function WallSpot({ fx, fz, tx, tz, yaw }: SpotPlacement) {
   const lightRef = useRef<THREE.SpotLight>(null);
-  const dir = wallZ < 0 ? 1 : -1; // direction into the room
-  const fixtureZ = wallZ + dir * TRACK_OFFSET;
 
   const target = useMemo(() => {
     const o = new THREE.Object3D();
-    o.position.set(x, 2.3, wallZ);
+    o.position.set(tx, 2.3, tz);
     return o;
-  }, [x, wallZ]);
+  }, [tx, tz]);
 
   useEffect(() => {
     if (lightRef.current) {
@@ -150,7 +191,7 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
       <primitive object={target} />
       <spotLight
         ref={lightRef}
-        position={[x, ROOM.height - 0.18, fixtureZ]}
+        position={[fx, ROOM.height - 0.18, fz]}
         angle={0.7}
         penumbra={0.85}
         intensity={60}
@@ -159,27 +200,29 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
         color="#ffe6bd"
       />
       {/* Fixture: track head tilted toward the wall */}
-      <group position={[x, ROOM.height - 0.16, fixtureZ]} rotation={[dir * -0.55, 0, 0]}>
-        <mesh>
-          <cylinderGeometry args={[0.055, 0.07, 0.22, 16]} />
-          <meshStandardMaterial color="#111111" roughness={0.35} metalness={0.85} />
-        </mesh>
-        {/* Emissive lens */}
-        <mesh position={[0, -0.115, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <circleGeometry args={[0.05, 16]} />
-          <meshStandardMaterial
-            color="#fff3dd"
-            emissive="#ffdfa8"
-            emissiveIntensity={6}
-            toneMapped={false}
-          />
-        </mesh>
+      <group position={[fx, ROOM.height - 0.16, fz]} rotation={[0, yaw, 0]}>
+        <group rotation={[-0.55, 0, 0]}>
+          <mesh>
+            <cylinderGeometry args={[0.055, 0.07, 0.22, 16]} />
+            <meshStandardMaterial color="#111111" roughness={0.35} metalness={0.85} />
+          </mesh>
+          {/* Emissive lens */}
+          <mesh position={[0, -0.115, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.05, 16]} />
+            <meshStandardMaterial
+              color="#fff3dd"
+              emissive="#ffdfa8"
+              emissiveIntensity={6}
+              toneMapped={false}
+            />
+          </mesh>
+        </group>
       </group>
     </group>
   );
 }
 
-export default function Scene({ cards, captions, details, sales, want, bannerUrl, onManage, exitLabel }: SceneProps) {
+export default function Scene({ cards, wallCards, captions, details, sales, want, bannerUrl, onManage, exitLabel }: SceneProps) {
   const [locked, setLocked] = useState(false);
   const [inspectUrl, setInspectUrl] = useState<string | null>(null);
   const [inspectWanted, setInspectWanted] = useState(false);
@@ -190,33 +233,55 @@ export default function Scene({ cards, captions, details, sales, want, bannerUrl
   // driver kills the WebGL context (black canvas, DOM still alive).
   const [glKey, setGlKey] = useState(0);
 
-  const layout = useMemo(() => computeLayout(cards), [cards]);
+  // Curated wall order when provided; the binder below keeps the full list.
+  const wallSource = wallCards ?? cards;
+  const layout = useMemo(() => computeLayout(wallSource), [wallSource]);
 
-  // One spotlight per cluster of nearby frames, per wall
+  // One spotlight per cluster of nearby frames, per wall. Spots exist only
+  // for walls that actually hold frames — a collection that fits on N+S
+  // produces the identical light set the two-wall layout did (light-count
+  // changes recompile every material in the scene; see CLAUDE.md gotcha 11).
   const spots = useMemo(() => {
+    // rotY identifies the wall (exact constants from computeLayout); the
+    // cluster axis is the wall's packing axis: x for N/S, z for E/W.
     const byWall = new Map<number, number[]>();
     for (const p of layout) {
-      const wallZ = p.position[2] < 0 ? -ROOM.depth / 2 : ROOM.depth / 2;
-      if (!byWall.has(wallZ)) byWall.set(wallZ, []);
-      byWall.get(wallZ)!.push(p.position[0]);
+      const rotY = p.rotation[1];
+      if (!byWall.has(rotY)) byWall.set(rotY, []);
+      byWall.get(rotY)!.push(
+        rotY === 0 || rotY === Math.PI ? p.position[0] : p.position[2],
+      );
     }
-    const result: { x: number; wallZ: number }[] = [];
+    const result: SpotPlacement[] = [];
     // Cap the light count: every spotlight multiplies per-pixel shading cost
     // (twice, since the reflector re-renders the scene). With many cards the
     // 1.5-gap clustering produces one spot per frame — when it exceeds the
     // cap, wash the wall with evenly spaced spots across the span instead.
     const MAX_SPOTS_PER_WALL = 5;
-    for (const [wallZ, xs] of byWall) {
-      let clusters = clusterXs(xs);
+    for (const [rotY, laterals] of byWall) {
+      let clusters = clusterXs(laterals);
       if (clusters.length > MAX_SPOTS_PER_WALL) {
-        const min = Math.min(...xs);
-        const max = Math.max(...xs);
+        const min = Math.min(...laterals);
+        const max = Math.max(...laterals);
         clusters = Array.from(
           { length: MAX_SPOTS_PER_WALL },
           (_, i) => min + ((i + 0.5) * (max - min)) / MAX_SPOTS_PER_WALL,
         );
       }
-      for (const x of clusters) result.push({ x, wallZ });
+      for (const u of clusters) {
+        // Fixture rides the wall's ceiling track (TRACK_OFFSET into the
+        // room); target sits on the true wall plane. Same numbers the
+        // original N/S code produced.
+        if (rotY === 0) {
+          result.push({ fx: u, fz: -ROOM.depth / 2 + TRACK_OFFSET, tx: u, tz: -ROOM.depth / 2, yaw: 0 });
+        } else if (rotY === Math.PI) {
+          result.push({ fx: u, fz: ROOM.depth / 2 - TRACK_OFFSET, tx: u, tz: ROOM.depth / 2, yaw: Math.PI });
+        } else if (rotY === -Math.PI / 2) {
+          result.push({ fx: ROOM.width / 2 - TRACK_OFFSET, fz: u, tx: ROOM.width / 2, tz: u, yaw: -Math.PI / 2 });
+        } else {
+          result.push({ fx: -ROOM.width / 2 + TRACK_OFFSET, fz: u, tx: -ROOM.width / 2, tz: u, yaw: Math.PI / 2 });
+        }
+      }
     }
     return result;
   }, [layout]);
@@ -352,8 +417,11 @@ export default function Scene({ cards, captions, details, sales, want, bannerUrl
             />
           ))}
 
-          {spots.map(({ x, wallZ }) => (
-            <WallSpot key={`${x.toFixed(2)}|${wallZ}`} x={x} wallZ={wallZ} />
+          {spots.map((spot) => (
+            <WallSpot
+              key={`${spot.fx.toFixed(2)}|${spot.fz.toFixed(2)}|${spot.yaw.toFixed(2)}`}
+              {...spot}
+            />
           ))}
 
           {/* Local environment map (no network) — drives glass glints and
@@ -383,7 +451,7 @@ export default function Scene({ cards, captions, details, sales, want, bannerUrl
           </Environment>
 
           <GalleryControls onLockChange={setLocked} frozen={binderOpen} />
-          <ShadowRefresh trigger={cards} />
+          <ShadowRefresh trigger={layout} />
         </Suspense>
 
         {!isTouchDevice && (

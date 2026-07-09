@@ -6,6 +6,7 @@ import { localProvider } from './lib/provider/local';
 import { useCards } from './lib/useCards';
 import type { CardWithUrl } from './lib/useCards';
 import { cardDetailsLine, hasCardMeta } from './lib/cardMeta';
+import { orderForWalls } from './lib/wallOrder';
 import type { InspectSale } from './components/InspectOverlay';
 import { useBanner } from './lib/useBanner';
 import { useVendorPlan } from './lib/useVendorPlan';
@@ -128,6 +129,12 @@ function MuseumApp({
     }));
   }, [galleryVendor, galleryInventory.items, cards]);
 
+  // Curated wall order for the user's own cards — featured first, manual
+  // hangOrder, hidden excluded. The 3D binder keeps the full collection
+  // (`cards` above); the walls are the curated exhibit. Vendor inventory
+  // hangs uncurated, so the vendor path passes no wallCards.
+  const ownWallCards = useMemo(() => orderForWalls(cards), [cards]);
+
   // Captions under inspected works — vendor inventory captions, or the card's
   // name once the owner has filled in any placard metadata (unedited uploads
   // keep the pre-metadata behavior: no caption, filenames stay off the walls)
@@ -196,6 +203,7 @@ function MuseumApp({
       <Suspense fallback={<ChunkFallback />}>
         <Scene
           cards={galleryCards}
+          wallCards={galleryVendor ? undefined : ownWallCards}
           captions={galleryCaptions}
           details={galleryDetails}
           sales={gallerySales}

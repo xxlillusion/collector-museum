@@ -505,6 +505,44 @@ parallel streams, additive-only changes since — never reshape existing signatu
   keep working). Headless-verified (Playwright sandbox run): sale fields persist across
   reload, 50-box plan → assign → hall, minimap dot + directory list/highlight/Esc-close,
   F-binder → inspect placard ("$120" struck · PSA 9 · SOLD), zero console errors.
+- **Roadmap "Next" wave shipped** (2026-07-08, same branch; headless sandbox E2E PASS,
+  zero console errors — card-metadata persist + museum placard, hall directory
+  regression, binder heart toggle w/ localStorage persistence). Migration
+  `0006_interests_applications.sql` (interests + booth_applications tables, RLS) + five
+  features:
+  (1) **Route planning** — `lib/starredVendors.ts` (localStorage per show, anonymous-OK);
+  star toggles on ShowDetail's vendor rows; starred booths glow steadily on the minimap
+  (7px, distinct from the directory-pick pulse) and HallDirectory rows get toggleable ★
+  (VendorScene props `starredVendorIds`/`onToggleStar` — public show walks only, sandbox
+  omits them).
+  (2) **Card metadata** — `setName/cardNumber/year/grade/notes` on CardRecord (`CardPatch`,
+  `updateCard` through the provider seam; cloud side = collections.metadata jsonb, whole-
+  object read-modify-write so cleared fields drop out — **no migration needed**). ✎ editor
+  on HomeScreen tiles (save-on-blur), details line on tiles / museum placard (InspectOverlay
+  `details` prop; Scene `details` map) / collector page + collector museum.
+  `lib/cardMeta.ts` = shared `cardDetailsLine`/`hasCardMeta`. Own-card captions only appear
+  once some metadata exists (unedited uploads keep filenames off the walls).
+  (3) **"I'm interested" want-list** — `lib/interestService.ts`: localStorage-first
+  (`vendor-museum:wants`, works anonymous + sandbox), cloud `interests` row fire-and-forget
+  when signed in. Heart pill in InspectOverlay (hall binder via itemId threaded through
+  VendorHallBinders' onInspect; public vendor museum via Scene's url-keyed `want` prop),
+  ♡ buttons on VendorPage tiles, and ♥-count badges on registry tiles (cloud accounts only —
+  interests RLS shows a vendor the rows on their own items). ⚠ Side-effect toggles must run
+  OUTSIDE React state updaters — StrictMode double-invokes updaters and un-toggles
+  (hit + fixed in VendorScene, caught headless).
+  (4) **Booth applications** — `lib/applicationService.ts`; ShowDetail "EXHIBIT AT THIS
+  SHOW" section (signed-in accounts with stores: apply per store w/ optional message,
+  status chips, withdraw-pending); ShowEditorScreen edit-mode APPLICATIONS panel
+  (approve/decline); approved applicants sort to the top of the booth-assignment dropdown.
+  Approval is tracking/communication — booth placement stays manual.
+  (5) **Booth QR** — `qrcode` dep (lazy AccountScreen chunk only); MY STORES "▦ BOOTH QR"
+  → white printable sheet (store name + QR to /vendor/:id + URL), PRINT uses the
+  visibility-trick print CSS so only the sheet reaches paper.
+  ⚠ **Apply migration 0006 to the live Supabase project** before interests /
+  applications work against it (hearts degrade gracefully to local-only; the apply/
+  organizer panels surface the error inline). 0005's apply-first warning still stands.
+  Not browser-verified (need live + migrations): ShowDetail stars/apply against a real
+  show, registry ♥ counts, QR modal (auth-gated) — all isolated, low-risk surfaces.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

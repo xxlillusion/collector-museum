@@ -33,6 +33,8 @@ interface MinimapProps {
   boothMarkers?: BoothMarker[];
   highlightVendorId?: string | null;
   highlightName?: string | null;
+  /** Route planning: starred vendors' dots glow steadily (public show walks). */
+  starredVendorIds?: Set<string>;
 }
 
 /** Fixed top-right overlay; pointerEvents none so pointer-lock clicks pass. */
@@ -43,6 +45,7 @@ export function Minimap({
   boothMarkers,
   highlightVendorId,
   highlightName,
+  starredVendorIds,
 }: MinimapProps) {
   const mapH = MAP_W * (mapping.imgH / mapping.imgW);
   const highlighted = (boothMarkers ?? []).filter((b) => b.vendorId === highlightVendorId);
@@ -72,10 +75,12 @@ export function Minimap({
         draggable={false}
         style={{ width: '100%', height: '100%', display: 'block', opacity: 0.75 }}
       />
-      {/* Assigned booth dots; the highlighted vendor's glow gold */}
+      {/* Assigned booth dots: highlighted (directory pick) pulses, starred
+          (route planning) glows steadily, the rest are small gold points */}
       {(boothMarkers ?? []).map((b, i) => {
         const active = b.vendorId === highlightVendorId;
-        const size = active ? 9 : 4;
+        const starredDot = !active && starredVendorIds?.has(b.vendorId);
+        const size = active ? 9 : starredDot ? 7 : 4;
         return (
           <div
             key={i}
@@ -86,8 +91,12 @@ export function Minimap({
               width: size,
               height: size,
               borderRadius: '50%',
-              background: active ? '#ffd75e' : 'rgba(212,175,55,0.85)',
-              boxShadow: active ? '0 0 8px 2px rgba(255,215,94,0.9)' : 'none',
+              background: active || starredDot ? '#ffd75e' : 'rgba(212,175,55,0.85)',
+              boxShadow: active
+                ? '0 0 8px 2px rgba(255,215,94,0.9)'
+                : starredDot
+                  ? '0 0 6px 1px rgba(255,215,94,0.75)'
+                  : 'none',
               animation: active ? 'minimapPulse 1.2s ease-in-out infinite' : 'none',
             }}
           />

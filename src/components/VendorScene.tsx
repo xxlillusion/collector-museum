@@ -23,6 +23,8 @@ import { TABLE } from './Room';
 import { planToLayout } from '../lib/vendorPlan';
 import type { VendorPlanMeta, TablePlacement } from '../lib/vendorPlan';
 import type { VendorSummary } from '../lib/useVendors';
+import { isWanted, toggleWant } from '../lib/interestService';
+import { useAuth } from '../lib/auth';
 
 interface VendorSceneProps {
   planMeta: VendorPlanMeta;
@@ -33,6 +35,10 @@ interface VendorSceneProps {
   /** Inventory reads for the hall binders — threaded as a prop because React
    *  context does not cross the R3F Canvas root (see VendorHallBinders). */
   fetchInventory: FetchInventory;
+  /** Route planning (public show walks): starred vendors' booths glow on the
+   *  minimap; the directory shows/toggles the star. Absent in sandbox walks. */
+  starredVendorIds?: Set<string>;
+  onToggleStar?: (vendorId: string) => void;
   onBack: () => void;
   /** Top-right exit button label — public show walks say "Leave Show"
    *  instead of the editor's "Floor Plan". */
@@ -162,15 +168,25 @@ function tableColliders(tables: TablePlacement[]): Collider[] {
   });
 }
 
-export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, onBack, exitLabel }: VendorSceneProps) {
+export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, starredVendorIds, onToggleStar, onBack, exitLabel }: VendorSceneProps) {
   const [locked, setLocked] = useState(false);
   const [binderOpen, setBinderOpen] = useState(false);
   const [binderPrompt, setBinderPrompt] = useState(false);
-  const [inspect, setInspect] = useState<{ url: string; caption?: string; sale?: InspectSale } | null>(null);
+  const [inspect, setInspect] = useState<{
+    url: string;
+    caption?: string;
+    sale?: InspectSale;
+    itemId?: string;
+    wanted?: boolean;
+  } | null>(null);
   // Vendor directory overlay — opening unlocks the pointer + freezes controls
   // (the binder-open pattern); selecting a vendor lights their booth dots.
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [highlightVendorId, setHighlightVendorId] = useState<string | null>(null);
+  // Want-list hearts sync to the cloud for signed-in users (local otherwise).
+  // VendorScene itself is DOM — only the Canvas subtree can't read context.
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
   // Bumping this key remounts the Canvas — our recovery path if the GPU
   // driver kills the WebGL context (black canvas, DOM still alive).
   const [glKey, setGlKey] = useState(0);
@@ -296,9 +312,17 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [binderOpen, inspect, directoryOpen]);
 
-  const handleInspect = (url: string, caption?: string, sale?: InspectSale) => {
+  const handleInspect = (url: string, caption?: string, sale?: InspectSale, itemId?: string) => {
     document.exitPointerLock?.();
-    setInspect({ url, caption, sale });
+    setInspect({ url, caption, sale, itemId, wanted: itemId ? isWanted(itemId) : undefined });
+  };
+
+  const handleToggleWant = () => {
+    if (!inspect?.itemId) return;
+    // Toggle OUTSIDE the state updater — updaters must stay pure (StrictMode
+    // double-invokes them, which would flip the want right back off).
+    const wanted = toggleWant(userId, inspect.itemId);
+    setInspect((cur) => (cur ? { ...cur, wanted } : cur));
   };
 
   const handleCloseInspect = (relock: boolean) => {
@@ -469,6 +493,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
           boothMarkers={boothMarkers}
           highlightVendorId={highlightVendorId}
           highlightName={highlightName}
+          starredVendorIds={starredVendorIds}
         />
       )}
       <HUD
@@ -486,13 +511,25 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
           vendors={directoryVendors}
           highlightId={highlightVendorId}
           onHighlight={setHighlightVendorId}
+          starredIds={starredVendorIds}
+          onToggleStar={onToggleStar}
           onClose={() => closeDirectory(true)}
         />
       )}
       <MobileControls hidden={binderOpen || directoryOpen} />
 
       {inspect && (
-        <InspectOverlay imageUrl={inspect.url} caption={inspect.caption} sale={inspect.sale} onClose={handleCloseInspect} />
+        <InspectOverlay
+          imageUrl={inspect.url}
+          caption={inspect.caption}
+          sale={inspect.sale}
+          want={
+            inspect.itemId !== undefined
+              ? { wanted: inspect.wanted ?? false, onToggle: handleToggleWant }
+              : undefined
+          }
+          onClose={handleCloseInspect}
+        />
       )}
     </>
   );

@@ -2,6 +2,7 @@ import type { DataProvider } from './types';
 import {
   saveCard,
   getCards,
+  updateCard,
   deleteCard,
   saveBanner,
   getBanner,
@@ -34,6 +35,7 @@ export const localProvider: DataProvider = {
   kind: 'local',
   saveCard,
   getCards,
+  updateCard,
   deleteCard,
   saveBanner,
   getBanner,

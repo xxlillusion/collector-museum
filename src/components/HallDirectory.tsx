@@ -16,6 +16,9 @@ interface HallDirectoryProps {
   vendors: DirectoryVendor[];
   highlightId: string | null;
   onHighlight: (id: string | null) => void;
+  /** Route planning (public show walks) — absent in sandbox walks. */
+  starredIds?: Set<string>;
+  onToggleStar?: (id: string) => void;
   onClose: () => void;
 }
 
@@ -40,6 +43,8 @@ export default function HallDirectory({
   vendors,
   highlightId,
   onHighlight,
+  starredIds,
+  onToggleStar,
   onClose,
 }: HallDirectoryProps) {
   return (
@@ -115,16 +120,43 @@ export default function HallDirectory({
         ) : (
           vendors.map((v) => {
             const active = v.id === highlightId;
+            const starredRow = starredIds?.has(v.id) ?? false;
             return (
-              <button
+              <div
                 key={v.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onHighlight(active ? null : v.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onHighlight(active ? null : v.id);
+                }}
                 style={{
                   ...rowStyle,
+                  alignItems: 'center',
                   background: active ? 'rgba(212,175,55,0.14)' : 'transparent',
                   borderLeft: active ? `2px solid ${GOLD}` : '2px solid transparent',
                 }}
               >
+                {onToggleStar && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleStar(v.id);
+                    }}
+                    title={starredRow ? 'Unstar this vendor' : 'Star — glow on the map'}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 15,
+                      lineHeight: 1,
+                      padding: 0,
+                      color: starredRow ? GOLD : 'rgba(212,175,55,0.35)',
+                    }}
+                  >
+                    {starredRow ? '★' : '☆'}
+                  </button>
+                )}
                 <span
                   style={{
                     fontFamily: SERIF,
@@ -150,7 +182,7 @@ export default function HallDirectory({
                   {v.boothCount} {v.boothCount === 1 ? 'booth' : 'booths'}
                   {v.inventoryCount > 0 ? ` · ${v.inventoryCount} items` : ''}
                 </span>
-              </button>
+              </div>
             );
           })
         )}

@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '../lib/auth';
+import { cardDetailsLine } from '../lib/cardMeta';
 import type { CardWithUrl } from '../lib/useCards';
-import type { SavedPlanRecord } from '../lib/db';
+import type { CardPatch, SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
 import {
   GOLD, BG, PANEL, HAIRLINE, TEXT, MUTED, SERIF, SANS,
@@ -21,6 +22,8 @@ interface HomeScreenProps {
   loading: boolean;
   onAdd: (file: File) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
+  /** Card details editor (name / set / number / year / grade / notes). */
+  onUpdateCard: (id: string, patch: CardPatch) => Promise<void>;
   bannerUrl: string | null;
   onSetBanner: (file: File) => Promise<void>;
   onRemoveBanner: () => Promise<void>;
@@ -41,11 +44,76 @@ interface HomeScreenProps {
   showOrganizer?: boolean;
 }
 
+const cardFieldStyle: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  background: '#171310',
+  border: `1px solid ${HAIRLINE}`,
+  borderRadius: '3px',
+  color: TEXT,
+  padding: '6px 8px',
+  fontSize: '11.5px',
+  fontFamily: SERIF,
+  marginTop: '5px',
+};
+
+/** Per-card details editor (museum placard fields). Save-on-blur per field. */
+function CardDetailsEditor({
+  card,
+  onSave,
+}: {
+  card: CardWithUrl;
+  onSave: (id: string, patch: CardPatch) => void;
+}) {
+  const [draft, setDraft] = useState<Required<CardPatch>>({
+    name: card.name,
+    setName: card.setName ?? '',
+    cardNumber: card.cardNumber ?? '',
+    year: card.year ?? '',
+    grade: card.grade ?? '',
+    notes: card.notes ?? '',
+  });
+
+  const commit = (key: keyof CardPatch) => {
+    const next = draft[key]!.trim();
+    const current = (key === 'name' ? card.name : card[key]) ?? '';
+    if (key === 'name' && !next) {
+      setDraft((d) => ({ ...d, name: card.name })); // never save an empty name
+      return;
+    }
+    if (next !== current) onSave(card.id, { [key]: next });
+  };
+
+  const field = (key: keyof CardPatch, placeholder: string) => (
+    <input
+      type="text"
+      value={draft[key]}
+      placeholder={placeholder}
+      onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+      onBlur={() => commit(key)}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      style={cardFieldStyle}
+    />
+  );
+
+  return (
+    <div style={{ marginTop: '4px' }}>
+      {field('name', 'Card name')}
+      {field('setName', 'Set (e.g. Base Set)')}
+      {field('cardNumber', 'Number (e.g. 4/102)')}
+      {field('year', 'Year')}
+      {field('grade', 'Grade (e.g. PSA 9)')}
+      {field('notes', 'Notes')}
+    </div>
+  );
+}
+
 export default function HomeScreen({
   cards,
   loading,
   onAdd,
   onRemove,
+  onUpdateCard,
   bannerUrl,
   onSetBanner,
   onRemoveBanner,
@@ -65,6 +133,8 @@ export default function HomeScreen({
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [walkingId, setWalkingId] = useState<string | null>(null);
+  // Which card's details editor is open (✎ on the tile)
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files) return;
@@ -319,13 +389,43 @@ export default function HomeScreen({
                 >
                   ✕
                 </button>
+                <button
+                  onClick={() => setEditingCardId(editingCardId === card.id ? null : card.id)}
+                  title="Edit card details (set, number, year, grade)"
+                  style={{
+                    position: 'absolute', top: '6px', left: '6px',
+                    background: 'rgba(0,0,0,0.75)',
+                    color: editingCardId === card.id ? GOLD : TEXT,
+                    border: `1px solid ${editingCardId === card.id ? GOLD : HAIRLINE}`,
+                    borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
+                    fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
+                  }}
+                >
+                  ✎
+                </button>
                 <figcaption style={{
                   marginTop: '10px', textAlign: 'center', fontFamily: SERIF, fontSize: '11.5px',
                   fontStyle: 'italic', color: MUTED,
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
-                  {card.name}
+                  <span style={{
+                    display: 'block',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {card.name}
+                  </span>
+                  {cardDetailsLine(card) && (
+                    <span style={{
+                      display: 'block', marginTop: '3px', fontSize: '10.5px',
+                      fontStyle: 'normal', letterSpacing: '0.04em',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                      {cardDetailsLine(card)}
+                    </span>
+                  )}
                 </figcaption>
+                {editingCardId === card.id && (
+                  <CardDetailsEditor card={card} onSave={onUpdateCard} />
+                )}
               </figure>
             ))}
           </div>

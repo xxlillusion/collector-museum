@@ -6,6 +6,10 @@ import { getMyProfile } from '../../lib/profileService';
 import type { ProfileRecord } from '../../lib/profileService';
 import { publishShow, updateShow, getMyShowForEdit } from '../../lib/showService';
 import type { MyShowForEdit } from '../../lib/showService';
+import {
+  listApplicationsForShow, setApplicationStatus,
+} from '../../lib/applicationService';
+import type { BoothApplication } from '../../lib/applicationService';
 import { listRegisteredVendors } from '../../lib/publicVendors';
 import type { RegisteredVendorSummary } from '../../lib/publicVendors';
 import { COUNTRIES, regionOptions } from '../../lib/locations';
@@ -102,12 +106,52 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Booth applications (edit mode) — approved applicants float to the top of
+  // the assignment dropdown so placing them is one click away.
+  const [apps, setApps] = useState<BoothApplication[]>([]);
+  const [appBusyId, setAppBusyId] = useState<string | null>(null);
+  const [appError, setAppError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isEdit || !showId || !isOrganizer) return;
+    let cancelled = false;
+    listApplicationsForShow(showId).then((list) => {
+      if (!cancelled) setApps(list);
+    });
+    return () => { cancelled = true; };
+  }, [isEdit, showId, isOrganizer]);
+
+  const handleApplication = useCallback(async (id: string, status: 'approved' | 'declined') => {
+    if (!showId) return;
+    setAppBusyId(id);
+    setAppError(null);
+    try {
+      await setApplicationStatus(id, status);
+      setApps(await listApplicationsForShow(showId));
+    } catch (e) {
+      setAppError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAppBusyId(null);
+    }
+  }, [showId]);
+
+  const approvedApplicantIds = useMemo(
+    () => new Set(apps.filter((a) => a.status === 'approved').map((a) => a.vendorId)),
+    [apps],
+  );
+
   const vendors = useMemo<VendorSummary[]>(() => {
     const map = new Map<string, VendorSummary>();
     for (const v of localVendors.vendors) map.set(v.id, v);
     for (const r of registered) map.set(r.id, r);
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [localVendors.vendors, registered]);
+    return [...map.values()].sort((a, b) => {
+      // Approved applicants first, then everyone else alphabetically
+      const pa = approvedApplicantIds.has(a.id) ? 0 : 1;
+      const pb = approvedApplicantIds.has(b.id) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return a.name.localeCompare(b.name);
+    });
+  }, [localVendors.vendors, registered, approvedApplicantIds]);
 
   // ---- edit mode: load the show ----
   useEffect(() => {
@@ -385,6 +429,83 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           This show is currently hidden — publish it from{' '}
           <Link href="/organizer" style={{ color: GOLD }}>My Shows</Link> when it's ready.
         </p>
+      )}
+
+      {/* Booth applications — approve/decline; approved stores jump to the
+          top of the per-booth assignment dropdown below. */}
+      {isEdit && apps.length > 0 && (
+        <div
+          style={{
+            border: `1px solid rgba(212,175,55,0.3)`,
+            borderRadius: 4,
+            padding: '14px 18px',
+            marginBottom: 26,
+          }}
+        >
+          <div style={{ ...labelStyle, marginBottom: 6 }}>
+            BOOTH APPLICATIONS ({apps.filter((a) => a.status === 'pending').length} pending)
+          </div>
+          {apps.map((a) => (
+            <div
+              key={a.id}
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 14,
+                flexWrap: 'wrap',
+                padding: '9px 4px',
+                borderBottom: '1px solid rgba(212,175,55,0.12)',
+                opacity: appBusyId === a.id ? 0.6 : 1,
+              }}
+            >
+              <span style={{ fontFamily: SERIF, fontSize: 15, color: TEXT, minWidth: 140 }}>
+                {a.vendorName}
+              </span>
+              {a.message && (
+                <span style={{ ...kitNoteStyle, fontSize: 12.5, flex: 1, minWidth: 160 }}>
+                  “{a.message}”
+                </span>
+              )}
+              {a.status === 'pending' ? (
+                <span style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => handleApplication(a.id, 'approved')}
+                    disabled={appBusyId === a.id}
+                    style={{ ...ghostButtonStyle, padding: '5px 14px', fontSize: 11 }}
+                  >
+                    APPROVE
+                  </button>
+                  <button
+                    onClick={() => handleApplication(a.id, 'declined')}
+                    disabled={appBusyId === a.id}
+                    style={{ ...ghostButtonStyle, padding: '5px 14px', fontSize: 11, color: '#b0685c', borderColor: 'rgba(176,104,92,0.5)' }}
+                  >
+                    DECLINE
+                  </button>
+                </span>
+              ) : (
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    letterSpacing: '0.18em',
+                    fontFamily: SERIF,
+                    color: a.status === 'approved' ? GOLD : MUTED,
+                    border: `1px solid ${a.status === 'approved' ? GOLD : 'rgba(255,255,255,0.15)'}`,
+                    borderRadius: 2,
+                    padding: '3px 9px',
+                  }}
+                >
+                  {a.status.toUpperCase()}
+                </span>
+              )}
+            </div>
+          ))}
+          {appError && <p style={{ ...errorTextStyle, marginTop: 10 }}>{appError}</p>}
+          <p style={{ ...kitNoteStyle, fontSize: 12, marginTop: 10 }}>
+            Approving moves the store to the top of each booth's vendor dropdown — assign
+            them to a booth below to place them on the floor.
+          </p>
+        </div>
       )}
 
       {/* Show details */}

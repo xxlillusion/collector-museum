@@ -5,7 +5,19 @@ export interface CardRecord {
   name: string;
   imageBlob: Blob;
   addedAt: number;
+  // Card metadata (all optional; cloud side lives in collections.metadata
+  // jsonb — no migration needed). Shown as the museum placard.
+  setName?: string;
+  cardNumber?: string;
+  year?: string;
+  grade?: string;
+  notes?: string;
 }
+
+/** The editable (non-image) fields of a card. */
+export type CardPatch = Partial<
+  Pick<CardRecord, 'name' | 'setName' | 'cardNumber' | 'year' | 'grade' | 'notes'>
+>;
 
 export interface SettingRecord {
   key: string;
@@ -186,6 +198,13 @@ export async function getCards(): Promise<CardRecord[]> {
 export async function deleteCard(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('cards', id);
+}
+
+export async function updateCard(id: string, patch: CardPatch): Promise<void> {
+  const db = await getDB();
+  const record = await db.get('cards', id);
+  if (!record) return;
+  await db.put('cards', { ...record, ...patch });
 }
 
 const BANNER_KEY = 'tableclothBanner';

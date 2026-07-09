@@ -5,6 +5,7 @@ import ShareButton from '../../components/ShareButton';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import type { PublicCollectorProfile } from '../../lib/publicCollectors';
+import { cardDetailsLine } from '../../lib/cardMeta';
 import { formatLocation } from '../../lib/locations';
 import {
   GOLD, HAIRLINE, TEXT, MUTED, SERIF,
@@ -163,19 +164,30 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
                       background: '#0d0b0a',
                     }}
                   />
-                  {item.name && (
+                  {(item.name || cardDetailsLine(item.meta)) && (
                     <figcaption
                       style={{
                         marginTop: 10,
                         fontFamily: SERIF,
-                        fontStyle: 'italic',
                         fontSize: 12.5,
                         lineHeight: 1.5,
                         color: MUTED,
                         textAlign: 'center',
                       }}
                     >
-                      {item.name}
+                      {item.name && <span style={{ fontStyle: 'italic' }}>{item.name}</span>}
+                      {cardDetailsLine(item.meta) && (
+                        <span
+                          style={{
+                            display: 'block',
+                            marginTop: item.name ? 4 : 0,
+                            fontSize: 11.5,
+                            letterSpacing: '0.05em',
+                          }}
+                        >
+                          {cardDetailsLine(item.meta)}
+                        </span>
+                      )}
                     </figcaption>
                   )}
                 </figure>

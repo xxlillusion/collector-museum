@@ -5,6 +5,7 @@ import { useProvider, DataProviderBoundary } from './lib/provider/context';
 import { localProvider } from './lib/provider/local';
 import { useCards } from './lib/useCards';
 import type { CardWithUrl } from './lib/useCards';
+import { cardDetailsLine, hasCardMeta } from './lib/cardMeta';
 import type { InspectSale } from './components/InspectOverlay';
 import { useBanner } from './lib/useBanner';
 import { useVendorPlan } from './lib/useVendorPlan';
@@ -103,7 +104,7 @@ function MuseumApp({
     );
   }, []);
   const provider = useProvider();
-  const { cards, loading, addCard, removeCard } = useCards();
+  const { cards, loading, addCard, removeCard, updateCard } = useCards();
   const { bannerUrl, setBanner, removeBanner } = useBanner();
   const vendorPlan = useVendorPlan();
   const vendorBanners = useVendorBanners();
@@ -127,16 +128,34 @@ function MuseumApp({
     }));
   }, [galleryVendor, galleryInventory.items, cards]);
 
-  // Captions under inspected works — only vendor inventory carries them
+  // Captions under inspected works — vendor inventory captions, or the card's
+  // name once the owner has filled in any placard metadata (unedited uploads
+  // keep the pre-metadata behavior: no caption, filenames stay off the walls)
   const galleryCaptions = useMemo(() => {
     const map = new Map<string, string>();
     if (galleryVendor) {
       for (const i of galleryInventory.items) {
         if (i.caption) map.set(i.imageUrl, i.caption);
       }
+    } else {
+      for (const c of cards) {
+        if (hasCardMeta(c)) map.set(c.imageUrl, c.name);
+      }
     }
     return map;
-  }, [galleryVendor, galleryInventory.items]);
+  }, [galleryVendor, galleryInventory.items, cards]);
+
+  // Placard details line — own cards only (set · number · year · grade)
+  const galleryDetails = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!galleryVendor) {
+      for (const c of cards) {
+        const line = cardDetailsLine(c);
+        if (line) map.set(c.imageUrl, line);
+      }
+    }
+    return map;
+  }, [galleryVendor, cards]);
 
   // Sale placards (price / condition / sold) — likewise inventory-only
   const gallerySales = useMemo(() => {
@@ -178,6 +197,7 @@ function MuseumApp({
         <Scene
           cards={galleryCards}
           captions={galleryCaptions}
+          details={galleryDetails}
           sales={gallerySales}
           bannerUrl={bannerUrl}
           onManage={() => setView('home')}
@@ -249,6 +269,7 @@ function MuseumApp({
       loading={loading}
       onAdd={addCard}
       onRemove={removeCard}
+      onUpdateCard={updateCard}
       bannerUrl={bannerUrl}
       onSetBanner={setBanner}
       onRemoveBanner={removeBanner}

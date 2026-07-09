@@ -136,7 +136,7 @@ function OpenHallBinder({
   pose: BinderPose;
   fetchInventory: FetchInventory;
   suspended: boolean;
-  onInspect: (url: string, caption?: string, sale?: InspectSale) => void;
+  onInspect: (url: string, caption?: string, sale?: InspectSale, itemId?: string) => void;
   onClosed: (relock: boolean) => void;
 }) {
   // Same read-only shape as useVendorInventory, minus the context read
@@ -188,6 +188,7 @@ function OpenHallBinder({
       ),
     [items],
   );
+  const idByUrl = useMemo(() => new Map(items.map((i) => [i.imageUrl, i.id])), [items]);
 
   return (
     <Binder
@@ -196,7 +197,7 @@ function OpenHallBinder({
       suspended={suspended}
       onOpenRequest={() => {}}
       onPromptChange={() => {}}
-      onInspect={(url) => onInspect(url, captionByUrl.get(url), saleByUrl.get(url))}
+      onInspect={(url) => onInspect(url, captionByUrl.get(url), saleByUrl.get(url), idByUrl.get(url))}
       onClosed={onClosed}
       restPose={{ position: pose.position, quaternion: pose.quaternion }}
       lazySheetWindow={1}
@@ -214,7 +215,7 @@ interface VendorHallBindersProps {
   suspended: boolean;
   onPromptChange: (visible: boolean) => void;
   onOpenChange: (open: boolean) => void;
-  onInspect: (url: string, caption?: string, sale?: InspectSale) => void;
+  onInspect: (url: string, caption?: string, sale?: InspectSale, itemId?: string) => void;
   /** Binder finished closing; relock = resume pointer lock. */
   onClosed: (relock: boolean) => void;
 }

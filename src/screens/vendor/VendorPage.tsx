@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
 import ShareButton from '../../components/ShareButton';
+import { useAuth } from '../../lib/auth';
+import { isWanted, toggleWant } from '../../lib/interestService';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import type { PublicVendorProfile } from '../../lib/publicVendors';
@@ -46,6 +48,15 @@ type LoadState =
 
 export default function VendorPage({ vendorId }: { vendorId: string }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const { session } = useAuth();
+  // Want-list hearts (local-first; cloud row when signed in). Version bump
+  // just re-renders — isWanted() reads localStorage directly.
+  const [, setWantVersion] = useState(0);
+
+  const handleToggleWant = (itemId: string) => {
+    toggleWant(session?.user.id ?? null, itemId);
+    setWantVersion((v) => v + 1);
+  };
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -224,7 +235,30 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
               }}
             >
               {profile.items.map((item) => (
-                <figure key={item.id} className="museum-lift" style={{ margin: 0 }}>
+                <figure key={item.id} className="museum-lift" style={{ margin: 0, position: 'relative' }}>
+                  <button
+                    onClick={() => handleToggleWant(item.id)}
+                    title={isWanted(item.id) ? 'On your want list' : "I'm interested"}
+                    style={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      zIndex: 1,
+                      background: 'rgba(0,0,0,0.65)',
+                      color: isWanted(item.id) ? GOLD : 'rgba(255,255,255,0.75)',
+                      border: `1px solid ${isWanted(item.id) ? GOLD : 'rgba(255,255,255,0.3)'}`,
+                      borderRadius: '50%',
+                      width: 30,
+                      height: 30,
+                      fontSize: 14,
+                      lineHeight: '28px',
+                      textAlign: 'center',
+                      padding: 0,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {isWanted(item.id) ? '♥' : '♡'}
+                  </button>
                   <img
                     src={item.imageUrl}
                     alt={item.caption || 'Inventory item'}

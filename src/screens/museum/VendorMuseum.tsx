@@ -1,8 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
+import { useAuth } from '../../lib/auth';
+import { isWanted, toggleWant } from '../../lib/interestService';
 import type { CardWithUrl } from '../../lib/useCards';
 import type { InspectSale } from '../../components/InspectOverlay';
 
@@ -23,6 +25,7 @@ type LoadState =
       cards: CardWithUrl[];
       captions: Map<string, string>;
       sales: Map<string, InspectSale>;
+      idByUrl: Map<string, string>;
     };
 
 /** Fullscreen interstitial shown while blobs download / Scene code loads. */
@@ -51,6 +54,27 @@ function MuseumLoading({ text }: { text: string }) {
 export default function VendorMuseum({ vendorId }: { vendorId: string }) {
   const [, navigate] = useLocation();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+
+  // Scene's want prop is url-keyed; map back to item ids here.
+  const idByUrl = state.status === 'ready' ? state.idByUrl : null;
+  const want = useMemo(
+    () =>
+      idByUrl
+        ? {
+            isWanted: (url: string) => {
+              const id = idByUrl.get(url);
+              return id ? isWanted(id) : false;
+            },
+            toggle: (url: string) => {
+              const id = idByUrl.get(url);
+              return id ? toggleWant(userId, id) : false;
+            },
+          }
+        : undefined,
+    [idByUrl, userId],
+  );
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -115,6 +139,7 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
       }
       const captions = new Map<string, string>();
       const sales = new Map<string, InspectSale>();
+      const idByUrl = new Map<string, string>();
       for (const item of profile.items) {
         if (item.caption) captions.set(item.imageUrl, item.caption);
         sales.set(item.imageUrl, {
@@ -122,8 +147,9 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
           status: item.status,
           condition: item.condition || undefined,
         });
+        idByUrl.set(item.imageUrl, item.id);
       }
-      setState({ status: 'ready', cards, captions, sales });
+      setState({ status: 'ready', cards, captions, sales, idByUrl });
     })();
     return () => {
       cancelled = true;
@@ -159,6 +185,7 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
           cards={state.cards}
           captions={state.captions}
           sales={state.sales}
+          want={want}
           bannerUrl={null}
           onManage={() => navigate(`/vendor/${vendorId}`)}
           exitLabel="← Back to Vendor"

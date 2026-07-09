@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { CardRecord } from './db';
+import type { CardRecord, CardPatch } from './db';
 import { useProvider } from './provider/context';
 
 export interface CardWithUrl extends CardRecord {
@@ -58,5 +58,11 @@ export function useCards() {
     await loadCards();
   }, [provider, loadCards]);
 
-  return { cards, loading, addCard, removeCard };
+  /** Persists and patches local state — no reload, so object URLs survive. */
+  const updateCard = useCallback(async (id: string, patch: CardPatch) => {
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    await provider.updateCard(id, patch);
+  }, [provider]);
+
+  return { cards, loading, addCard, removeCard, updateCard };
 }

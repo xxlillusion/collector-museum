@@ -26,8 +26,13 @@ interface SceneProps {
   cards: CardWithUrl[];
   /** imageUrl → caption, shown in the inspect overlay (vendor inventory). */
   captions?: Map<string, string>;
+  /** imageUrl → details line (card metadata: set · number · year · grade). */
+  details?: Map<string, string>;
   /** imageUrl → sale placard (price / condition / sold) — vendor inventory. */
   sales?: Map<string, InspectSale>;
+  /** Want-list heart in the inspect overlay (public vendor museums) —
+   *  url-keyed because imageUrl is Scene's currency; host maps url → item. */
+  want?: { isWanted: (url: string) => boolean; toggle: (url: string) => boolean };
   bannerUrl: string | null;
   onManage: () => void;
   /** Top-right exit button label — public museums say where "back" leads
@@ -174,9 +179,10 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
   );
 }
 
-export default function Scene({ cards, captions, sales, bannerUrl, onManage, exitLabel }: SceneProps) {
+export default function Scene({ cards, captions, details, sales, want, bannerUrl, onManage, exitLabel }: SceneProps) {
   const [locked, setLocked] = useState(false);
   const [inspectUrl, setInspectUrl] = useState<string | null>(null);
+  const [inspectWanted, setInspectWanted] = useState(false);
   // "open or animating" — Binder owns the phase machine internally
   const [binderOpen, setBinderOpen] = useState(false);
   const [binderPrompt, setBinderPrompt] = useState(false);
@@ -236,6 +242,7 @@ export default function Scene({ cards, captions, sales, bannerUrl, onManage, exi
   const handleCardClick = (url: string) => {
     document.exitPointerLock?.();
     setInspectUrl(url);
+    if (want) setInspectWanted(want.isWanted(url));
   };
 
   const handleCloseInspect = (relock: boolean) => {
@@ -401,7 +408,16 @@ export default function Scene({ cards, captions, sales, bannerUrl, onManage, exi
         <InspectOverlay
           imageUrl={inspectUrl}
           caption={captions?.get(inspectUrl)}
+          details={details?.get(inspectUrl)}
           sale={sales?.get(inspectUrl)}
+          want={
+            want
+              ? {
+                  wanted: inspectWanted,
+                  onToggle: () => setInspectWanted(want.toggle(inspectUrl)),
+                }
+              : undefined
+          }
           onClose={handleCloseInspect}
         />
       )}

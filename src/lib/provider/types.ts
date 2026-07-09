@@ -1,5 +1,6 @@
 import type {
   CardRecord,
+  CardPatch,
   SavedPlanRecord,
   VendorRecord,
   InventoryItemRecord,
@@ -28,6 +29,7 @@ export interface DataProvider {
   // ---- cards (the user's own collection) ----
   saveCard(file: File): Promise<CardRecord>;
   getCards(): Promise<CardRecord[]>;
+  updateCard(id: string, patch: CardPatch): Promise<void>;
   deleteCard(id: string): Promise<void>;
 
   // ---- tablecloth banner (single per-user slot) ----

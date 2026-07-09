@@ -44,6 +44,28 @@ interface CollectionRow {
   name: string;
   image_path: string;
   added_at: string;
+  metadata: Record<string, unknown> | null;
+}
+
+/** collections.metadata jsonb ⇄ CardRecord's optional metadata fields. */
+const CARD_META_KEYS = ['setName', 'cardNumber', 'year', 'grade', 'notes'] as const;
+
+function cardMetaFromRow(metadata: Record<string, unknown> | null): Partial<CardRecord> {
+  const out: Record<string, string> = {};
+  for (const k of CARD_META_KEYS) {
+    const v = metadata?.[k];
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  return out as Partial<CardRecord>;
+}
+
+function cardMetaToJson(card: Partial<CardRecord>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of CARD_META_KEYS) {
+    const v = card[k];
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  return out;
 }
 
 interface VendorRow {
@@ -153,6 +175,7 @@ export async function upsertCloudCard(userId: string, card: CardRecord): Promise
       name: card.name,
       aspect: await imageAspect(card.imageBlob),
       added_at: iso(card.addedAt),
+      metadata: cardMetaToJson(card),
     });
   if (error) throw new Error(`save card: ${error.message}`);
 }
@@ -284,7 +307,7 @@ export function makeRemoteProvider(userId: string): DataProvider {
     getCards: async () => {
       const { data, error } = await db()
         .from('collections')
-        .select('id,name,image_path,added_at')
+        .select('id,name,image_path,added_at,metadata')
         .eq('owner_id', userId)
         .order('added_at', { ascending: true });
       if (error) throw new Error(`load cards: ${error.message}`);
@@ -296,9 +319,30 @@ export function makeRemoteProvider(userId: string): DataProvider {
             name: row.name,
             imageBlob: await downloadImage('cards', row.image_path),
             addedAt: ts(row.added_at),
+            ...cardMetaFromRow(row.metadata),
           }),
         ),
       );
+    },
+    updateCard: async (id, patch) => {
+      const row: Record<string, unknown> = {};
+      if (patch.name !== undefined) row.name = patch.name;
+      // metadata is written whole (read-modify-write) so cleared fields drop out
+      const metaTouched = CARD_META_KEYS.some((k) => k in patch);
+      if (metaTouched) {
+        const { data } = await db()
+          .from('collections')
+          .select('metadata')
+          .eq('id', id)
+          .maybeSingle();
+        const current = cardMetaFromRow(
+          ((data as { metadata: Record<string, unknown> | null } | null)?.metadata) ?? null,
+        );
+        row.metadata = cardMetaToJson({ ...current, ...patch });
+      }
+      if (Object.keys(row).length === 0) return;
+      const { error } = await db().from('collections').update(row).eq('id', id);
+      if (error) throw new Error(`update card: ${error.message}`);
     },
     deleteCard: async (id) => {
       const { data, error } = await db()

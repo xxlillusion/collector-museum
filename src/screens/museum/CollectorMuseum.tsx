@@ -3,6 +3,7 @@ import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
+import { cardDetailsLine } from '../../lib/cardMeta';
 import type { CardWithUrl } from '../../lib/useCards';
 
 // Walk a collector's public collection in the 3D museum
@@ -17,7 +18,12 @@ const GOLD = '#d4af37';
 type LoadState =
   | { status: 'loading' }
   | { status: 'unavailable'; note: string }
-  | { status: 'ready'; cards: CardWithUrl[]; captions: Map<string, string> };
+  | {
+      status: 'ready';
+      cards: CardWithUrl[];
+      captions: Map<string, string>;
+      details: Map<string, string>;
+    };
 
 /** Fullscreen interstitial shown while blobs download / Scene code loads. */
 function MuseumLoading({ text }: { text: string }) {
@@ -109,10 +115,13 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
         return;
       }
       const captions = new Map<string, string>();
+      const details = new Map<string, string>();
       for (const item of profile.items) {
         if (item.name) captions.set(item.imageUrl, item.name);
+        const line = cardDetailsLine(item.meta);
+        if (line) details.set(item.imageUrl, line);
       }
-      setState({ status: 'ready', cards, captions });
+      setState({ status: 'ready', cards, captions, details });
     })();
     return () => {
       cancelled = true;
@@ -147,6 +156,7 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
         <Scene
           cards={state.cards}
           captions={state.captions}
+          details={state.details}
           bannerUrl={null}
           onManage={() => navigate(`/collector/${profileId}`)}
           exitLabel="← Back to Collector"

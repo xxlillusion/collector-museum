@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useVendorInventory } from '../lib/useVendorInventory';
+import { fetchInterestCounts } from '../lib/interestService';
 import { useProvider } from '../lib/provider/context';
 import { deriveShowsAttended } from '../lib/vendorShows';
 import type { VendorSummary } from '../lib/useVendors';
@@ -247,6 +248,19 @@ export default function VendorsScreen({
 
   const selected = vendors.find((v) => v.id === selectedId) ?? null;
   const inventory = useVendorInventory(selectedId);
+
+  // Demand signals ("interested" hearts) — cloud accounts only; the interests
+  // RLS only shows a vendor the rows on their own items.
+  const [interestCounts, setInterestCounts] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    setInterestCounts(new Map());
+    if (!selectedId || provider.kind !== 'remote') return;
+    let cancelled = false;
+    fetchInterestCounts(selectedId).then((counts) => {
+      if (!cancelled) setInterestCounts(counts);
+    });
+    return () => { cancelled = true; };
+  }, [selectedId, provider.kind]);
 
   useEffect(() => {
     let cancelled = false;
@@ -651,6 +665,19 @@ export default function VendorsScreen({
                       >
                         ✕
                       </button>
+                      {(interestCounts.get(item.id) ?? 0) > 0 && (
+                        <div
+                          title="Visitors who tapped “I'm interested” on this item"
+                          style={{
+                            position: 'absolute', top: 6, left: 6,
+                            background: 'rgba(0,0,0,0.75)', color: GOLD,
+                            border: `1px solid ${HAIRLINE}`, borderRadius: '10px',
+                            padding: '2px 8px', fontSize: '10.5px', letterSpacing: '0.06em',
+                          }}
+                        >
+                          ♥ {interestCounts.get(item.id)}
+                        </div>
+                      )}
                       <div style={{ marginTop: '8px' }}>
                         <CaptionInput itemId={item.id} caption={item.caption} onSave={inventory.setCaption} />
                       </div>

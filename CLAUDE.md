@@ -578,6 +578,41 @@ parallel streams, additive-only changes since — never reshape existing signatu
     /login, live vendor + show pages, /search.
   No schema changes. If caption search ever feels slow, a pg_trgm index on
   inventory_items.caption is a one-line future migration.
+- **Power Tools wave shipped** (2026-07-09, roadmap items 3 + 7; scaffold + two parallel
+  worktree streams, merged conflict-free, per-stream headless verification 19/19 + 25/25
+  and a merged smoke — zero console errors throughout):
+  - **Wall curation (3)** — CardRecord gains `featured?/hangOrder?/onWalls?` (jsonb-mapped
+    with real types in remote.ts; `lib/wallOrder.ts` = `orderForWalls`/`hiddenFromWalls`).
+    HomeScreen "CURATE THE WALLS" mode: wall-ordered grid + dimmed OFF-THE-WALLS tiles,
+    ★ featured / ‹ › reorder (hangOrder materialized index-wise on first move, then
+    adjacent swaps) / HIDE-SHOW. App + CollectorMuseum pass Scene the new `wallCards`
+    prop (curated walls) while `cards` stays full — **the 3D binder always pages the
+    whole collection**. CollectorPage grid renders wall order + hidden at the end.
+  - **Four-wall museum layout** — `computeLayout` generalized to wall descriptors
+    N → S → E → W (E unmirrored, W mirrored — reading order faces each wall; capacity
+    roughly doubles to ~88 portrait cards; overflow past four walls still drops).
+    **Regression bar held: 4-card placements identical to the old algorithm to 1e-9 and
+    the light set unchanged for 2-wall scenes.** Spot clustering generalized per wall
+    (≤5/wall, only walls with placements mount spots); `WallSpot` now takes fixture/
+    target/yaw (yaw = wall rotY); Room.tsx gained E/W ceiling tracks (ROOM.depth−3,
+    TRACK_OFFSET) so fixtures sit on rails. East wall verified visually — same
+    treatment as north (spot pools, molding, floor reflections).
+  - **Bulk inventory tools (7)** — `lib/bulkInventory.ts` `parseBulkLines` (per-line
+    delimiter precedence tab > `|` > comma so captions may contain commas; fields
+    caption/price/condition/status; `$`/commas stripped; case-insensitive status words;
+    blank = leave untouched). `BulkInventoryPanel` in the registry INVENTORY panel
+    (collapsed behind ▤ BULK TOOLS): paste → live PREVIEW table (thumbnail, struck
+    current caption, em-dash untouched fields, count-mismatch note) → APPLY with
+    "Applying N / M…" progress; plus APPLY-TO-EVERY-ITEM (status/condition + confirm).
+    `useVendorInventory.bulkUpdate` = sequential persist-and-patch. ⚠ Registry gotcha:
+    `SaleFields` price/condition inputs deliberately don't re-sync on value echoes
+    (debounce protection) — external writers must bump its `syncKey` prop (the bulk
+    panel's `onDone` does) or new values silently don't render.
+  - Curation fields ride `collections.metadata` (no migration). Live cloud round-trip of
+    curation needs a signed-in account — manual follow-up check, like prior waves.
+  - Housekeeping: stale `.git/worktrees/*` metadata (disc-/pt- stream ghosts) is
+    OneDrive-locked on this machine — run `git worktree prune` later; the ghosts are
+    inert (0000000, directories already deleted).
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

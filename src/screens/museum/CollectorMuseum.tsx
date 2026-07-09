@@ -3,6 +3,8 @@ import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
+import { cardDetailsLine } from '../../lib/cardMeta';
+import { orderForWalls } from '../../lib/wallOrder';
 import type { CardWithUrl } from '../../lib/useCards';
 
 // Walk a collector's public collection in the 3D museum
@@ -17,7 +19,15 @@ const GOLD = '#d4af37';
 type LoadState =
   | { status: 'loading' }
   | { status: 'unavailable'; note: string }
-  | { status: 'ready'; cards: CardWithUrl[]; captions: Map<string, string> };
+  | {
+      status: 'ready';
+      cards: CardWithUrl[];
+      /** Curated wall order (featured / hangOrder / onWalls from the owner's
+       *  metadata) — the binder keeps the full `cards` list. */
+      wallCards: CardWithUrl[];
+      captions: Map<string, string>;
+      details: Map<string, string>;
+    };
 
 /** Fullscreen interstitial shown while blobs download / Scene code loads. */
 function MuseumLoading({ text }: { text: string }) {
@@ -90,9 +100,13 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
               id: item.id,
               name: item.name || profile.displayName,
               imageBlob,
-              addedAt: index,
+              addedAt: index, // index-based — feeds the wall sort's tiebreak
               imageUrl: item.imageUrl,
               aspect: item.aspect,
+              // Curation fields ride along so orderForWalls can sort them
+              featured: item.featured,
+              hangOrder: item.hangOrder,
+              onWalls: item.onWalls,
             };
           } catch {
             return null; // one missing image shouldn't sink the whole gallery
@@ -109,10 +123,13 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
         return;
       }
       const captions = new Map<string, string>();
+      const details = new Map<string, string>();
       for (const item of profile.items) {
         if (item.name) captions.set(item.imageUrl, item.name);
+        const line = cardDetailsLine(item.meta);
+        if (line) details.set(item.imageUrl, line);
       }
-      setState({ status: 'ready', cards, captions });
+      setState({ status: 'ready', cards, wallCards: orderForWalls(cards), captions, details });
     })();
     return () => {
       cancelled = true;
@@ -146,7 +163,9 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
       <Suspense fallback={<MuseumLoading text="Hanging the collection…" />}>
         <Scene
           cards={state.cards}
+          wallCards={state.wallCards}
           captions={state.captions}
+          details={state.details}
           bannerUrl={null}
           onManage={() => navigate(`/collector/${profileId}`)}
           exitLabel="← Back to Collector"

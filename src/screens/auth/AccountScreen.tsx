@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
+import QRCode from 'qrcode';
 import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
@@ -120,6 +121,112 @@ function ImportRow({
 }
 
 /**
+ * Booth QR modal: a printable code linking to the store's public page —
+ * tape it to the physical table at real shows. Print uses the visibility
+ * trick so only the QR sheet reaches paper.
+ */
+function StoreQrModal({ store, onClose }: { store: MyStoreRecord; onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const url = `${window.location.origin}/vendor/${store.id}`;
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    QRCode.toCanvas(canvasRef.current, url, {
+      width: 260,
+      margin: 2,
+      color: { dark: '#1a1611', light: '#ffffff' },
+    }).catch(() => {});
+  }, [url]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 100,
+      }}
+    >
+      <style>{`@media print {
+        body * { visibility: hidden !important; }
+        .qr-print-area, .qr-print-area * { visibility: visible !important; }
+        .qr-print-area { position: fixed !important; inset: 0 !important; background: #fff !important; }
+      }`}</style>
+      <div
+        className="qr-print-area"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#ffffff',
+          borderRadius: 6,
+          padding: '34px 40px',
+          textAlign: 'center',
+          maxWidth: 360,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "Georgia, 'Times New Roman', serif",
+            fontSize: 20,
+            letterSpacing: '0.12em',
+            color: '#1a1611',
+            marginBottom: 6,
+          }}
+        >
+          {store.name.toUpperCase()}
+        </div>
+        <div style={{ fontSize: 11.5, color: '#6b6257', letterSpacing: '0.08em', marginBottom: 16 }}>
+          SCAN TO BROWSE MY INVENTORY & MUSEUM
+        </div>
+        <canvas ref={canvasRef} style={{ display: 'block', margin: '0 auto' }} />
+        <div style={{ fontSize: 10.5, color: '#6b6257', marginTop: 12, wordBreak: 'break-all' }}>
+          {url}
+        </div>
+        <div
+          className="qr-modal-actions"
+          style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 20 }}
+        >
+          <style>{`@media print { .qr-modal-actions { display: none !important; } }`}</style>
+          <button
+            onClick={() => window.print()}
+            style={{
+              background: '#1a1611',
+              color: '#f5efe2',
+              border: 'none',
+              borderRadius: 3,
+              padding: '9px 22px',
+              fontSize: 12,
+              letterSpacing: '0.12em',
+              cursor: 'pointer',
+            }}
+          >
+            PRINT
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'transparent',
+              color: '#6b6257',
+              border: '1px solid #c9c2b6',
+              borderRadius: 3,
+              padding: '9px 22px',
+              fontSize: 12,
+              letterSpacing: '0.12em',
+              cursor: 'pointer',
+            }}
+          >
+            CLOSE
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * One store's settings card. Owns its optimistic record slice + save status
  * (the old saveVendor pattern, per store): patch state, call
  * updateMyStoreSettings, revert on error. Flagship state comes from the
@@ -137,8 +244,12 @@ function StorePanel({
   const [rec, setRec] = useState<MyStoreRecord>(store);
   const [nameDraft, setNameDraft] = useState(store.name);
   const [areaDraft, setAreaDraft] = useState(store.areaServed);
+  const [websiteDraft, setWebsiteDraft] = useState(store.website);
+  const [emailDraft, setEmailDraft] = useState(store.contactEmail);
+  const [instagramDraft, setInstagramDraft] = useState(store.instagram);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
 
   const save = useCallback(
     async (patch: Partial<Omit<MyStoreRecord, 'id' | 'isFlagship'>>) => {
@@ -202,10 +313,20 @@ function StorePanel({
             MAKE FLAGSHIP
           </button>
         )}
-        <Link href={`/vendor/${id}`} style={{ color: GOLD, fontSize: 13 }}>
-          View public page →
-        </Link>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
+          <button
+            onClick={() => setQrOpen(true)}
+            title="Printable QR linking to your public page — for your physical booth table"
+            style={{ ...ghostButtonStyle, padding: '6px 14px', fontSize: 11 }}
+          >
+            ▦ BOOTH QR
+          </button>
+          <Link href={`/vendor/${id}`} style={{ color: GOLD, fontSize: 13 }}>
+            View public page →
+          </Link>
+        </span>
       </div>
+      {qrOpen && <StoreQrModal store={rec} onClose={() => setQrOpen(false)} />}
       <div style={{ maxWidth: 420 }}>
         <div style={{ marginBottom: 18 }}>
           <label htmlFor={`store-${id}-name`} style={authLabelStyle}>
@@ -278,6 +399,58 @@ function StorePanel({
             onBlur={() => {
               const trimmed = areaDraft.trim();
               if (trimmed !== rec.areaServed) void save({ areaServed: trimmed });
+            }}
+            style={authInputStyle}
+          />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-website`} style={authLabelStyle}>
+            WEBSITE
+          </label>
+          <input
+            id={`store-${id}-website`}
+            type="url"
+            value={websiteDraft}
+            placeholder="https://…"
+            onChange={(e) => setWebsiteDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = websiteDraft.trim();
+              if (trimmed !== rec.website) void save({ website: trimmed });
+            }}
+            style={authInputStyle}
+          />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-email`} style={authLabelStyle}>
+            PUBLIC CONTACT EMAIL
+          </label>
+          <input
+            id={`store-${id}-email`}
+            type="email"
+            value={emailDraft}
+            placeholder="Shown on your public page"
+            onChange={(e) => setEmailDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = emailDraft.trim();
+              if (trimmed !== rec.contactEmail) void save({ contactEmail: trimmed });
+            }}
+            style={authInputStyle}
+          />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-instagram`} style={authLabelStyle}>
+            INSTAGRAM
+          </label>
+          <input
+            id={`store-${id}-instagram`}
+            type="text"
+            value={instagramDraft}
+            placeholder="handle (without the @)"
+            onChange={(e) => setInstagramDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = instagramDraft.trim().replace(/^@/, '');
+              if (trimmed !== instagramDraft) setInstagramDraft(trimmed);
+              if (trimmed !== rec.instagram) void save({ instagram: trimmed });
             }}
             style={authInputStyle}
           />

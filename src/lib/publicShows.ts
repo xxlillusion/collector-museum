@@ -37,6 +37,12 @@ export interface ShowWalkData {
   country: string | null;
   state: string | null;
   city: string | null;
+  /** Attendance logistics (0005) — '' = the organizer left it unstated. */
+  venueName: string;
+  address: string;
+  hours: string;
+  admission: string;
+  externalUrl: string;
   /** Reconstructed working-slot meta (plan_meta + rects from booths), or
    *  null when the stored meta lacks the essentials — Walk stays disabled. */
   meta: VendorPlanMeta | null;
@@ -151,7 +157,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     const { data, error } = await sb
       .from('shows')
       .select(
-        'id, name, show_date, country, state, city, plan_image_path, plan_meta, booths(rect, vendor_id)',
+        'id, name, show_date, country, state, city, venue_name, address, hours, admission, external_url, plan_image_path, plan_meta, booths(rect, vendor_id)',
       )
       .eq('id', id)
       .maybeSingle();
@@ -163,6 +169,11 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
       country: string | null;
       state: string | null;
       city: string | null;
+      venue_name: string | null;
+      address: string | null;
+      hours: string | null;
+      admission: string | null;
+      external_url: string | null;
       plan_image_path: string | null;
       plan_meta: Record<string, unknown> | null;
       booths: { rect: unknown; vendor_id: string | null }[] | null;
@@ -267,6 +278,11 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
       country: show.country ?? null,
       state: show.state ?? null,
       city: show.city ?? null,
+      venueName: show.venue_name ?? '',
+      address: show.address ?? '',
+      hours: show.hours ?? '',
+      admission: show.admission ?? '',
+      externalUrl: show.external_url ?? '',
       meta,
       planUrl,
       vendors,

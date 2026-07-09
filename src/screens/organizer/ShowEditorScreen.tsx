@@ -6,6 +6,10 @@ import { getMyProfile } from '../../lib/profileService';
 import type { ProfileRecord } from '../../lib/profileService';
 import { publishShow, updateShow, getMyShowForEdit } from '../../lib/showService';
 import type { MyShowForEdit } from '../../lib/showService';
+import {
+  listApplicationsForShow, setApplicationStatus,
+} from '../../lib/applicationService';
+import type { BoothApplication } from '../../lib/applicationService';
 import { listRegisteredVendors } from '../../lib/publicVendors';
 import type { RegisteredVendorSummary } from '../../lib/publicVendors';
 import { COUNTRIES, regionOptions } from '../../lib/locations';
@@ -65,6 +69,11 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   const [country, setCountry] = useState('');
   const [stateCode, setStateCode] = useState('');
   const [city, setCity] = useState('');
+  const [venueName, setVenueName] = useState('');
+  const [address, setAddress] = useState('');
+  const [hours, setHours] = useState('');
+  const [admission, setAdmission] = useState('');
+  const [externalUrl, setExternalUrl] = useState('');
 
   const [wb, setWb] = useState<PlanWorkbenchState>({ hasMeta: false, detecting: false, totalTables: 0 });
   const [busy, setBusy] = useState(false);
@@ -97,12 +106,52 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Booth applications (edit mode) — approved applicants float to the top of
+  // the assignment dropdown so placing them is one click away.
+  const [apps, setApps] = useState<BoothApplication[]>([]);
+  const [appBusyId, setAppBusyId] = useState<string | null>(null);
+  const [appError, setAppError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isEdit || !showId || !isOrganizer) return;
+    let cancelled = false;
+    listApplicationsForShow(showId).then((list) => {
+      if (!cancelled) setApps(list);
+    });
+    return () => { cancelled = true; };
+  }, [isEdit, showId, isOrganizer]);
+
+  const handleApplication = useCallback(async (id: string, status: 'approved' | 'declined') => {
+    if (!showId) return;
+    setAppBusyId(id);
+    setAppError(null);
+    try {
+      await setApplicationStatus(id, status);
+      setApps(await listApplicationsForShow(showId));
+    } catch (e) {
+      setAppError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAppBusyId(null);
+    }
+  }, [showId]);
+
+  const approvedApplicantIds = useMemo(
+    () => new Set(apps.filter((a) => a.status === 'approved').map((a) => a.vendorId)),
+    [apps],
+  );
+
   const vendors = useMemo<VendorSummary[]>(() => {
     const map = new Map<string, VendorSummary>();
     for (const v of localVendors.vendors) map.set(v.id, v);
     for (const r of registered) map.set(r.id, r);
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [localVendors.vendors, registered]);
+    return [...map.values()].sort((a, b) => {
+      // Approved applicants first, then everyone else alphabetically
+      const pa = approvedApplicantIds.has(a.id) ? 0 : 1;
+      const pb = approvedApplicantIds.has(b.id) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return a.name.localeCompare(b.name);
+    });
+  }, [localVendors.vendors, registered, approvedApplicantIds]);
 
   // ---- edit mode: load the show ----
   useEffect(() => {
@@ -127,6 +176,11 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     setCountry(show.country ?? '');
     setStateCode(show.state ?? '');
     setCity(show.city ?? '');
+    setVenueName(show.venueName);
+    setAddress(show.address);
+    setHours(show.hours);
+    setAdmission(show.admission);
+    setExternalUrl(show.externalUrl);
   }, [show]);
 
   // No sandbox draft = nothing to clobber; skip the confirmation step.
@@ -190,6 +244,11 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         country: country || undefined,
         state: stateCode || undefined,
         city: city.trim() || undefined,
+        venueName: venueName.trim(),
+        address: address.trim(),
+        hours: hours.trim(),
+        admission: admission.trim(),
+        externalUrl: externalUrl.trim(),
       };
       if (isEdit && showId) {
         await updateShow({
@@ -219,7 +278,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     } finally {
       setBusy(false);
     }
-  }, [userId, busy, name, showDate, country, stateCode, city, isEdit, showId, imageReplaced, publishNow, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
+  }, [userId, busy, name, showDate, country, stateCode, city, venueName, address, hours, admission, externalUrl, isEdit, showId, imageReplaced, publishNow, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
 
   const title = isEdit ? 'Edit Show' : 'Create a Show';
   const regions = regionOptions(country);
@@ -372,6 +431,83 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         </p>
       )}
 
+      {/* Booth applications — approve/decline; approved stores jump to the
+          top of the per-booth assignment dropdown below. */}
+      {isEdit && apps.length > 0 && (
+        <div
+          style={{
+            border: `1px solid rgba(212,175,55,0.3)`,
+            borderRadius: 4,
+            padding: '14px 18px',
+            marginBottom: 26,
+          }}
+        >
+          <div style={{ ...labelStyle, marginBottom: 6 }}>
+            BOOTH APPLICATIONS ({apps.filter((a) => a.status === 'pending').length} pending)
+          </div>
+          {apps.map((a) => (
+            <div
+              key={a.id}
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 14,
+                flexWrap: 'wrap',
+                padding: '9px 4px',
+                borderBottom: '1px solid rgba(212,175,55,0.12)',
+                opacity: appBusyId === a.id ? 0.6 : 1,
+              }}
+            >
+              <span style={{ fontFamily: SERIF, fontSize: 15, color: TEXT, minWidth: 140 }}>
+                {a.vendorName}
+              </span>
+              {a.message && (
+                <span style={{ ...kitNoteStyle, fontSize: 12.5, flex: 1, minWidth: 160 }}>
+                  “{a.message}”
+                </span>
+              )}
+              {a.status === 'pending' ? (
+                <span style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => handleApplication(a.id, 'approved')}
+                    disabled={appBusyId === a.id}
+                    style={{ ...ghostButtonStyle, padding: '5px 14px', fontSize: 11 }}
+                  >
+                    APPROVE
+                  </button>
+                  <button
+                    onClick={() => handleApplication(a.id, 'declined')}
+                    disabled={appBusyId === a.id}
+                    style={{ ...ghostButtonStyle, padding: '5px 14px', fontSize: 11, color: '#b0685c', borderColor: 'rgba(176,104,92,0.5)' }}
+                  >
+                    DECLINE
+                  </button>
+                </span>
+              ) : (
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    letterSpacing: '0.18em',
+                    fontFamily: SERIF,
+                    color: a.status === 'approved' ? GOLD : MUTED,
+                    border: `1px solid ${a.status === 'approved' ? GOLD : 'rgba(255,255,255,0.15)'}`,
+                    borderRadius: 2,
+                    padding: '3px 9px',
+                  }}
+                >
+                  {a.status.toUpperCase()}
+                </span>
+              )}
+            </div>
+          ))}
+          {appError && <p style={{ ...errorTextStyle, marginTop: 10 }}>{appError}</p>}
+          <p style={{ ...kitNoteStyle, fontSize: 12, marginTop: 10 }}>
+            Approving moves the store to the top of each booth's vendor dropdown — assign
+            them to a booth below to place them on the floor.
+          </p>
+        </div>
+      )}
+
       {/* Show details */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
         <div>
@@ -429,14 +565,75 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           </div>
         )}
         <div>
-          <label htmlFor="show-editor-city" style={labelStyle}>CITY / VENUE</label>
+          <label htmlFor="show-editor-city" style={labelStyle}>CITY</label>
           <input
             id="show-editor-city"
             type="text"
-            placeholder="City / venue"
+            placeholder="City"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             style={{ ...inputStyle, width: 220 }}
+          />
+        </div>
+      </div>
+
+      {/* Attendance logistics — everything a visitor needs to actually go */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+        <div>
+          <label htmlFor="show-editor-venue" style={labelStyle}>VENUE</label>
+          <input
+            id="show-editor-venue"
+            type="text"
+            placeholder="Expo Center Hall B"
+            value={venueName}
+            onChange={(e) => setVenueName(e.target.value)}
+            style={{ ...inputStyle, width: 280 }}
+          />
+        </div>
+        <div>
+          <label htmlFor="show-editor-address" style={labelStyle}>ADDRESS</label>
+          <input
+            id="show-editor-address"
+            type="text"
+            placeholder="123 Main St, Springfield"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            style={{ ...inputStyle, width: 340 }}
+          />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 30 }}>
+        <div>
+          <label htmlFor="show-editor-hours" style={labelStyle}>HOURS</label>
+          <input
+            id="show-editor-hours"
+            type="text"
+            placeholder="Sat 9am – 4pm"
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            style={{ ...inputStyle, width: 200 }}
+          />
+        </div>
+        <div>
+          <label htmlFor="show-editor-admission" style={labelStyle}>ADMISSION</label>
+          <input
+            id="show-editor-admission"
+            type="text"
+            placeholder="$5 — kids free"
+            value={admission}
+            onChange={(e) => setAdmission(e.target.value)}
+            style={{ ...inputStyle, width: 200 }}
+          />
+        </div>
+        <div>
+          <label htmlFor="show-editor-url" style={labelStyle}>SHOW WEBSITE / TICKETS (URL)</label>
+          <input
+            id="show-editor-url"
+            type="url"
+            placeholder="https://…"
+            value={externalUrl}
+            onChange={(e) => setExternalUrl(e.target.value)}
+            style={{ ...inputStyle, width: 280 }}
           />
         </div>
       </div>

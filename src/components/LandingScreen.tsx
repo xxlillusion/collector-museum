@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'wouter';
+import SearchBox from './SearchBox';
 import {
   GOLD, HAIRLINE, TEXT, MUTED, SERIF, SANS, PAGE_BG,
   Ornament, QuickAction, primaryButtonStyle, ghostButtonStyle,
@@ -17,7 +18,7 @@ export default function LandingScreen() {
         <div style={{ fontSize: 11, letterSpacing: '0.4em', color: MUTED, marginBottom: 14 }}>
           EST. 2026 · CARD SHOWS &amp; COLLECTIONS
         </div>
-        <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: 48, fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
+        <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: 'clamp(30px, 10vw, 48px)', fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
           VENDOR MUSEUM
         </h1>
         <div style={{ margin: '20px 0' }}>
@@ -40,6 +41,9 @@ export default function LandingScreen() {
 
         <div style={{ margin: '46px 0 0' }}>
           <div style={{ height: 1, background: `linear-gradient(90deg, transparent, ${HAIRLINE}, transparent)`, marginBottom: 34 }} />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 26 }}>
+            <SearchBox />
+          </div>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'stretch' }}>
             <QuickAction
               label="EXPLORE CARD SHOWS →"

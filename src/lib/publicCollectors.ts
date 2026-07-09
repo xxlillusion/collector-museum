@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { publicImageUrl } from './supabaseImages';
+import type { CardMetaFields } from './cardMeta';
 
 /**
  * Anon-safe public reads for collector profile pages (`/collector/:id`) and
@@ -18,6 +19,13 @@ export interface PublicCollectorItem {
   name: string;
   /** width / height, computed at upload. */
   aspect: number;
+  /** Card metadata from collections.metadata jsonb (set / number / year / grade / notes). */
+  meta: CardMetaFields;
+  // Wall curation, from the same metadata jsonb (typed, non-string values):
+  // featured hangs first, hangOrder orders manually, onWalls false = binder-only.
+  featured?: boolean;
+  hangOrder?: number;
+  onWalls?: boolean;
 }
 
 export interface PublicCollectorProfile {
@@ -61,7 +69,7 @@ export async function getPublicCollectorProfile(
     if (profile.collection_public) {
       const { data: rows, error: itemErr } = await supabase
         .from('collections')
-        .select('id, image_path, name, aspect')
+        .select('id, image_path, name, aspect, metadata')
         .eq('owner_id', profileId)
         .order('added_at', { ascending: true });
       if (!itemErr && rows) {
@@ -70,12 +78,29 @@ export async function getPublicCollectorProfile(
           image_path: string;
           name: string;
           aspect: number;
-        }[]).map((row) => ({
-          id: row.id,
-          imageUrl: publicImageUrl('cards', row.image_path),
-          name: row.name ?? '',
-          aspect: row.aspect > 0 ? row.aspect : 0.714,
-        }));
+          metadata: Record<string, unknown> | null;
+        }[]).map((row) => {
+          const meta: CardMetaFields = {};
+          for (const k of ['setName', 'cardNumber', 'year', 'grade', 'notes'] as const) {
+            const v = row.metadata?.[k];
+            if (typeof v === 'string' && v) meta[k] = v;
+          }
+          const item: PublicCollectorItem = {
+            id: row.id,
+            imageUrl: publicImageUrl('cards', row.image_path),
+            name: row.name ?? '',
+            aspect: row.aspect > 0 ? row.aspect : 0.714,
+            meta,
+          };
+          // Typed curation fields — same jsonb, boolean/number values
+          const featured = row.metadata?.['featured'];
+          if (typeof featured === 'boolean') item.featured = featured;
+          const hangOrder = row.metadata?.['hangOrder'];
+          if (typeof hangOrder === 'number') item.hangOrder = hangOrder;
+          const onWalls = row.metadata?.['onWalls'];
+          if (typeof onWalls === 'boolean') item.onWalls = onWalls;
+          return item;
+        });
       }
     }
 

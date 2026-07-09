@@ -19,6 +19,8 @@ const ShowDirectory = lazy(() => import('./screens/shows/ShowDirectory'));
 const ShowDetail = lazy(() => import('./screens/shows/ShowDetail'));
 const OrganizerHome = lazy(() => import('./screens/organizer/OrganizerHome'));
 const ShowEditorScreen = lazy(() => import('./screens/organizer/ShowEditorScreen'));
+const SearchScreen = lazy(() => import('./screens/search/SearchScreen'));
+const WantListScreen = lazy(() => import('./screens/wants/WantListScreen'));
 const NotFoundScreen = lazy(() => import('./screens/NotFoundScreen'));
 
 function PageFallback() {
@@ -42,6 +44,9 @@ export default function AppRoutes() {
         </Route>
         <Route path="/shows" component={ShowDirectory} />
         <Route path="/show/:id">{(params) => <ShowDetail showId={params.id} />}</Route>
+        {/* Discovery wave: cross-entity search (?q=…) + the visitor want-list. */}
+        <Route path="/search" component={SearchScreen} />
+        <Route path="/wants" component={WantListScreen} />
         <Route path="/organizer" component={OrganizerHome} />
         {/* The local, no-account experience — forced local provider; shares
             App's chunk (and its lazily loaded canvases) on purpose. */}

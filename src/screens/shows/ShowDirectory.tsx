@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
+import SearchBox from '../../components/SearchBox';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { listPublishedShows } from '../../lib/publicShows';
 import type { PublicShowSummary, ShowLocationFilter } from '../../lib/publicShows';
@@ -81,6 +82,7 @@ export default function ShowDirectory() {
             marginBottom: 26,
           }}
         >
+          <SearchBox width={280} />
           <div>
             <span style={filterLabelStyle}>COUNTRY</span>
             <select

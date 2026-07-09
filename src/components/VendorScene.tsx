@@ -13,13 +13,18 @@ import type { Collider } from './GalleryControls';
 import MobileControls from './MobileControls';
 import HUD from './HUD';
 import InspectOverlay from './InspectOverlay';
+import type { InspectSale } from './InspectOverlay';
 import { ShadowRefresh, LoadingOverlay } from './sceneCommon';
+import HallDirectory from './HallDirectory';
+import type { DirectoryVendor } from './HallDirectory';
 import { Minimap, MinimapTracker } from './Minimap';
-import type { MinimapMapping } from './Minimap';
+import type { BoothMarker, MinimapMapping } from './Minimap';
 import { TABLE } from './Room';
 import { planToLayout } from '../lib/vendorPlan';
 import type { VendorPlanMeta, TablePlacement } from '../lib/vendorPlan';
 import type { VendorSummary } from '../lib/useVendors';
+import { isWanted, toggleWant } from '../lib/interestService';
+import { useAuth } from '../lib/auth';
 
 interface VendorSceneProps {
   planMeta: VendorPlanMeta;
@@ -30,6 +35,10 @@ interface VendorSceneProps {
   /** Inventory reads for the hall binders — threaded as a prop because React
    *  context does not cross the R3F Canvas root (see VendorHallBinders). */
   fetchInventory: FetchInventory;
+  /** Route planning (public show walks): starred vendors' booths glow on the
+   *  minimap; the directory shows/toggles the star. Absent in sandbox walks. */
+  starredVendorIds?: Set<string>;
+  onToggleStar?: (vendorId: string) => void;
   onBack: () => void;
   /** Top-right exit button label — public show walks say "Leave Show"
    *  instead of the editor's "Floor Plan". */
@@ -159,11 +168,25 @@ function tableColliders(tables: TablePlacement[]): Collider[] {
   });
 }
 
-export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, onBack, exitLabel }: VendorSceneProps) {
+export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, starredVendorIds, onToggleStar, onBack, exitLabel }: VendorSceneProps) {
   const [locked, setLocked] = useState(false);
   const [binderOpen, setBinderOpen] = useState(false);
   const [binderPrompt, setBinderPrompt] = useState(false);
-  const [inspect, setInspect] = useState<{ url: string; caption?: string } | null>(null);
+  const [inspect, setInspect] = useState<{
+    url: string;
+    caption?: string;
+    sale?: InspectSale;
+    itemId?: string;
+    wanted?: boolean;
+  } | null>(null);
+  // Vendor directory overlay — opening unlocks the pointer + freezes controls
+  // (the binder-open pattern); selecting a vendor lights their booth dots.
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [highlightVendorId, setHighlightVendorId] = useState<string | null>(null);
+  // Want-list hearts sync to the cloud for signed-in users (local otherwise).
+  // VendorScene itself is DOM — only the Canvas subtree can't read context.
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
   // Bumping this key remounts the Canvas — our recovery path if the GPU
   // driver kills the WebGL context (black canvas, DOM still alive).
   const [glKey, setGlKey] = useState(0);
@@ -182,6 +205,39 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
     () => new Map(vendors.map((v) => [v.id, v.inventoryCount])),
     [vendors],
   );
+
+  // Assigned booth centers in plan-image UV (dangling vendor ids skipped) +
+  // the directory list derived from the same rects.
+  const boothMarkers = useMemo<BoothMarker[]>(() => {
+    const known = new Set(vendors.map((v) => v.id));
+    return planMeta.rects
+      .filter((r) => r.vendorId && known.has(r.vendorId))
+      .map((r) => ({
+        u: (r.x + r.w / 2) / planMeta.imgW,
+        v: (r.y + r.h / 2) / planMeta.imgH,
+        vendorId: r.vendorId!,
+      }));
+  }, [planMeta.rects, planMeta.imgW, planMeta.imgH, vendors]);
+
+  const directoryVendors = useMemo<DirectoryVendor[]>(() => {
+    const boothCounts = new Map<string, number>();
+    for (const m of boothMarkers) {
+      boothCounts.set(m.vendorId, (boothCounts.get(m.vendorId) ?? 0) + 1);
+    }
+    return vendors
+      .filter((v) => boothCounts.has(v.id))
+      .map((v) => ({
+        id: v.id,
+        name: v.name,
+        boothCount: boothCounts.get(v.id)!,
+        inventoryCount: v.inventoryCount,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [vendors, boothMarkers]);
+
+  const highlightName = highlightVendorId
+    ? vendors.find((v) => v.id === highlightVendorId)?.name ?? null
+    : null;
   const colliders = useMemo(() => tableColliders(tables), [tables]);
   const spots = useMemo(() => computeSpotGrid(hall.width, hall.depth), [hall.width, hall.depth]);
 
@@ -229,9 +285,44 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
     }
   };
 
-  const handleInspect = (url: string, caption?: string) => {
+  const openDirectory = () => {
     document.exitPointerLock?.();
-    setInspect({ url, caption });
+    setDirectoryOpen(true);
+  };
+
+  const closeDirectory = (relock: boolean) => {
+    setDirectoryOpen(false);
+    if (relock) setTimeout(tryLock, 150);
+  };
+
+  // M toggles the directory; Esc closes it (browser Esc already exits pointer
+  // lock, so this only matters while the panel is up and the pointer is free).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (binderOpen || inspect) return;
+      if (e.code === 'KeyM') {
+        if (directoryOpen) closeDirectory(true);
+        else openDirectory();
+      } else if (e.code === 'Escape' && directoryOpen) {
+        closeDirectory(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [binderOpen, inspect, directoryOpen]);
+
+  const handleInspect = (url: string, caption?: string, sale?: InspectSale, itemId?: string) => {
+    document.exitPointerLock?.();
+    setInspect({ url, caption, sale, itemId, wanted: itemId ? isWanted(itemId) : undefined });
+  };
+
+  const handleToggleWant = () => {
+    if (!inspect?.itemId) return;
+    // Toggle OUTSIDE the state updater — updaters must stay pure (StrictMode
+    // double-invokes them, which would flip the want right back off).
+    const wanted = toggleWant(userId, inspect.itemId);
+    setInspect((cur) => (cur ? { ...cur, wanted } : cur));
   };
 
   const handleCloseInspect = (relock: boolean) => {
@@ -263,7 +354,8 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
           toneMappingExposure: 1.15,
         }}
         style={{ width: '100vw', height: '100vh', background: '#0d0b0a' }}
-        onPointerMissed={() => tryLock()}
+        // A canvas click while the directory is up dismisses it (and relocks)
+        onPointerMissed={() => (directoryOpen ? closeDirectory(true) : tryLock())}
         // Keep this block in sync with Scene.tsx — it encodes CLAUDE.md
         // gotchas 3 & 8 (crosshair raycast compute, deferred events.connect,
         // context-loss remount). Deliberately duplicated, not shared.
@@ -318,7 +410,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
             tables={tables}
             inventoryCounts={inventoryCounts}
             fetchInventory={fetchInventory}
-            suspended={!!inspect}
+            suspended={!!inspect || directoryOpen}
             onPromptChange={setBinderPrompt}
             onOpenChange={setBinderOpen}
             onInspect={handleInspect}
@@ -375,7 +467,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
 
           <GalleryControls
             onLockChange={setLocked}
-            frozen={binderOpen}
+            frozen={binderOpen || directoryOpen}
             bounds={{ halfW: hall.width / 2 - WALL_MARGIN, halfD: hall.depth / 2 - WALL_MARGIN }}
             colliders={colliders}
             initialPosition={spawn}
@@ -394,21 +486,50 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
 
       <LoadingOverlay label="SETTING UP THE SHOW…" />
       {planUrl && !binderOpen && (
-        <Minimap planUrl={planUrl} mapping={minimapMapping} markerRef={minimapMarkerRef} />
+        <Minimap
+          planUrl={planUrl}
+          mapping={minimapMapping}
+          markerRef={minimapMarkerRef}
+          boothMarkers={boothMarkers}
+          highlightVendorId={highlightVendorId}
+          highlightName={highlightName}
+          starredVendorIds={starredVendorIds}
+        />
       )}
       <HUD
         locked={locked}
         onUpload={onBack}
         // Touch never pointer-locks — the gaze scan still runs, so surface
         // the tap prompt whenever a binder is in front of the camera.
-        binderPrompt={binderPrompt && (locked || isTouchDevice) && !binderOpen}
+        binderPrompt={binderPrompt && (locked || isTouchDevice) && !binderOpen && !directoryOpen}
         binderOpen={binderOpen}
         uploadLabel={exitLabel ?? '🗺 Floor Plan'}
+        onDirectory={directoryOpen ? undefined : openDirectory}
       />
-      <MobileControls hidden={binderOpen} />
+      {directoryOpen && !binderOpen && (
+        <HallDirectory
+          vendors={directoryVendors}
+          highlightId={highlightVendorId}
+          onHighlight={setHighlightVendorId}
+          starredIds={starredVendorIds}
+          onToggleStar={onToggleStar}
+          onClose={() => closeDirectory(true)}
+        />
+      )}
+      <MobileControls hidden={binderOpen || directoryOpen} />
 
       {inspect && (
-        <InspectOverlay imageUrl={inspect.url} caption={inspect.caption} onClose={handleCloseInspect} />
+        <InspectOverlay
+          imageUrl={inspect.url}
+          caption={inspect.caption}
+          sale={inspect.sale}
+          want={
+            inspect.itemId !== undefined
+              ? { wanted: inspect.wanted ?? false, onToggle: handleToggleWant }
+              : undefined
+          }
+          onClose={handleCloseInspect}
+        />
       )}
     </>
   );

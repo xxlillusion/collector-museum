@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
+import SearchBox from '../../components/SearchBox';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { listRegisteredVendors } from '../../lib/publicVendors';
 import type { RegisteredVendorSummary } from '../../lib/publicVendors';
@@ -57,6 +58,7 @@ export default function VendorDirectory() {
             marginBottom: 26,
           }}
         >
+          <SearchBox width={280} />
           <div>
             <span style={filterLabelStyle}>COUNTRY</span>
             <select

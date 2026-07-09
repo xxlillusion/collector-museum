@@ -10,6 +10,8 @@ interface HUDProps {
   binderOpen: boolean;
   /** top-right button label; defaults to the museum's card manager */
   uploadLabel?: string;
+  /** Hall only: opens the vendor directory (button top-left, M shortcut). */
+  onDirectory?: () => void;
 }
 
 const pillStyle: CSSProperties = {
@@ -21,7 +23,9 @@ const pillStyle: CSSProperties = {
   padding: '8px 16px',
   borderRadius: '8px',
   fontSize: '13px',
-  whiteSpace: 'nowrap',
+  maxWidth: '90vw',
+  boxSizing: 'border-box',
+  textAlign: 'center',
   border: '1px solid rgba(255,255,255,0.2)',
 };
 
@@ -31,6 +35,7 @@ export default function HUD({
   binderPrompt,
   binderOpen,
   uploadLabel = '⬆ Manage Cards',
+  onDirectory,
 }: HUDProps) {
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10, fontFamily: 'sans-serif' }}>
@@ -48,6 +53,7 @@ export default function HUD({
       ) : !locked && (
         <div style={{ ...pillStyle, bottom: '40px', fontSize: '15px', letterSpacing: '0.03em', padding: '10px 22px' }}>
           Click to explore &nbsp;·&nbsp; WASD to move &nbsp;·&nbsp; Mouse to look &nbsp;·&nbsp; Esc to unlock
+          {onDirectory && <> &nbsp;·&nbsp; M for vendors</>}
         </div>
       )}
 
@@ -64,7 +70,9 @@ export default function HUD({
           borderRadius: '8px',
           fontSize: '14px',
           border: '1px solid rgba(255,255,255,0.25)',
-          whiteSpace: 'nowrap',
+          maxWidth: '90vw',
+          boxSizing: 'border-box',
+          textAlign: 'center',
         }}>
           {isTouchDevice ? <>Tap the binder to open it</> : <>Press <b>F</b> to open the binder</>}
         </div>
@@ -104,6 +112,29 @@ export default function HUD({
           }}
         >
           {uploadLabel}
+        </button>
+      )}
+
+      {/* Vendor directory button (hall only) */}
+      {onDirectory && !binderOpen && (
+        <button
+          onClick={onDirectory}
+          style={{
+            position: 'absolute',
+            top: '16px',
+            left: '16px',
+            pointerEvents: 'auto',
+            background: 'rgba(0,0,0,0.65)',
+            color: 'white',
+            border: '1px solid rgba(255,255,255,0.3)',
+            padding: '8px 16px',
+            borderRadius: '8px',
+            fontSize: '14px',
+            cursor: 'pointer',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          ☰ Vendors
         </button>
       )}
 

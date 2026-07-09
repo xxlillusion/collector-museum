@@ -15,18 +15,47 @@ export interface MinimapMapping {
   imgH: number;
 }
 
-const MAP_W = 220; // on-screen minimap width, px
+// On-screen minimap width, px. One module-level computed const shared by the
+// DOM overlay AND MinimapTracker's math so both stay consistent — phones get
+// a smaller map so it doesn't dominate a 375px viewport.
+const MAP_W = typeof window !== 'undefined' && window.innerWidth < 480 ? 140 : 220;
 const MARKER = 12; // marker size, px
+
+/** An assigned booth's center in plan-image UV (0–1) — dots on the minimap. */
+export interface BoothMarker {
+  u: number;
+  v: number;
+  vendorId: string;
+}
 
 interface MinimapProps {
   planUrl: string;
   mapping: MinimapMapping;
   markerRef: React.RefObject<HTMLDivElement | null>;
+  /** Assigned booths; the highlighted vendor's dots glow + carry the name. */
+  boothMarkers?: BoothMarker[];
+  highlightVendorId?: string | null;
+  highlightName?: string | null;
+  /** Route planning: starred vendors' dots glow steadily (public show walks). */
+  starredVendorIds?: Set<string>;
 }
 
 /** Fixed top-right overlay; pointerEvents none so pointer-lock clicks pass. */
-export function Minimap({ planUrl, mapping, markerRef }: MinimapProps) {
+export function Minimap({
+  planUrl,
+  mapping,
+  markerRef,
+  boothMarkers,
+  highlightVendorId,
+  highlightName,
+  starredVendorIds,
+}: MinimapProps) {
   const mapH = MAP_W * (mapping.imgH / mapping.imgW);
+  const highlighted = (boothMarkers ?? []).filter((b) => b.vendorId === highlightVendorId);
+  // Name label rides the topmost highlighted booth
+  const labelAnchor = highlighted.length
+    ? highlighted.reduce((a, b) => (b.v < a.v ? b : a))
+    : null;
   return (
     <div
       style={{
@@ -49,6 +78,60 @@ export function Minimap({ planUrl, mapping, markerRef }: MinimapProps) {
         draggable={false}
         style={{ width: '100%', height: '100%', display: 'block', opacity: 0.75 }}
       />
+      {/* Assigned booth dots: highlighted (directory pick) pulses, starred
+          (route planning) glows steadily, the rest are small gold points */}
+      {(boothMarkers ?? []).map((b, i) => {
+        const active = b.vendorId === highlightVendorId;
+        const starredDot = !active && starredVendorIds?.has(b.vendorId);
+        const size = active ? 9 : starredDot ? 7 : 4;
+        return (
+          <div
+            key={i}
+            style={{
+              position: 'absolute',
+              left: b.u * MAP_W - size / 2,
+              top: b.v * mapH - size / 2,
+              width: size,
+              height: size,
+              borderRadius: '50%',
+              background: active || starredDot ? '#ffd75e' : 'rgba(212,175,55,0.85)',
+              boxShadow: active
+                ? '0 0 8px 2px rgba(255,215,94,0.9)'
+                : starredDot
+                  ? '0 0 6px 1px rgba(255,215,94,0.75)'
+                  : 'none',
+              animation: active ? 'minimapPulse 1.2s ease-in-out infinite' : 'none',
+            }}
+          />
+        );
+      })}
+      {labelAnchor && highlightName && (
+        <div
+          style={{
+            position: 'absolute',
+            left: Math.min(Math.max(labelAnchor.u * MAP_W, 34), MAP_W - 34),
+            top: Math.max(labelAnchor.v * mapH - 20, 2),
+            transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.8)',
+            color: '#ffd75e',
+            fontSize: 10,
+            fontFamily: "Georgia, 'Times New Roman', serif",
+            letterSpacing: '0.06em',
+            padding: '2px 7px',
+            borderRadius: 4,
+            whiteSpace: 'nowrap',
+            maxWidth: MAP_W - 16,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {highlightName}
+        </div>
+      )}
+      <style>{`@keyframes minimapPulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.45); }
+      }`}</style>
       {/* Up-pointing red triangle; tracker rotates it by −yaw */}
       <div
         ref={markerRef}

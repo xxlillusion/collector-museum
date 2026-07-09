@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { isSupabaseConfigured } from '../lib/supabase';
+import BulkInventoryPanel from './BulkInventoryPanel';
 import { useVendorInventory } from '../lib/useVendorInventory';
 import { fetchInterestCounts } from '../lib/interestService';
 import { useProvider } from '../lib/provider/context';
@@ -145,9 +146,12 @@ const saleInputStyle: React.CSSProperties = {
  */
 function SaleFields({
   item,
+  syncKey = 0,
   onSave,
 }: {
   item: { id: string; price?: number; status?: InventoryStatus; condition?: string };
+  /** Bump to force a re-sync from the item (bulk tools rewrite many items in place). */
+  syncKey?: number;
   onSave: (
     id: string,
     patch: Partial<{ price: number | undefined; status: InventoryStatus; condition: string }>,
@@ -157,11 +161,13 @@ function SaleFields({
   const [condition, setCondition] = useState(item.condition ?? '');
   const priceTimer = useRef<number | null>(null);
   const condTimer = useRef<number | null>(null);
-  // Re-sync when the underlying item changes (vendor switch reuses inputs)
+  // Re-sync when the underlying item changes (vendor switch reuses inputs) or
+  // after a bulk apply — never on plain price/condition echoes, so debounced
+  // typing isn't clobbered by its own round-trip.
   useEffect(() => {
     setPrice(item.price !== undefined ? String(item.price) : '');
     setCondition(item.condition ?? '');
-  }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item.id, syncKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const queuePrice = (raw: string) => {
     setPrice(raw);
@@ -238,6 +244,10 @@ export default function VendorsScreen({
   const [showDate, setShowDate] = useState('');
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // Bumped after each bulk-tools batch so SaleFields re-syncs its debounced
+  // local price/condition state from the freshly patched items.
+  const [bulkVersion, setBulkVersion] = useState(0);
 
   // "Import my collection" — one-time copy of the user's own cards into the
   // selected vendor's inventory. Count loads up-front; records on demand.
@@ -641,6 +651,18 @@ export default function VendorsScreen({
                   <p style={{ ...errorTextStyle, margin: '0 0 18px' }}>{importError}</p>
                 )}
 
+                {/* Paste-from-spreadsheet bulk editing (captions / prices / status) */}
+                {inventory.items.length > 0 && (
+                  <BulkInventoryPanel
+                    items={inventory.items}
+                    onBulkUpdate={inventory.bulkUpdate}
+                    onDone={() => {
+                      setBulkVersion((v) => v + 1);
+                      onInventoryChanged();
+                    }}
+                  />
+                )}
+
                 {inventory.items.length === 0 && !inventory.loading && (
                   <p style={{ ...noteStyle, margin: 0, fontSize: 13 }}>
                     No inventory yet.
@@ -681,7 +703,7 @@ export default function VendorsScreen({
                       <div style={{ marginTop: '8px' }}>
                         <CaptionInput itemId={item.id} caption={item.caption} onSave={inventory.setCaption} />
                       </div>
-                      <SaleFields item={item} onSave={inventory.setSale} />
+                      <SaleFields item={item} syncKey={bulkVersion} onSave={inventory.setSale} />
                       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontSize: '11px', color: MUTED, cursor: 'pointer' }}>
                         <input
                           type="checkbox"

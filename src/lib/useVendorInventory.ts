@@ -72,10 +72,33 @@ export function useVendorInventory(vendorId: string | null) {
     await provider.updateInventoryItem(id, patch);
   }, [provider]);
 
+  /**
+   * Sequential bulk persist-and-patch (paste-from-spreadsheet tooling).
+   * Empty patches are skipped; onProgress fires after each persisted update.
+   * Side effects stay OUTSIDE the state updater — StrictMode double-invokes
+   * updaters, which would double the provider writes.
+   */
+  const bulkUpdate = useCallback(async (
+    updates: {
+      id: string;
+      patch: Partial<Pick<InventoryItemRecord, 'caption' | 'price' | 'condition' | 'status'>>;
+    }[],
+    onProgress?: (done: number, total: number) => void,
+  ) => {
+    const applicable = updates.filter((u) => Object.keys(u.patch).length > 0);
+    let done = 0;
+    for (const { id, patch } of applicable) {
+      setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+      await provider.updateInventoryItem(id, patch);
+      done += 1;
+      onProgress?.(done, applicable.length);
+    }
+  }, [provider]);
+
   const removeItem = useCallback(async (id: string) => {
     await provider.deleteInventoryItem(id);
     await reload();
   }, [provider, reload]);
 
-  return { items, loading, reload, addItems, setCaption, setVisible, setSale, removeItem };
+  return { items, loading, reload, addItems, setCaption, setVisible, setSale, bulkUpdate, removeItem };
 }

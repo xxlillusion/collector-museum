@@ -63,10 +63,19 @@ export function useVendorInventory(vendorId: string | null) {
     await provider.updateInventoryItem(id, { visible });
   }, [provider]);
 
+  /** Sale metadata (price / status / condition) — same persist-and-patch shape. */
+  const setSale = useCallback(async (
+    id: string,
+    patch: Partial<Pick<InventoryItemRecord, 'price' | 'status' | 'condition'>>,
+  ) => {
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+    await provider.updateInventoryItem(id, patch);
+  }, [provider]);
+
   const removeItem = useCallback(async (id: string) => {
     await provider.deleteInventoryItem(id);
     await reload();
   }, [provider, reload]);
 
-  return { items, loading, reload, addItems, setCaption, setVisible, removeItem };
+  return { items, loading, reload, addItems, setCaption, setVisible, setSale, removeItem };
 }

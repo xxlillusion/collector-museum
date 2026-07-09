@@ -7,6 +7,7 @@ import Binder, { BinderMaterialWarmup, COVER_W, COVER_H, COVER_T, CARDS_PER_SHEE
 import { CLOTH_TOP_Y } from './tableGeometry';
 import { TABLE } from './Room';
 import { prefetchSleeveTexture } from '../lib/sleeveTextures';
+import type { InspectSale } from './InspectOverlay';
 import type { InventoryItemRecord } from '../lib/db';
 import type { TablePlacement } from '../lib/vendorPlan';
 import type { CardWithUrl } from '../lib/useCards';
@@ -135,7 +136,7 @@ function OpenHallBinder({
   pose: BinderPose;
   fetchInventory: FetchInventory;
   suspended: boolean;
-  onInspect: (url: string, caption?: string) => void;
+  onInspect: (url: string, caption?: string, sale?: InspectSale) => void;
   onClosed: (relock: boolean) => void;
 }) {
   // Same read-only shape as useVendorInventory, minus the context read
@@ -177,6 +178,16 @@ function OpenHallBinder({
     () => new Map(items.filter((i) => i.caption).map((i) => [i.imageUrl, i.caption])),
     [items],
   );
+  const saleByUrl = useMemo(
+    () =>
+      new Map(
+        items.map((i) => [
+          i.imageUrl,
+          { price: i.price, status: i.status, condition: i.condition },
+        ]),
+      ),
+    [items],
+  );
 
   return (
     <Binder
@@ -185,7 +196,7 @@ function OpenHallBinder({
       suspended={suspended}
       onOpenRequest={() => {}}
       onPromptChange={() => {}}
-      onInspect={(url) => onInspect(url, captionByUrl.get(url))}
+      onInspect={(url) => onInspect(url, captionByUrl.get(url), saleByUrl.get(url))}
       onClosed={onClosed}
       restPose={{ position: pose.position, quaternion: pose.quaternion }}
       lazySheetWindow={1}
@@ -203,7 +214,7 @@ interface VendorHallBindersProps {
   suspended: boolean;
   onPromptChange: (visible: boolean) => void;
   onOpenChange: (open: boolean) => void;
-  onInspect: (url: string, caption?: string) => void;
+  onInspect: (url: string, caption?: string, sale?: InspectSale) => void;
   /** Binder finished closing; relock = resume pointer lock. */
   onClosed: (relock: boolean) => void;
 }

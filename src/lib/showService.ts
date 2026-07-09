@@ -30,9 +30,33 @@ export interface MyShowForEdit {
   country: string | null;
   state: string | null;
   city: string | null;
+  venueName: string;
+  address: string;
+  hours: string;
+  admission: string;
+  externalUrl: string;
   published: boolean;
   meta: VendorPlanMeta | null;
   planBlob: Blob | null;
+}
+
+/** Attendance logistics shared by publish and update ('' = unstated). */
+export interface ShowLogistics {
+  venueName?: string;
+  address?: string;
+  hours?: string;
+  admission?: string;
+  externalUrl?: string;
+}
+
+function logisticsColumns(args: ShowLogistics): Record<string, string> {
+  return {
+    venue_name: args.venueName ?? '',
+    address: args.address ?? '',
+    hours: args.hours ?? '',
+    admission: args.admission ?? '',
+    external_url: args.externalUrl ?? '',
+  };
 }
 
 function client() {
@@ -78,7 +102,7 @@ async function boothRowsFromRects(
  * Each publish mints a new show — the local working plan has no cloud
  * identity to upsert against. Returns the new show id.
  */
-export async function publishShow(args: {
+export async function publishShow(args: ShowLogistics & {
   organizerId: string;
   name: string;
   showDate?: string;
@@ -102,6 +126,7 @@ export async function publishShow(args: {
       country: args.country ?? null,
       state: args.state ?? null,
       city: args.city ?? null,
+      ...logisticsColumns(args),
       plan_meta: planMeta,
       published: args.published ?? true,
     })
@@ -140,7 +165,7 @@ export async function publishShow(args: {
  * a fresh versioned filename dodges CDN caching on the public URL); booths
  * are replaced wholesale (delete-then-insert, same normalization as publish).
  */
-export async function updateShow(args: {
+export async function updateShow(args: ShowLogistics & {
   showId: string;
   organizerId: string;
   name: string;
@@ -160,6 +185,7 @@ export async function updateShow(args: {
     country: args.country ?? null,
     state: args.state ?? null,
     city: args.city ?? null,
+    ...logisticsColumns(args),
     plan_meta: planMeta,
     updated_at: new Date().toISOString(),
   };
@@ -202,7 +228,7 @@ export async function getMyShowForEdit(id: string): Promise<MyShowForEdit | null
   const { data, error } = await sb
     .from('shows')
     .select(
-      'id, name, show_date, country, state, city, published, plan_image_path, plan_meta, booths(rect)',
+      'id, name, show_date, country, state, city, venue_name, address, hours, admission, external_url, published, plan_image_path, plan_meta, booths(rect)',
     )
     .eq('id', id)
     .maybeSingle();
@@ -215,6 +241,11 @@ export async function getMyShowForEdit(id: string): Promise<MyShowForEdit | null
     country: string | null;
     state: string | null;
     city: string | null;
+    venue_name: string;
+    address: string;
+    hours: string;
+    admission: string;
+    external_url: string;
     published: boolean;
     plan_image_path: string | null;
     plan_meta: Record<string, unknown> | null;
@@ -238,6 +269,11 @@ export async function getMyShowForEdit(id: string): Promise<MyShowForEdit | null
     country: show.country ?? null,
     state: show.state ?? null,
     city: show.city ?? null,
+    venueName: show.venue_name ?? '',
+    address: show.address ?? '',
+    hours: show.hours ?? '',
+    admission: show.admission ?? '',
+    externalUrl: show.external_url ?? '',
     published: show.published,
     meta,
     planBlob,

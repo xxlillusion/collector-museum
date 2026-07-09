@@ -35,6 +35,11 @@ export interface MyStoreRecord {
   areaServed: string;
   inventoryPublic: boolean;
   isFlagship: boolean;
+  /** Public contact links (0005) — '' = not shown on the vendor page. */
+  website: string;
+  contactEmail: string;
+  /** Handle without the @. */
+  instagram: string;
 }
 
 function client() {
@@ -106,9 +111,13 @@ interface MyStoreRow {
   area_served: string;
   inventory_public: boolean;
   is_flagship: boolean;
+  website: string;
+  contact_email: string;
+  instagram: string;
 }
 
-const STORE_COLUMNS = 'id, name, country, state, area_served, inventory_public, is_flagship';
+const STORE_COLUMNS =
+  'id, name, country, state, area_served, inventory_public, is_flagship, website, contact_email, instagram';
 
 function toStore(row: MyStoreRow): MyStoreRecord {
   return {
@@ -119,6 +128,9 @@ function toStore(row: MyStoreRow): MyStoreRecord {
     areaServed: row.area_served ?? '',
     inventoryPublic: row.inventory_public !== false,
     isFlagship: Boolean(row.is_flagship),
+    website: row.website ?? '',
+    contactEmail: row.contact_email ?? '',
+    instagram: row.instagram ?? '',
   };
 }
 
@@ -201,6 +213,9 @@ export async function updateMyStoreSettings(
   if (patch.state !== undefined) row.state = patch.state;
   if (patch.areaServed !== undefined) row.area_served = patch.areaServed;
   if (patch.inventoryPublic !== undefined) row.inventory_public = patch.inventoryPublic;
+  if (patch.website !== undefined) row.website = patch.website;
+  if (patch.contactEmail !== undefined) row.contact_email = patch.contactEmail;
+  if (patch.instagram !== undefined) row.instagram = patch.instagram;
   const { error } = await sb.from('vendors').update(row).eq('id', storeId);
   if (error) throw new Error(`update store: ${error.message}`);
 }

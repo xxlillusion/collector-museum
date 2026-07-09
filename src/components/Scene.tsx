@@ -9,6 +9,7 @@ import GalleryControls, { isTouchDevice } from './GalleryControls';
 import MobileControls from './MobileControls';
 import HUD from './HUD';
 import InspectOverlay from './InspectOverlay';
+import type { InspectSale } from './InspectOverlay';
 import Table from './Table';
 import Binder from './Binder';
 import { ShadowRefresh, LoadingOverlay } from './sceneCommon';
@@ -25,6 +26,8 @@ interface SceneProps {
   cards: CardWithUrl[];
   /** imageUrl → caption, shown in the inspect overlay (vendor inventory). */
   captions?: Map<string, string>;
+  /** imageUrl → sale placard (price / condition / sold) — vendor inventory. */
+  sales?: Map<string, InspectSale>;
   bannerUrl: string | null;
   onManage: () => void;
   /** Top-right exit button label — public museums say where "back" leads
@@ -171,7 +174,7 @@ function WallSpot({ x, wallZ }: { x: number; wallZ: number }) {
   );
 }
 
-export default function Scene({ cards, captions, bannerUrl, onManage, exitLabel }: SceneProps) {
+export default function Scene({ cards, captions, sales, bannerUrl, onManage, exitLabel }: SceneProps) {
   const [locked, setLocked] = useState(false);
   const [inspectUrl, setInspectUrl] = useState<string | null>(null);
   // "open or animating" — Binder owns the phase machine internally
@@ -398,6 +401,7 @@ export default function Scene({ cards, captions, bannerUrl, onManage, exitLabel 
         <InspectOverlay
           imageUrl={inspectUrl}
           caption={captions?.get(inspectUrl)}
+          sale={sales?.get(inspectUrl)}
           onClose={handleCloseInspect}
         />
       )}

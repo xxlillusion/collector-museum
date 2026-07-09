@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { publicImageUrl } from './supabaseImages';
 import type { VendorSummary } from './useVendors';
-import type { VendorShowEntry } from './db';
+import type { InventoryStatus, VendorShowEntry } from './db';
 
 /**
  * Anon-safe public reads for vendor profile pages (`/vendor/:id`).
@@ -22,6 +22,10 @@ export interface PublicInventoryItem {
   caption: string;
   /** width / height, computed at upload. */
   aspect: number;
+  /** Sale metadata (0005). */
+  price?: number;
+  status: InventoryStatus;
+  condition: string;
 }
 
 export interface PublicUpcomingShow {
@@ -43,6 +47,11 @@ export interface PublicVendorProfile {
   /** False = the vendor keeps inventory off their public profile/museum
    *  (RLS already hides the items from anon; pages show a private note). */
   inventoryPublic: boolean;
+  /** Public contact links (0005) — '' = the vendor left it unstated. */
+  website: string;
+  contactEmail: string;
+  /** Handle without the @. */
+  instagram: string;
   items: PublicInventoryItem[];
   upcomingShows: PublicUpcomingShow[];
 }
@@ -66,6 +75,9 @@ interface VendorRow {
   state: string | null;
   area_served: string | null;
   inventory_public: boolean;
+  website: string | null;
+  contact_email: string | null;
+  instagram: string | null;
 }
 
 interface InventoryRow {
@@ -74,6 +86,9 @@ interface InventoryRow {
   caption: string;
   visible: boolean;
   aspect: number;
+  price: number | null;
+  status: InventoryStatus | null;
+  condition: string | null;
 }
 
 interface BoothShowRow {
@@ -90,7 +105,7 @@ async function fetchVisibleItems(vendorId: string): Promise<PublicInventoryItem[
   if (!supabase) return [];
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, image_path, caption, visible, aspect')
+    .select('id, image_path, caption, visible, aspect, price, status, condition')
     .eq('vendor_id', vendorId)
     .eq('visible', true)
     .order('added_at', { ascending: true });
@@ -104,6 +119,9 @@ async function fetchVisibleItems(vendorId: string): Promise<PublicInventoryItem[
       imageUrl: publicImageUrl('inventory', row.image_path),
       caption: row.caption ?? '',
       aspect: row.aspect > 0 ? row.aspect : 0.714,
+      price: row.price ?? undefined,
+      status: row.status ?? 'forSale',
+      condition: row.condition ?? '',
     }));
 }
 
@@ -146,7 +164,9 @@ export async function getPublicVendorProfile(
   try {
     const { data, error } = await supabase
       .from('vendors')
-      .select('id, name, banner_path, profile_id, country, state, area_served, inventory_public')
+      .select(
+        'id, name, banner_path, profile_id, country, state, area_served, inventory_public, website, contact_email, instagram',
+      )
       .eq('id', vendorId)
       .maybeSingle();
     if (error || !data) return null;
@@ -166,6 +186,9 @@ export async function getPublicVendorProfile(
       state: vendor.state ?? null,
       areaServed: vendor.area_served ?? '',
       inventoryPublic: vendor.inventory_public !== false,
+      website: vendor.website ?? '',
+      contactEmail: vendor.contact_email ?? '',
+      instagram: vendor.instagram ?? '',
       items,
       upcomingShows,
     };

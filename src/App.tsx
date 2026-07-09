@@ -5,6 +5,7 @@ import { useProvider, DataProviderBoundary } from './lib/provider/context';
 import { localProvider } from './lib/provider/local';
 import { useCards } from './lib/useCards';
 import type { CardWithUrl } from './lib/useCards';
+import type { InspectSale } from './components/InspectOverlay';
 import { useBanner } from './lib/useBanner';
 import { useVendorPlan } from './lib/useVendorPlan';
 import { useVendorBanners } from './lib/useVendorBanners';
@@ -137,6 +138,17 @@ function MuseumApp({
     return map;
   }, [galleryVendor, galleryInventory.items]);
 
+  // Sale placards (price / condition / sold) — likewise inventory-only
+  const gallerySales = useMemo(() => {
+    const map = new Map<string, InspectSale>();
+    if (galleryVendor) {
+      for (const i of galleryInventory.items) {
+        map.set(i.imageUrl, { price: i.price, status: i.status, condition: i.condition });
+      }
+    }
+    return map;
+  }, [galleryVendor, galleryInventory.items]);
+
   // Legacy per-box banner slots belong to the current plan image — replacing
   // or clearing the plan drops them all
   const { setPlan, clearPlan } = vendorPlan;
@@ -166,6 +178,7 @@ function MuseumApp({
         <Scene
           cards={galleryCards}
           captions={galleryCaptions}
+          sales={gallerySales}
           bannerUrl={bannerUrl}
           onManage={() => setView('home')}
         />

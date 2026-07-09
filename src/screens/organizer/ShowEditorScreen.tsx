@@ -65,6 +65,11 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   const [country, setCountry] = useState('');
   const [stateCode, setStateCode] = useState('');
   const [city, setCity] = useState('');
+  const [venueName, setVenueName] = useState('');
+  const [address, setAddress] = useState('');
+  const [hours, setHours] = useState('');
+  const [admission, setAdmission] = useState('');
+  const [externalUrl, setExternalUrl] = useState('');
 
   const [wb, setWb] = useState<PlanWorkbenchState>({ hasMeta: false, detecting: false, totalTables: 0 });
   const [busy, setBusy] = useState(false);
@@ -127,6 +132,11 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     setCountry(show.country ?? '');
     setStateCode(show.state ?? '');
     setCity(show.city ?? '');
+    setVenueName(show.venueName);
+    setAddress(show.address);
+    setHours(show.hours);
+    setAdmission(show.admission);
+    setExternalUrl(show.externalUrl);
   }, [show]);
 
   // No sandbox draft = nothing to clobber; skip the confirmation step.
@@ -190,6 +200,11 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         country: country || undefined,
         state: stateCode || undefined,
         city: city.trim() || undefined,
+        venueName: venueName.trim(),
+        address: address.trim(),
+        hours: hours.trim(),
+        admission: admission.trim(),
+        externalUrl: externalUrl.trim(),
       };
       if (isEdit && showId) {
         await updateShow({
@@ -219,7 +234,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     } finally {
       setBusy(false);
     }
-  }, [userId, busy, name, showDate, country, stateCode, city, isEdit, showId, imageReplaced, publishNow, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
+  }, [userId, busy, name, showDate, country, stateCode, city, venueName, address, hours, admission, externalUrl, isEdit, showId, imageReplaced, publishNow, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
 
   const title = isEdit ? 'Edit Show' : 'Create a Show';
   const regions = regionOptions(country);
@@ -429,14 +444,75 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           </div>
         )}
         <div>
-          <label htmlFor="show-editor-city" style={labelStyle}>CITY / VENUE</label>
+          <label htmlFor="show-editor-city" style={labelStyle}>CITY</label>
           <input
             id="show-editor-city"
             type="text"
-            placeholder="City / venue"
+            placeholder="City"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             style={{ ...inputStyle, width: 220 }}
+          />
+        </div>
+      </div>
+
+      {/* Attendance logistics — everything a visitor needs to actually go */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+        <div>
+          <label htmlFor="show-editor-venue" style={labelStyle}>VENUE</label>
+          <input
+            id="show-editor-venue"
+            type="text"
+            placeholder="Expo Center Hall B"
+            value={venueName}
+            onChange={(e) => setVenueName(e.target.value)}
+            style={{ ...inputStyle, width: 280 }}
+          />
+        </div>
+        <div>
+          <label htmlFor="show-editor-address" style={labelStyle}>ADDRESS</label>
+          <input
+            id="show-editor-address"
+            type="text"
+            placeholder="123 Main St, Springfield"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            style={{ ...inputStyle, width: 340 }}
+          />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 30 }}>
+        <div>
+          <label htmlFor="show-editor-hours" style={labelStyle}>HOURS</label>
+          <input
+            id="show-editor-hours"
+            type="text"
+            placeholder="Sat 9am – 4pm"
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            style={{ ...inputStyle, width: 200 }}
+          />
+        </div>
+        <div>
+          <label htmlFor="show-editor-admission" style={labelStyle}>ADMISSION</label>
+          <input
+            id="show-editor-admission"
+            type="text"
+            placeholder="$5 — kids free"
+            value={admission}
+            onChange={(e) => setAdmission(e.target.value)}
+            style={{ ...inputStyle, width: 200 }}
+          />
+        </div>
+        <div>
+          <label htmlFor="show-editor-url" style={labelStyle}>SHOW WEBSITE / TICKETS (URL)</label>
+          <input
+            id="show-editor-url"
+            type="url"
+            placeholder="https://…"
+            value={externalUrl}
+            onChange={(e) => setExternalUrl(e.target.value)}
+            style={{ ...inputStyle, width: 280 }}
           />
         </div>
       </div>

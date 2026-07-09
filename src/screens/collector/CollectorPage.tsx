@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
+import ShareButton from '../../components/ShareButton';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import type { PublicCollectorProfile } from '../../lib/publicCollectors';
@@ -183,6 +184,10 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
           </>
         )}
       </Section>
+
+      <div style={{ marginTop: 10 }}>
+        <ShareButton />
+      </div>
     </PageShell>
   );
 }

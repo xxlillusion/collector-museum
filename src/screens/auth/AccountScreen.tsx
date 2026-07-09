@@ -137,6 +137,9 @@ function StorePanel({
   const [rec, setRec] = useState<MyStoreRecord>(store);
   const [nameDraft, setNameDraft] = useState(store.name);
   const [areaDraft, setAreaDraft] = useState(store.areaServed);
+  const [websiteDraft, setWebsiteDraft] = useState(store.website);
+  const [emailDraft, setEmailDraft] = useState(store.contactEmail);
+  const [instagramDraft, setInstagramDraft] = useState(store.instagram);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -278,6 +281,58 @@ function StorePanel({
             onBlur={() => {
               const trimmed = areaDraft.trim();
               if (trimmed !== rec.areaServed) void save({ areaServed: trimmed });
+            }}
+            style={authInputStyle}
+          />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-website`} style={authLabelStyle}>
+            WEBSITE
+          </label>
+          <input
+            id={`store-${id}-website`}
+            type="url"
+            value={websiteDraft}
+            placeholder="https://…"
+            onChange={(e) => setWebsiteDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = websiteDraft.trim();
+              if (trimmed !== rec.website) void save({ website: trimmed });
+            }}
+            style={authInputStyle}
+          />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-email`} style={authLabelStyle}>
+            PUBLIC CONTACT EMAIL
+          </label>
+          <input
+            id={`store-${id}-email`}
+            type="email"
+            value={emailDraft}
+            placeholder="Shown on your public page"
+            onChange={(e) => setEmailDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = emailDraft.trim();
+              if (trimmed !== rec.contactEmail) void save({ contactEmail: trimmed });
+            }}
+            style={authInputStyle}
+          />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label htmlFor={`store-${id}-instagram`} style={authLabelStyle}>
+            INSTAGRAM
+          </label>
+          <input
+            id={`store-${id}-instagram`}
+            type="text"
+            value={instagramDraft}
+            placeholder="handle (without the @)"
+            onChange={(e) => setInstagramDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = instagramDraft.trim().replace(/^@/, '');
+              if (trimmed !== instagramDraft) setInstagramDraft(trimmed);
+              if (trimmed !== rec.instagram) void save({ instagram: trimmed });
             }}
             style={authInputStyle}
           />

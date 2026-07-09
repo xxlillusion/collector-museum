@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
+import ShareButton from '../../components/ShareButton';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getShowForWalk } from '../../lib/publicShows';
 import type { ShowWalkData } from '../../lib/publicShows';
@@ -118,9 +119,44 @@ export default function ShowDetail({ showId }: { showId: string }) {
             <div style={{ fontFamily: SERIF, fontSize: 17, letterSpacing: '0.05em', color: TEXT }}>
               {formatShowDate(show.showDate) ?? 'Date to be announced'}
             </div>
-            {formatLocation(show) && (
+            {(show.venueName || formatLocation(show)) && (
               <div style={{ ...noteStyle, fontSize: 14, marginTop: 7 }}>
-                {formatLocation(show)}
+                {[show.venueName, formatLocation(show)].filter(Boolean).join(' · ')}
+              </div>
+            )}
+            {show.address && (
+              <div style={{ marginTop: 7 }}>
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(show.address)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ ...noteStyle, fontSize: 13.5, color: GOLD, textDecoration: 'none' }}
+                >
+                  {show.address} ↗
+                </a>
+              </div>
+            )}
+            {(show.hours || show.admission) && (
+              <div style={{ ...noteStyle, fontSize: 13.5, marginTop: 7 }}>
+                {[show.hours, show.admission].filter(Boolean).join(' · ')}
+              </div>
+            )}
+            {show.externalUrl && (
+              <div style={{ marginTop: 10 }}>
+                <a
+                  href={show.externalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    fontFamily: SERIF,
+                    fontSize: 12,
+                    letterSpacing: '0.18em',
+                    color: GOLD,
+                    textDecoration: 'none',
+                  }}
+                >
+                  SHOW WEBSITE / TICKETS →
+                </a>
               </div>
             )}
           </div>
@@ -218,11 +254,12 @@ export default function ShowDetail({ showId }: { showId: string }) {
             )}
           </Section>
 
-          <p style={{ marginTop: 8 }}>
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap' }}>
             <Link href="/shows" style={backLinkStyle}>
               ← ALL CARD SHOWS
             </Link>
-          </p>
+            <ShareButton title={show.name} />
+          </div>
         </>
       )}
     </PageShell>

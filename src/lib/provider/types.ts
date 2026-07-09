@@ -17,10 +17,10 @@ export type ProviderKind = 'local' | 'remote';
  * sleeveTextures.ts (createImageBitmap on blobs) and aspect computation all
  * work unmodified regardless of backend.
  *
- * FROZEN after Phase 0 — parallel workstreams code against this shape and
- * must not edit it. Organizer-only operations (publish show, invites) do NOT
- * belong here; they live in a separate show service used only by organizer
- * and public screens.
+ * Frozen during the Phase-0 parallel workstreams (now merged); since then,
+ * additive changes only — never reshape existing signatures. Organizer-only
+ * operations (publish show, invites) do NOT belong here; they live in a
+ * separate show service used only by organizer and public screens.
  */
 export interface DataProvider {
   readonly kind: ProviderKind;
@@ -69,7 +69,9 @@ export interface DataProvider {
   countInventory(vendorId: string): Promise<number>;
   updateInventoryItem(
     id: string,
-    patch: Partial<Pick<InventoryItemRecord, 'caption' | 'visible'>>,
+    patch: Partial<
+      Pick<InventoryItemRecord, 'caption' | 'visible' | 'price' | 'status' | 'condition'>
+    >,
   ): Promise<void>;
   deleteInventoryItem(id: string): Promise<void>;
 }

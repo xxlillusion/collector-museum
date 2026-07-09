@@ -1,14 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
+import ShareButton from '../../components/ShareButton';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import type { PublicVendorProfile } from '../../lib/publicVendors';
 import { formatLocation } from '../../lib/locations';
+import { formatPrice } from '../../lib/price';
 import {
   GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF,
   Section, primaryButtonStyle, noteStyle,
 } from '../../components/museumKit';
+
+const contactLinkStyle: React.CSSProperties = {
+  fontFamily: SERIF,
+  fontSize: 12.5,
+  letterSpacing: '0.14em',
+  color: GOLD,
+  textDecoration: 'none',
+};
 
 // Public vendor profile page (/vendor/:id) — owned by the vendor-portal
 // workstream (Stream B). Anon-safe: reads via lib/publicVendors.ts (direct
@@ -97,10 +107,14 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   const { profile } = state;
   const location = formatLocation({ country: profile.country, state: profile.state });
   const areaServed = profile.areaServed.trim();
+  const website = profile.website.trim();
+  const contactEmail = profile.contactEmail.trim();
+  const instagram = profile.instagram.trim().replace(/^@/, '');
+  const hasContact = Boolean(website || contactEmail || instagram);
 
   return (
     <PageShell title={profile.name} eyebrow="REGISTERED VENDOR">
-      {(location || areaServed) && (
+      {(location || areaServed || hasContact) && (
         <div style={{ margin: '-18px 0 30px', textAlign: 'center' }}>
           {location && (
             <div
@@ -117,6 +131,44 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
           {areaServed && (
             <div style={{ ...noteStyle, fontSize: 13.5, marginTop: 5 }}>
               Serves: {areaServed}
+            </div>
+          )}
+          {hasContact && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'baseline',
+                gap: 26,
+                flexWrap: 'wrap',
+                marginTop: 12,
+              }}
+            >
+              {website && (
+                <a
+                  href={/^https?:\/\//i.test(website) ? website : `https://${website}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={contactLinkStyle}
+                >
+                  WEBSITE ↗
+                </a>
+              )}
+              {contactEmail && (
+                <a href={`mailto:${contactEmail}`} style={contactLinkStyle}>
+                  CONTACT ✉
+                </a>
+              )}
+              {instagram && (
+                <a
+                  href={`https://instagram.com/${instagram}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={contactLinkStyle}
+                >
+                  @{instagram.toUpperCase()}
+                </a>
+              )}
             </div>
           )}
         </div>
@@ -190,19 +242,51 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                       background: '#0d0b0a',
                     }}
                   />
-                  {item.caption && (
+                  {(item.caption || item.price !== undefined || item.status !== 'forSale') && (
                     <figcaption
                       style={{
                         marginTop: 10,
                         fontFamily: SERIF,
-                        fontStyle: 'italic',
                         fontSize: 12.5,
                         lineHeight: 1.5,
                         color: MUTED,
                         textAlign: 'center',
                       }}
                     >
-                      {item.caption}
+                      {item.caption && <span style={{ fontStyle: 'italic' }}>{item.caption}</span>}
+                      {(item.price !== undefined || item.condition || item.status !== 'forSale') && (
+                        <span
+                          style={{
+                            display: 'block',
+                            marginTop: item.caption ? 4 : 0,
+                            letterSpacing: '0.08em',
+                          }}
+                        >
+                          {item.price !== undefined && (
+                            <span
+                              style={{
+                                color: item.status === 'sold' ? MUTED : GOLD,
+                                textDecoration: item.status === 'sold' ? 'line-through' : 'none',
+                              }}
+                            >
+                              {formatPrice(item.price)}
+                            </span>
+                          )}
+                          {item.condition && (
+                            <span>{item.price !== undefined ? ' · ' : ''}{item.condition}</span>
+                          )}
+                          {item.status === 'sold' && (
+                            <span style={{ color: '#b0685c', letterSpacing: '0.2em' }}>
+                              {item.price !== undefined || item.condition ? ' · ' : ''}SOLD
+                            </span>
+                          )}
+                          {item.status === 'display' && (
+                            <span style={{ fontStyle: 'italic' }}>
+                              {item.price !== undefined || item.condition ? ' · ' : ''}Display only
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </figcaption>
                   )}
                 </figure>
@@ -265,6 +349,10 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
           </div>
         )}
       </Section>
+
+      <div style={{ marginTop: 10 }}>
+        <ShareButton title={profile.name} />
+      </div>
     </PageShell>
   );
 }

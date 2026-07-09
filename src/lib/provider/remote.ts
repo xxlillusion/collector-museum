@@ -4,6 +4,7 @@ import type {
   SavedPlanRecord,
   VendorRecord,
   InventoryItemRecord,
+  InventoryStatus,
   VendorShowEntry,
 } from '../db';
 import { downscaleImage } from '../db';
@@ -50,6 +51,9 @@ interface VendorRow {
   name: string;
   banner_path: string | null;
   manual_shows: VendorShowEntry[] | null;
+  website: string;
+  contact_email: string;
+  instagram: string;
   created_at: string;
   updated_at: string;
 }
@@ -62,6 +66,9 @@ interface InventoryRow {
   visible: boolean;
   aspect: number;
   added_at: string;
+  price: number | null;
+  status: InventoryStatus;
+  condition: string;
 }
 
 interface ShowRow {
@@ -160,6 +167,9 @@ export async function upsertCloudVendor(userId: string, record: VendorRecord): P
       owner_id: userId,
       name: record.name,
       manual_shows: record.manualShows,
+      website: record.website ?? '',
+      contact_email: record.contactEmail ?? '',
+      instagram: record.instagram ?? '',
       created_at: iso(record.createdAt),
       updated_at: iso(record.updatedAt),
     });
@@ -191,6 +201,9 @@ export async function upsertCloudInventoryItem(
       visible: item.visible,
       aspect: item.aspect,
       added_at: iso(item.addedAt),
+      price: item.price ?? null,
+      status: item.status ?? 'forSale',
+      condition: item.condition ?? '',
     });
   if (error) throw new Error(`save inventory item: ${error.message}`);
 }
@@ -384,7 +397,9 @@ export function makeRemoteProvider(userId: string): DataProvider {
     getVendors: async () => {
       const { data, error } = await db()
         .from('vendors')
-        .select('id,name,banner_path,manual_shows,created_at,updated_at')
+        .select(
+          'id,name,banner_path,manual_shows,website,contact_email,instagram,created_at,updated_at',
+        )
         .eq('owner_id', userId)
         .order('created_at', { ascending: true });
       if (error) throw new Error(`load vendors: ${error.message}`);
@@ -397,6 +412,9 @@ export function makeRemoteProvider(userId: string): DataProvider {
             createdAt: ts(row.created_at),
             updatedAt: ts(row.updated_at),
             manualShows: row.manual_shows ?? [],
+            website: row.website || undefined,
+            contactEmail: row.contact_email || undefined,
+            instagram: row.instagram || undefined,
           };
           if (row.banner_path) {
             const blob = await downloadImageIfExists('banners', row.banner_path);
@@ -410,6 +428,9 @@ export function makeRemoteProvider(userId: string): DataProvider {
       const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (patch.name !== undefined) row.name = patch.name;
       if (patch.manualShows !== undefined) row.manual_shows = patch.manualShows;
+      if (patch.website !== undefined) row.website = patch.website;
+      if (patch.contactEmail !== undefined) row.contact_email = patch.contactEmail;
+      if (patch.instagram !== undefined) row.instagram = patch.instagram;
       // bannerBlob is managed by set/removeVendorBannerBlob (Storage-backed).
       const { error } = await db().from('vendors').update(row).eq('id', id);
       if (error) throw new Error(`update vendor: ${error.message}`);
@@ -463,7 +484,7 @@ export function makeRemoteProvider(userId: string): DataProvider {
     getInventoryItems: async (vendorId) => {
       const { data, error } = await db()
         .from('inventory_items')
-        .select('id,vendor_id,image_path,caption,visible,aspect,added_at')
+        .select('id,vendor_id,image_path,caption,visible,aspect,added_at,price,status,condition')
         .eq('vendor_id', vendorId)
         .order('added_at', { ascending: true });
       if (error) throw new Error(`load inventory: ${error.message}`);
@@ -478,6 +499,9 @@ export function makeRemoteProvider(userId: string): DataProvider {
             visible: row.visible,
             aspect: row.aspect,
             addedAt: ts(row.added_at),
+            price: row.price ?? undefined,
+            status: row.status,
+            condition: row.condition || undefined,
           }),
         ),
       );
@@ -494,6 +518,10 @@ export function makeRemoteProvider(userId: string): DataProvider {
       const row: Record<string, unknown> = {};
       if (patch.caption !== undefined) row.caption = patch.caption;
       if (patch.visible !== undefined) row.visible = patch.visible;
+      // `in` check: an explicit { price: undefined } clears the price.
+      if ('price' in patch) row.price = patch.price ?? null;
+      if (patch.status !== undefined) row.status = patch.status;
+      if ('condition' in patch) row.condition = patch.condition ?? '';
       if (Object.keys(row).length === 0) return;
       const { error } = await db().from('inventory_items').update(row).eq('id', id);
       if (error) throw new Error(`update inventory item: ${error.message}`);

@@ -52,7 +52,15 @@ export interface VendorRecord {
   bannerBlob?: Blob;
   /** Manual entries; plan-derived shows are computed live, never stored. */
   manualShows: VendorShowEntry[];
+  /** Public contact links (0005) — empty/absent = not shown. */
+  website?: string;
+  contactEmail?: string;
+  /** Handle without the @. */
+  instagram?: string;
 }
+
+/** Sale status of an inventory item; absent on pre-0005 records = 'forSale'. */
+export type InventoryStatus = 'forSale' | 'sold' | 'display';
 
 /** One captioned inventory image belonging to a vendor. */
 export interface InventoryItemRecord {
@@ -65,6 +73,11 @@ export interface InventoryItemRecord {
   /** width / height, computed once at upload. */
   aspect: number;
   addedAt: number;
+  /** Asking price in the vendor's currency; absent = no price shown. */
+  price?: number;
+  status?: InventoryStatus;
+  /** Free text: "NM", "PSA 9", ... empty/absent = unstated. */
+  condition?: string;
 }
 
 interface MuseumDB extends DBSchema {
@@ -406,7 +419,9 @@ export async function countInventory(vendorId: string): Promise<number> {
 
 export async function updateInventoryItem(
   id: string,
-  patch: Partial<Pick<InventoryItemRecord, 'caption' | 'visible'>>,
+  patch: Partial<
+    Pick<InventoryItemRecord, 'caption' | 'visible' | 'price' | 'status' | 'condition'>
+  >,
 ): Promise<void> {
   const db = await getDB();
   const record = await db.get('inventory', id);

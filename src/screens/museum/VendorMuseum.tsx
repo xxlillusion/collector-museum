@@ -4,6 +4,7 @@ import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import type { CardWithUrl } from '../../lib/useCards';
+import type { InspectSale } from '../../components/InspectOverlay';
 
 // Walk a vendor's public inventory in the 3D museum (/museum/vendor/:id) —
 // owned by the public browsing workstream (Stream C).
@@ -17,7 +18,12 @@ const GOLD = '#d4af37';
 type LoadState =
   | { status: 'loading' }
   | { status: 'unavailable'; note: string }
-  | { status: 'ready'; cards: CardWithUrl[]; captions: Map<string, string> };
+  | {
+      status: 'ready';
+      cards: CardWithUrl[];
+      captions: Map<string, string>;
+      sales: Map<string, InspectSale>;
+    };
 
 /** Fullscreen interstitial shown while blobs download / Scene code loads. */
 function MuseumLoading({ text }: { text: string }) {
@@ -108,10 +114,16 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
         return;
       }
       const captions = new Map<string, string>();
+      const sales = new Map<string, InspectSale>();
       for (const item of profile.items) {
         if (item.caption) captions.set(item.imageUrl, item.caption);
+        sales.set(item.imageUrl, {
+          price: item.price,
+          status: item.status,
+          condition: item.condition || undefined,
+        });
       }
-      setState({ status: 'ready', cards, captions });
+      setState({ status: 'ready', cards, captions, sales });
     })();
     return () => {
       cancelled = true;
@@ -146,6 +158,7 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
         <Scene
           cards={state.cards}
           captions={state.captions}
+          sales={state.sales}
           bannerUrl={null}
           onManage={() => navigate(`/vendor/${vendorId}`)}
           exitLabel="← Back to Vendor"

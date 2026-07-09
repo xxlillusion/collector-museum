@@ -5,7 +5,7 @@ import { useVendorInventory } from '../lib/useVendorInventory';
 import { useProvider } from '../lib/provider/context';
 import { deriveShowsAttended } from '../lib/vendorShows';
 import type { VendorSummary } from '../lib/useVendors';
-import type { SavedPlanRecord } from '../lib/db';
+import type { InventoryStatus, SavedPlanRecord } from '../lib/db';
 import {
   GOLD,
   HAIRLINE,
@@ -128,6 +128,91 @@ function CaptionInput({
       onChange={(e) => handleChange(e.target.value)}
       style={{ ...inputStyle, padding: '7px 9px', fontSize: 12, fontStyle: value ? 'normal' : 'italic' }}
     />
+  );
+}
+
+const saleInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  padding: '6px 8px',
+  fontSize: 11.5,
+};
+
+/**
+ * Price / status / condition per inventory tile. Price and condition are
+ * debounced like captions; status saves immediately. Price accepts "$1,200"
+ * style input and stores a number; empty clears it.
+ */
+function SaleFields({
+  item,
+  onSave,
+}: {
+  item: { id: string; price?: number; status?: InventoryStatus; condition?: string };
+  onSave: (
+    id: string,
+    patch: Partial<{ price: number | undefined; status: InventoryStatus; condition: string }>,
+  ) => void;
+}) {
+  const [price, setPrice] = useState(item.price !== undefined ? String(item.price) : '');
+  const [condition, setCondition] = useState(item.condition ?? '');
+  const priceTimer = useRef<number | null>(null);
+  const condTimer = useRef<number | null>(null);
+  // Re-sync when the underlying item changes (vendor switch reuses inputs)
+  useEffect(() => {
+    setPrice(item.price !== undefined ? String(item.price) : '');
+    setCondition(item.condition ?? '');
+  }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const queuePrice = (raw: string) => {
+    setPrice(raw);
+    if (priceTimer.current !== null) window.clearTimeout(priceTimer.current);
+    priceTimer.current = window.setTimeout(() => {
+      const n = Number(raw.replace(/[$,\s]/g, ''));
+      onSave(item.id, { price: raw.trim() && Number.isFinite(n) && n >= 0 ? n : undefined });
+    }, 500);
+  };
+
+  const queueCondition = (raw: string) => {
+    setCondition(raw);
+    if (condTimer.current !== null) window.clearTimeout(condTimer.current);
+    condTimer.current = window.setTimeout(() => onSave(item.id, { condition: raw.trim() }), 500);
+  };
+
+  useEffect(() => () => {
+    if (priceTimer.current !== null) window.clearTimeout(priceTimer.current);
+    if (condTimer.current !== null) window.clearTimeout(condTimer.current);
+  }, []);
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+        <input
+          type="text"
+          inputMode="decimal"
+          placeholder="$ price"
+          title="Asking price (blank = no price shown)"
+          value={price}
+          onChange={(e) => queuePrice(e.target.value)}
+          style={{ ...saleInputStyle, width: '40%', minWidth: 0 }}
+        />
+        <select
+          value={item.status ?? 'forSale'}
+          title="Sale status"
+          onChange={(e) => onSave(item.id, { status: e.target.value as InventoryStatus })}
+          style={{ ...saleInputStyle, flex: 1, minWidth: 0 }}
+        >
+          <option value="forSale">For sale</option>
+          <option value="sold">Sold</option>
+          <option value="display">Display only</option>
+        </select>
+      </div>
+      <input
+        type="text"
+        placeholder="Condition (NM, PSA 9…)"
+        value={condition}
+        onChange={(e) => queueCondition(e.target.value)}
+        style={{ ...saleInputStyle, marginTop: '6px', fontStyle: condition ? 'normal' : 'italic' }}
+      />
+    </>
   );
 }
 
@@ -569,6 +654,7 @@ export default function VendorsScreen({
                       <div style={{ marginTop: '8px' }}>
                         <CaptionInput itemId={item.id} caption={item.caption} onSave={inventory.setCaption} />
                       </div>
+                      <SaleFields item={item} onSave={inventory.setSale} />
                       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontSize: '11px', color: MUTED, cursor: 'pointer' }}>
                         <input
                           type="checkbox"

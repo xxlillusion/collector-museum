@@ -12,11 +12,28 @@ export interface CardRecord {
   year?: string;
   grade?: string;
   notes?: string;
+  // Wall curation (same jsonb, non-string types): featured hangs first;
+  // hangOrder orders manually (lower first, absent last); onWalls false =
+  // binder-only — the card stays in the collection but leaves the walls.
+  featured?: boolean;
+  hangOrder?: number;
+  onWalls?: boolean;
 }
 
 /** The editable (non-image) fields of a card. */
 export type CardPatch = Partial<
-  Pick<CardRecord, 'name' | 'setName' | 'cardNumber' | 'year' | 'grade' | 'notes'>
+  Pick<
+    CardRecord,
+    | 'name'
+    | 'setName'
+    | 'cardNumber'
+    | 'year'
+    | 'grade'
+    | 'notes'
+    | 'featured'
+    | 'hangOrder'
+    | 'onWalls'
+  >
 >;
 
 export interface SettingRecord {

@@ -47,24 +47,40 @@ interface CollectionRow {
   metadata: Record<string, unknown> | null;
 }
 
-/** collections.metadata jsonb ⇄ CardRecord's optional metadata fields. */
+/** collections.metadata jsonb ⇄ CardRecord's optional metadata fields.
+ *  Placard keys are strings; curation keys (0007-era walls feature) carry
+ *  their real types through the same jsonb. */
 const CARD_META_KEYS = ['setName', 'cardNumber', 'year', 'grade', 'notes'] as const;
+const CARD_CURATION_KEYS = ['featured', 'hangOrder', 'onWalls'] as const;
 
 function cardMetaFromRow(metadata: Record<string, unknown> | null): Partial<CardRecord> {
-  const out: Record<string, string> = {};
+  const out: Partial<CardRecord> = {};
   for (const k of CARD_META_KEYS) {
     const v = metadata?.[k];
     if (typeof v === 'string' && v) out[k] = v;
   }
-  return out as Partial<CardRecord>;
+  const featured = metadata?.featured;
+  if (typeof featured === 'boolean') out.featured = featured;
+  const hangOrder = metadata?.hangOrder;
+  if (typeof hangOrder === 'number' && Number.isFinite(hangOrder)) out.hangOrder = hangOrder;
+  const onWalls = metadata?.onWalls;
+  if (typeof onWalls === 'boolean') out.onWalls = onWalls;
+  return out;
 }
 
-function cardMetaToJson(card: Partial<CardRecord>): Record<string, string> {
-  const out: Record<string, string> = {};
+function cardMetaToJson(
+  card: Partial<CardRecord>,
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
   for (const k of CARD_META_KEYS) {
     const v = card[k];
     if (typeof v === 'string' && v) out[k] = v;
   }
+  if (typeof card.featured === 'boolean') out.featured = card.featured;
+  if (typeof card.hangOrder === 'number' && Number.isFinite(card.hangOrder)) {
+    out.hangOrder = card.hangOrder;
+  }
+  if (typeof card.onWalls === 'boolean') out.onWalls = card.onWalls;
   return out;
 }
 
@@ -328,7 +344,8 @@ export function makeRemoteProvider(userId: string): DataProvider {
       const row: Record<string, unknown> = {};
       if (patch.name !== undefined) row.name = patch.name;
       // metadata is written whole (read-modify-write) so cleared fields drop out
-      const metaTouched = CARD_META_KEYS.some((k) => k in patch);
+      const metaTouched =
+        CARD_META_KEYS.some((k) => k in patch) || CARD_CURATION_KEYS.some((k) => k in patch);
       if (metaTouched) {
         const { data } = await db()
           .from('collections')

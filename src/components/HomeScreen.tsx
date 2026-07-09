@@ -57,6 +57,10 @@ const cardFieldStyle: React.CSSProperties = {
   marginTop: '5px',
 };
 
+/** The editor's text fields — CardPatch minus the curation flags (those are
+ *  boolean/number and belong to the curate-the-walls controls, not inputs). */
+type CardTextKey = 'name' | 'setName' | 'cardNumber' | 'year' | 'grade' | 'notes';
+
 /** Per-card details editor (museum placard fields). Save-on-blur per field. */
 function CardDetailsEditor({
   card,
@@ -65,7 +69,7 @@ function CardDetailsEditor({
   card: CardWithUrl;
   onSave: (id: string, patch: CardPatch) => void;
 }) {
-  const [draft, setDraft] = useState<Required<CardPatch>>({
+  const [draft, setDraft] = useState<Record<CardTextKey, string>>({
     name: card.name,
     setName: card.setName ?? '',
     cardNumber: card.cardNumber ?? '',
@@ -74,8 +78,8 @@ function CardDetailsEditor({
     notes: card.notes ?? '',
   });
 
-  const commit = (key: keyof CardPatch) => {
-    const next = draft[key]!.trim();
+  const commit = (key: CardTextKey) => {
+    const next = draft[key].trim();
     const current = (key === 'name' ? card.name : card[key]) ?? '';
     if (key === 'name' && !next) {
       setDraft((d) => ({ ...d, name: card.name })); // never save an empty name
@@ -84,7 +88,7 @@ function CardDetailsEditor({
     if (next !== current) onSave(card.id, { [key]: next });
   };
 
-  const field = (key: keyof CardPatch, placeholder: string) => (
+  const field = (key: CardTextKey, placeholder: string) => (
     <input
       type="text"
       value={draft[key]}

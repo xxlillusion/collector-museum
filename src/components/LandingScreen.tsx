@@ -18,7 +18,7 @@ export default function LandingScreen() {
         <div style={{ fontSize: 11, letterSpacing: '0.4em', color: MUTED, marginBottom: 14 }}>
           EST. 2026 · CARD SHOWS &amp; COLLECTIONS
         </div>
-        <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: 48, fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
+        <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: 'clamp(30px, 10vw, 48px)', fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
           VENDOR MUSEUM
         </h1>
         <div style={{ margin: '20px 0' }}>

@@ -33,17 +33,56 @@ export default function PageShell({ title, eyebrow, wide, children }: {
       }}
     >
       <style>{museumHoverCss}</style>
-      {configured && (
-        <div style={{ position: 'absolute', top: 18, right: 22, fontFamily: SERIF, fontSize: 12, letterSpacing: '0.12em' }}>
+      {/* Corner chrome: sized to clear the "← VENDOR MUSEUM" back link at
+          375px — single row, ellipsized account label, bottom above y=48. */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 14,
+          right: 22,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          maxWidth: 'calc(100vw - 44px)',
+          fontFamily: SERIF,
+          fontSize: 12,
+          letterSpacing: '0.12em',
+          zIndex: 2,
+        }}
+      >
+        <Link
+          href="/wants"
+          style={{
+            color: GOLD,
+            textDecoration: 'none',
+            border: `1px solid ${HAIRLINE}`,
+            borderRadius: 999,
+            padding: '7px 14px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ♥ WANTS
+        </Link>
+        {configured && (
           <Link
             href={session ? '/account' : '/login'}
-            style={{ color: GOLD, textDecoration: 'none', border: `1px solid ${HAIRLINE}`, borderRadius: 999, padding: '8px 18px' }}
+            style={{
+              color: GOLD,
+              textDecoration: 'none',
+              border: `1px solid ${HAIRLINE}`,
+              borderRadius: 999,
+              padding: '7px 14px',
+              whiteSpace: 'nowrap',
+              maxWidth: 'min(40vw, 240px)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
           >
             {session ? (session.user.email ?? 'MY ACCOUNT') : 'SIGN IN'}
           </Link>
-        </div>
-      )}
-      <div style={{ maxWidth: wide ? 1100 : 880, margin: '0 auto', padding: '48px 24px 80px' }}>
+        )}
+      </div>
+      <div style={{ maxWidth: wide ? 1100 : 880, margin: '0 auto', padding: '48px clamp(16px, 4vw, 24px) 80px' }}>
         <Link
           href="/"
           style={{ color: GOLD, textDecoration: 'none', fontFamily: SERIF, fontSize: 12, letterSpacing: '0.22em' }}
@@ -61,7 +100,7 @@ export default function PageShell({ title, eyebrow, wide, children }: {
               margin: 0,
               fontFamily: SERIF,
               fontWeight: 400,
-              fontSize: 34,
+              fontSize: 'clamp(24px, 7vw, 34px)',
               letterSpacing: '0.16em',
               color: GOLD,
               textTransform: 'uppercase',

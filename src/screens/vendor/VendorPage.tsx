@@ -229,7 +229,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
                 gap: 22,
                 alignItems: 'start',
               }}

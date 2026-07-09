@@ -53,7 +53,7 @@ export default function HallDirectory({
         position: 'fixed',
         top: 76,
         left: 16,
-        width: 300,
+        width: 'min(300px, calc(100vw - 32px))',
         maxHeight: 'calc(100vh - 140px)',
         display: 'flex',
         flexDirection: 'column',

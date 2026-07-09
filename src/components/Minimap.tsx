@@ -15,7 +15,10 @@ export interface MinimapMapping {
   imgH: number;
 }
 
-const MAP_W = 220; // on-screen minimap width, px
+// On-screen minimap width, px. One module-level computed const shared by the
+// DOM overlay AND MinimapTracker's math so both stay consistent — phones get
+// a smaller map so it doesn't dominate a 375px viewport.
+const MAP_W = typeof window !== 'undefined' && window.innerWidth < 480 ? 140 : 220;
 const MARKER = 12; // marker size, px
 
 /** An assigned booth's center in plan-image UV (0–1) — dots on the minimap. */

@@ -23,7 +23,9 @@ const pillStyle: CSSProperties = {
   padding: '8px 16px',
   borderRadius: '8px',
   fontSize: '13px',
-  whiteSpace: 'nowrap',
+  maxWidth: '90vw',
+  boxSizing: 'border-box',
+  textAlign: 'center',
   border: '1px solid rgba(255,255,255,0.2)',
 };
 
@@ -68,7 +70,9 @@ export default function HUD({
           borderRadius: '8px',
           fontSize: '14px',
           border: '1px solid rgba(255,255,255,0.25)',
-          whiteSpace: 'nowrap',
+          maxWidth: '90vw',
+          boxSizing: 'border-box',
+          textAlign: 'center',
         }}>
           {isTouchDevice ? <>Tap the binder to open it</> : <>Press <b>F</b> to open the binder</>}
         </div>

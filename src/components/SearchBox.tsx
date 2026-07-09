@@ -1,0 +1,65 @@
+import { useState } from 'react';
+import { useLocation } from 'wouter';
+import { GOLD, HAIRLINE, MUTED, SERIF, inputStyle } from './museumKit';
+
+// Museum-styled search entry: submits to /search?q=… (the SearchScreen owns
+// the actual querying). Lives on the landing page and both directories.
+export default function SearchBox({
+  initialQuery = '',
+  autoFocus = false,
+  width = 340,
+}: {
+  initialQuery?: string;
+  autoFocus?: boolean;
+  /** Max width — the box shrinks with the viewport below this. */
+  width?: number;
+}) {
+  const [, navigate] = useLocation();
+  const [q, setQ] = useState(initialQuery);
+
+  const submit = () => {
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    navigate(`/search?q=${encodeURIComponent(trimmed)}`);
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 8,
+        width: '100%',
+        maxWidth: width,
+        alignItems: 'stretch',
+      }}
+    >
+      <input
+        type="search"
+        placeholder="Search shows, vendors, cards…"
+        value={q}
+        autoFocus={autoFocus}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+        }}
+        style={{ ...inputStyle, flex: 1, minWidth: 0, fontFamily: SERIF }}
+      />
+      <button
+        onClick={submit}
+        title="Search"
+        aria-label="Search"
+        style={{
+          background: 'transparent',
+          border: `1px solid ${HAIRLINE}`,
+          borderRadius: 2,
+          color: q.trim() ? GOLD : MUTED,
+          fontSize: 16,
+          padding: '0 14px',
+          cursor: 'pointer',
+        }}
+      >
+        ⌕
+      </button>
+    </div>
+  );
+}

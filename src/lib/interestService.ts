@@ -36,6 +36,11 @@ export function isWanted(itemId: string): boolean {
   return readWants().has(itemId);
 }
 
+/** All hearted item ids (insertion order not guaranteed) — the /wants page. */
+export function getWantedItemIds(): string[] {
+  return [...readWants()];
+}
+
 /** Toggle locally (sync) and mirror to the cloud when signed in. Returns the new state. */
 export function toggleWant(userId: string | null, itemId: string): boolean {
   const wants = readWants();

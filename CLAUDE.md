@@ -543,6 +543,41 @@ parallel streams, additive-only changes since — never reshape existing signatu
   organizer panels surface the error inline). 0005's apply-first warning still stands.
   Not browser-verified (need live + migrations): ShowDetail stars/apply against a real
   show, registry ♥ counts, QR modal (auth-gated) — all isolated, low-risk surfaces.
+- **Discovery & Mobile wave shipped** (2026-07-09, roadmap items 14 + 16; built as
+  **scaffold + two parallel worktree streams** — scaffold commit froze the seams
+  (`lib/publicSearch.ts` types + stub, `/search` + `/wants` routes + placeholder screens,
+  `SearchBox.tsx` mounted on LandingScreen/ShowDirectory/VendorDirectory,
+  `interestService.getWantedItemIds`), then `disc-stream-a` (search) and `disc-stream-b`
+  (mobile + wants) ran concurrently on disjoint files and merged conflict-free; each
+  stream self-verified headlessly, merged smoke re-verified the seams; zero console
+  errors throughout):
+  - **Search (14)** — `searchAll(q)` in `lib/publicSearch.ts`: three parallel anon-safe
+    `.ilike` queries (shows by name + published, registered vendors by name, visible
+    inventory by caption w/ `vendors!inner` join and `inventory_public` re-filter),
+    `%`/`_`/`\` escaped, min 2 chars, limits 20/20/60 with +1-overfetch truncation
+    flags; per-section try/catch so one failed query never sinks the search.
+    `screens/search/SearchScreen.tsx` reads `?q=` reactively via wouter's `useSearch`,
+    SHOWS/VENDORS/CARDS sections in directory-row style (card rows: thumbnail, price
+    struck + SOLD when sold, condition, vendor link). SearchBox on the landing page and
+    both directory filter rows navigates here. Live-verified: q=Live → 2 shows + 1
+    vendor; q=holo → 3 card rows with bucket thumbnails.
+  - **Want-list page** — `/wants` (`screens/wants/WantListScreen.tsx` +
+    `lib/publicWants.ts` `fetchWantedItems`, ids chunked by 50): localStorage ids →
+    anon-safe cloud resolve, grouped by vendor, unheart buttons (toggle OUTSIDE state
+    updaters — the StrictMode gotcha), "N marked item(s) aren't listed anymore" note for
+    deleted/sandbox-local ids, works signed-out. "♥ WANTS" link in PageShell's corner
+    chrome (shown even in guest-only mode). Live loop verified: heart on a vendor page →
+    /wants renders it → unheart removes it.
+  - **Mobile pass (16)** — 375px target, `clamp()`/`min()` inline (no media-query
+    framework): PageShell title `clamp(24px,7vw,34px)` + padding `clamp(16px,4vw,24px)`
+    + corner chrome fits beside the back link; LandingScreen h1 clamp; VendorPage/
+    CollectorPage/wants grids `minmax(140px,1fr)` (2-up phones); Minimap `MAP_W` now a
+    module-computed const (140 under 480px — overlay + tracker share it); HUD hint pills
+    wrap (`maxWidth: 90vw`); HallDirectory panel `min(300px, calc(100vw - 32px))`.
+    Playwright 375×812 hasTouch: no horizontal scroll on /, /shows, /vendors, /wants,
+    /login, live vendor + show pages, /search.
+  No schema changes. If caption search ever feels slow, a pg_trgm index on
+  inventory_items.caption is a one-line future migration.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

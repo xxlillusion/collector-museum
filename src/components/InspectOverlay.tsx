@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import type { CSSProperties } from 'react';
 import type { InventoryStatus } from '../lib/db';
 import { formatPrice } from '../lib/price';
 
@@ -19,11 +20,19 @@ interface InspectOverlayProps {
   sale?: InspectSale;
   /** Want-list heart ("I'm interested") — host owns state + persistence. */
   want?: { wanted: boolean; onToggle: () => void };
+  /** Prev/next paging through the host's current list (wall order / binder
+   *  slice) — ‹ › buttons, an "n of N" counter, and ←/→ arrow keys. */
+  nav?: { index: number; total: number; onPrev: () => void; onNext: () => void };
+  /** Whose item this is (hall binders) — optionally linked to their page. */
+  vendor?: { name: string; href?: string };
+  /** Own-collection museums: opens the card's metadata editor. Rendered only
+   *  while the card has no caption and no details line yet. */
+  onAddDetails?: () => void;
   /** `relock` is true when closed by click — the caller may resume pointer lock */
   onClose: (relock: boolean) => void;
 }
 
-export default function InspectOverlay({ imageUrl, caption, details, sale, want, onClose }: InspectOverlayProps) {
+export default function InspectOverlay({ imageUrl, caption, details, sale, want, nav, vendor, onAddDetails, onClose }: InspectOverlayProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.code === 'Escape') onClose(false);
@@ -31,6 +40,21 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
+
+  // Arrow-key paging — a separate listener so the Esc-to-close handler above
+  // stays untouched. Hosts freeze movement / suspend the binder while the
+  // overlay is up, so the arrows reach only us.
+  const onPrev = nav?.onPrev;
+  const onNext = nav?.onNext;
+  useEffect(() => {
+    if (!onPrev || !onNext) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.code === 'ArrowLeft') onPrev();
+      else if (e.code === 'ArrowRight') onNext();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onPrev, onNext]);
 
   // Enforce "no pointer lock while open". The click that opens the overlay can
   // also trigger the canvas's click-to-lock, and the lock lands *after* our
@@ -139,6 +163,32 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           )}
         </div>
       )}
+      {vendor && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            color: 'rgba(255,255,255,0.55)',
+            fontSize: '12.5px',
+            fontFamily: 'Georgia, serif',
+            letterSpacing: '0.1em',
+            userSelect: 'none',
+            cursor: 'default',
+          }}
+        >
+          from{' '}
+          {vendor.href ? (
+            <a
+              href={vendor.href}
+              onClick={(e) => e.stopPropagation()}
+              style={{ color: '#d4af37', textDecoration: 'underline' }}
+            >
+              {vendor.name}
+            </a>
+          ) : (
+            <span style={{ color: 'rgba(255,255,255,0.8)' }}>{vendor.name}</span>
+          )}
+        </div>
+      )}
       {want && (
         <button
           onClick={(e) => {
@@ -160,6 +210,68 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           {want.wanted ? '♥ ON MY WANT LIST' : "♡ I'M INTERESTED"}
         </button>
       )}
+      {onAddDetails && !caption && !details && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddDetails();
+          }}
+          style={{
+            background: 'rgba(0,0,0,0.5)',
+            color: 'rgba(255,255,255,0.75)',
+            border: '1px solid rgba(255,255,255,0.3)',
+            borderRadius: '20px',
+            padding: '8px 20px',
+            fontSize: '12.5px',
+            fontFamily: 'Georgia, serif',
+            letterSpacing: '0.14em',
+            cursor: 'pointer',
+          }}
+        >
+          ✎ add details
+        </button>
+      )}
+      {nav && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '18px',
+            userSelect: 'none',
+            cursor: 'default',
+          }}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              nav.onPrev();
+            }}
+            aria-label="Previous card"
+            style={navBtnStyle}
+          >
+            ‹
+          </button>
+          <span style={{
+            color: 'rgba(255,255,255,0.6)',
+            fontSize: '12.5px',
+            fontFamily: 'Georgia, serif',
+            letterSpacing: '0.14em',
+          }}>
+            {nav.index + 1} of {nav.total}
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              nav.onNext();
+            }}
+            aria-label="Next card"
+            style={navBtnStyle}
+          >
+            ›
+          </button>
+        </div>
+      )}
       <div style={{
         color: 'rgba(255,255,255,0.45)',
         fontSize: '13px',
@@ -177,3 +289,17 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
     </div>
   );
 }
+
+const navBtnStyle: CSSProperties = {
+  background: 'rgba(0,0,0,0.5)',
+  color: 'rgba(255,255,255,0.85)',
+  border: '1px solid rgba(255,255,255,0.3)',
+  borderRadius: '50%',
+  width: '38px',
+  height: '38px',
+  fontSize: '20px',
+  lineHeight: '34px',
+  textAlign: 'center',
+  padding: 0,
+  cursor: 'pointer',
+};

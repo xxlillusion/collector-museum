@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '../lib/auth';
 import { useMyProfile } from '../lib/useMyProfile';
@@ -29,6 +29,10 @@ interface HomeScreenProps {
   onRemove: (id: string) => Promise<void>;
   /** Card details editor (name / set / number / year / grade / notes). */
   onUpdateCard: (id: string, patch: CardPatch) => Promise<void>;
+  /** Open this card's details editor on arrival (museum "✎ add details").
+   *  Consumed once via onAutoEditConsumed so later visits start clean. */
+  autoEditCardId?: string;
+  onAutoEditConsumed?: () => void;
   bannerUrl: string | null;
   onSetBanner: (file: File) => Promise<void>;
   onRemoveBanner: () => Promise<void>;
@@ -139,6 +143,8 @@ export default function HomeScreen({
   onAdd,
   onRemove,
   onUpdateCard,
+  autoEditCardId,
+  onAutoEditConsumed,
   bannerUrl,
   onSetBanner,
   onRemoveBanner,
@@ -160,6 +166,15 @@ export default function HomeScreen({
   const [walkingId, setWalkingId] = useState<string | null>(null);
   // Which card's details editor is open (✎ on the tile)
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
+
+  // Museum "✎ add details" hand-off: seed the editor once, then tell the
+  // host to clear the request. Idempotent, so StrictMode's double-run and
+  // the post-clear re-render (autoEditCardId → undefined) are both safe.
+  useEffect(() => {
+    if (!autoEditCardId) return;
+    setEditingCardId(autoEditCardId);
+    onAutoEditConsumed?.();
+  }, [autoEditCardId, onAutoEditConsumed]);
   // Curate-the-walls mode: tiles show in wall order with ★ / ‹ › / HIDE
   // controls instead of the ✎/✕ pair
   const [curating, setCurating] = useState(false);

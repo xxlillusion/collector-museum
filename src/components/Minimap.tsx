@@ -26,6 +26,8 @@ export interface BoothMarker {
   u: number;
   v: number;
   vendorId: string;
+  /** Vendor display name (hosts populate it; not rendered here yet). */
+  name?: string;
 }
 
 interface MinimapProps {

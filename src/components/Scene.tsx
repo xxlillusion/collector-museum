@@ -13,6 +13,15 @@ import type { InspectSale } from './InspectOverlay';
 import Table from './Table';
 import Binder from './Binder';
 import { ShadowRefresh, LoadingOverlay } from './sceneCommon';
+import {
+  MUSEUM_EXPOSURE,
+  MUSEUM_WALL_SPOT,
+  MUSEUM_SPOT_LENS_EMISSIVE,
+  MUSEUM_ENV_TOP,
+  MUSEUM_ENV_SIDE,
+  MUSEUM_BLOOM,
+  MUSEUM_VIGNETTE,
+} from './sceneTuning';
 import type { CardWithUrl } from '../lib/useCards';
 
 // Layout constants — gallery style: consistent row height, variable widths
@@ -39,6 +48,10 @@ interface SceneProps {
   want?: { isWanted: (url: string) => boolean; toggle: (url: string) => boolean };
   bannerUrl: string | null;
   onManage: () => void;
+  /** Own-collection museums: "✎ add details" in the inspect overlay for
+   *  cards with no caption/details yet — host opens that card's metadata
+   *  editor (url identifies the card). */
+  onAddDetails?: (url: string) => void;
   /** Top-right exit button label — public museums say where "back" leads
    *  (the default reads wrong when the walls aren't the viewer's cards). */
   exitLabel?: string;
@@ -192,12 +205,12 @@ function WallSpot({ fx, fz, tx, tz, yaw }: SpotPlacement) {
       <spotLight
         ref={lightRef}
         position={[fx, ROOM.height - 0.18, fz]}
-        angle={0.7}
-        penumbra={0.85}
-        intensity={60}
-        decay={2}
-        distance={11}
-        color="#ffe6bd"
+        angle={MUSEUM_WALL_SPOT.angle}
+        penumbra={MUSEUM_WALL_SPOT.penumbra}
+        intensity={MUSEUM_WALL_SPOT.intensity}
+        decay={MUSEUM_WALL_SPOT.decay}
+        distance={MUSEUM_WALL_SPOT.distance}
+        color={MUSEUM_WALL_SPOT.color}
       />
       {/* Fixture: track head tilted toward the wall */}
       <group position={[fx, ROOM.height - 0.16, fz]} rotation={[0, yaw, 0]}>
@@ -212,7 +225,7 @@ function WallSpot({ fx, fz, tx, tz, yaw }: SpotPlacement) {
             <meshStandardMaterial
               color="#fff3dd"
               emissive="#ffdfa8"
-              emissiveIntensity={6}
+              emissiveIntensity={MUSEUM_SPOT_LENS_EMISSIVE}
               toneMapped={false}
             />
           </mesh>
@@ -222,9 +235,12 @@ function WallSpot({ fx, fz, tx, tz, yaw }: SpotPlacement) {
   );
 }
 
-export default function Scene({ cards, wallCards, captions, details, sales, want, bannerUrl, onManage, exitLabel }: SceneProps) {
+export default function Scene({ cards, wallCards, captions, details, sales, want, bannerUrl, onManage, onAddDetails, exitLabel }: SceneProps) {
   const [locked, setLocked] = useState(false);
-  const [inspectUrl, setInspectUrl] = useState<string | null>(null);
+  // What's inspected: an ordered url list (wall order for frame clicks, the
+  // full collection for binder clicks) + the current index — ‹ › / arrows
+  // page within the list. The current url keys every caption/sale lookup.
+  const [inspect, setInspect] = useState<{ list: string[]; index: number } | null>(null);
   const [inspectWanted, setInspectWanted] = useState(false);
   // "open or animating" — Binder owns the phase machine internally
   const [binderOpen, setBinderOpen] = useState(false);
@@ -304,14 +320,36 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
     }
   };
 
-  const handleCardClick = (url: string) => {
+  // Url lists the overlay pages through: wall clicks page the hang order
+  // (the exact array computeLayout consumed, including any overflow that
+  // didn't fit on the walls); binder clicks page the full collection.
+  const wallUrls = useMemo(() => wallSource.map((c) => c.imageUrl), [wallSource]);
+  const binderUrls = useMemo(() => cards.map((c) => c.imageUrl), [cards]);
+
+  const openInspect = (list: string[], url: string) => {
+    const index = Math.max(0, list.indexOf(url));
     document.exitPointerLock?.();
-    setInspectUrl(url);
-    if (want) setInspectWanted(want.isWanted(url));
+    setInspect({ list, index });
+    if (want) setInspectWanted(want.isWanted(list[index]));
   };
 
+  const handleFrameClick = (url: string) => openInspect(wallUrls, url);
+  const handleBinderInspect = (url: string) => openInspect(binderUrls, url);
+
+  // ‹ › / arrow keys — wraps at both ends (matches the hall).
+  const navigateInspect = (dir: -1 | 1) => {
+    if (!inspect || inspect.list.length === 0) return;
+    const total = inspect.list.length;
+    const index = (inspect.index + dir + total) % total;
+    setInspect({ list: inspect.list, index });
+    if (want) setInspectWanted(want.isWanted(inspect.list[index]));
+  };
+
+  // Current inspected url — the key into every caption/details/sale/want map
+  const inspectUrl = inspect ? inspect.list[inspect.index] : null;
+
   const handleCloseInspect = (relock: boolean) => {
-    setInspectUrl(null);
+    setInspect(null);
     // Re-enter walk mode only when closed by click (Escape universally means
     // "release"). Delayed so the overlay's no-lock-while-open enforcement has
     // unmounted first. Never relock while the binder is still up — its own
@@ -344,7 +382,7 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
           antialias: true,
           powerPreference: 'high-performance',
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.15,
+          toneMappingExposure: MUSEUM_EXPOSURE,
         }}
         style={{ width: '100vw', height: '100vh', background: '#0d0b0a' }}
         onPointerMissed={() => tryLock()}
@@ -398,10 +436,10 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
           <Binder
             cards={cards}
             open={binderOpen}
-            suspended={!!inspectUrl}
+            suspended={inspect !== null}
             onOpenRequest={handleBinderOpen}
             onPromptChange={setBinderPrompt}
-            onInspect={handleCardClick}
+            onInspect={handleBinderInspect}
             onClosed={handleBinderClosed}
           />
 
@@ -413,7 +451,7 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
               width={width}
               height={height}
               imageUrl={card.imageUrl}
-              onClick={() => handleCardClick(card.imageUrl)}
+              onClick={() => handleFrameClick(card.imageUrl)}
             />
           ))}
 
@@ -428,36 +466,38 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
               clearcoat reflections on the frames and floor */}
           <Environment resolution={64} frames={1}>
             <Lightformer
-              intensity={1.4}
+              intensity={MUSEUM_ENV_TOP.intensity}
               rotation-x={Math.PI / 2}
               position={[0, 4, 0]}
               scale={[12, 8, 1]}
-              color="#fff2dc"
+              color={MUSEUM_ENV_TOP.color}
             />
             <Lightformer
-              intensity={0.5}
+              intensity={MUSEUM_ENV_SIDE.intensity}
               rotation-y={Math.PI / 2}
               position={[-8, 2, 0]}
               scale={[6, 3, 1]}
-              color="#e8dfd0"
+              color={MUSEUM_ENV_SIDE.color}
             />
             <Lightformer
-              intensity={0.5}
+              intensity={MUSEUM_ENV_SIDE.intensity}
               rotation-y={-Math.PI / 2}
               position={[8, 2, 0]}
               scale={[6, 3, 1]}
-              color="#e8dfd0"
+              color={MUSEUM_ENV_SIDE.color}
             />
           </Environment>
 
-          <GalleryControls onLockChange={setLocked} frozen={binderOpen} />
+          {/* Freeze movement while the overlay is up too — its ←/→ page the
+              inspect list and must not strafe the player underneath. */}
+          <GalleryControls onLockChange={setLocked} frozen={binderOpen || inspect !== null} />
           <ShadowRefresh trigger={layout} />
         </Suspense>
 
         {!isTouchDevice && (
           <EffectComposer>
-            <Bloom mipmapBlur luminanceThreshold={1.2} intensity={0.35} />
-            <Vignette offset={0.18} darkness={0.55} />
+            <Bloom mipmapBlur luminanceThreshold={MUSEUM_BLOOM.luminanceThreshold} intensity={MUSEUM_BLOOM.intensity} />
+            <Vignette offset={MUSEUM_VIGNETTE.offset} darkness={MUSEUM_VIGNETTE.darkness} />
           </EffectComposer>
         )}
       </Canvas>
@@ -469,10 +509,11 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
         {...(exitLabel ? { uploadLabel: exitLabel } : {})}
         binderPrompt={binderPrompt && locked && !binderOpen}
         binderOpen={binderOpen}
+        overlayOpen={inspect !== null}
       />
       <MobileControls hidden={binderOpen} />
 
-      {inspectUrl && (
+      {inspectUrl && inspect && (
         <InspectOverlay
           imageUrl={inspectUrl}
           caption={captions?.get(inspectUrl)}
@@ -484,6 +525,17 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
                   wanted: inspectWanted,
                   onToggle: () => setInspectWanted(want.toggle(inspectUrl)),
                 }
+              : undefined
+          }
+          nav={{
+            index: inspect.index,
+            total: inspect.list.length,
+            onPrev: () => navigateInspect(-1),
+            onNext: () => navigateInspect(1),
+          }}
+          onAddDetails={
+            onAddDetails && !captions?.get(inspectUrl) && !details?.get(inspectUrl)
+              ? () => onAddDetails(inspectUrl)
               : undefined
           }
           onClose={handleCloseInspect}

@@ -12,6 +12,7 @@ import {
   importedFlagKey,
 } from '../../lib/importLocal';
 import type { LocalSnapshot, ImportSelection } from '../../lib/importLocal';
+import { purgeMyData } from '../../lib/accountDeletion';
 import MyStoresTab from './MyStoresTab';
 import { errMsg, StatusLine, checkLabelStyle } from './accountShared';
 import {
@@ -33,6 +34,11 @@ import {
 } from './LoginScreen';
 
 type AccountTab = 'profile' | 'stores';
+
+// Red-tinged warning tone for the danger zone — the palette's existing
+// muted terracotta (declined chips / SOLD tags), never a raw alert red.
+const DANGER = '#b0685c';
+const DANGER_BORDER = 'rgba(176,104,92,0.5)';
 
 const tabButtonStyle = (active: boolean): CSSProperties => ({
   background: 'transparent',
@@ -141,6 +147,12 @@ export default function AccountScreen() {
   // data): scroll to and pulse the import panel below.
   const importPanelRef = useRef<HTMLElement | null>(null);
   const [highlightImport, setHighlightImport] = useState(false);
+
+  // ---- delete my data (typed confirmation gates the button) ----
+  const [purgeText, setPurgeText] = useState('');
+  const [purging, setPurging] = useState(false);
+  const [purgeProgress, setPurgeProgress] = useState('');
+  const [purgeError, setPurgeError] = useState<string | null>(null);
 
   // Read the param once at mount, then strip it via replaceState so
   // refresh/back land on a plain /account — the /?view=vendors pattern.
@@ -319,6 +331,23 @@ export default function AccountScreen() {
       setCollStatus('error');
       setCollError(errMsg(err));
     }
+  }
+
+  async function runPurge() {
+    if (!userId || purgeText !== 'DELETE' || purging) return;
+    setPurging(true);
+    setPurgeError(null);
+    try {
+      await purgeMyData(userId, setPurgeProgress);
+      // Everything owned is gone — end the session and land on the door.
+      await signOut();
+      navigate('/');
+    } catch (err) {
+      setPurgeError(errMsg(err));
+      setPurgeProgress('');
+      setPurging(false);
+    }
+    // No finally-reset on success: the sign-out redirect unmounts this screen.
   }
 
   async function runImport() {
@@ -688,6 +717,65 @@ export default function AccountScreen() {
                 </div>
               </>
             )}
+          </section>
+
+          {/* ---- danger zone: clearly separated at the very bottom ---- */}
+          <section
+            style={{
+              ...panelStyle,
+              marginTop: 44,
+              border: `1px solid ${DANGER_BORDER}`,
+            }}
+          >
+            <h2 style={{ ...panelTitleStyle, color: DANGER }}>DELETE MY DATA</h2>
+            <p style={{ margin: '0 0 12px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
+              Permanently deletes everything this account owns — stores and their
+              inventory, shows and their booths, booth applications, your collection
+              cards, and your ♥ interest marks. Collection card images are removed
+              with the records; store banner, inventory and floor-plan images become
+              unreachable and are periodically cleaned. This cannot be undone.
+            </p>
+            <p style={{ margin: '0 0 20px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
+              Your login itself survives, so you can sign back in and start fresh. To
+              remove the account entirely, email us via the{' '}
+              <Link href="/contact" style={{ color: GOLD }}>
+                contact page
+              </Link>
+              .
+            </p>
+            <div style={{ maxWidth: 420 }}>
+              <label htmlFor="account-purge-confirm" style={authLabelStyle}>
+                TYPE DELETE TO CONFIRM
+              </label>
+              <input
+                id="account-purge-confirm"
+                type="text"
+                value={purgeText}
+                placeholder="DELETE"
+                autoComplete="off"
+                disabled={purging}
+                onChange={(e) => setPurgeText(e.target.value)}
+                style={authInputStyle}
+              />
+              <button
+                onClick={() => void runPurge()}
+                disabled={purgeText !== 'DELETE' || purging}
+                style={{
+                  ...ghostButtonStyle,
+                  marginTop: 16,
+                  color: DANGER,
+                  border: `1px solid ${DANGER_BORDER}`,
+                  opacity: purgeText !== 'DELETE' || purging ? 0.45 : 1,
+                  cursor: purgeText !== 'DELETE' || purging ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {purging ? 'DELETING…' : 'DELETE MY DATA →'}
+              </button>
+              <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
+                {purging && purgeProgress}
+              </p>
+              {purgeError && <p style={authErrorStyle}>{purgeError}</p>}
+            </div>
           </section>
         </>
       )}

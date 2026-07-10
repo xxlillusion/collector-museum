@@ -116,6 +116,9 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   }
 
   const { profile } = state;
+  // Signed-in owner viewing their own store — point them at MY STORES
+  // (anonymous visitors and other accounts see the page unchanged).
+  const isOwner = Boolean(profile.profileId && session?.user.id === profile.profileId);
   const location = formatLocation({ country: profile.country, state: profile.state });
   const areaServed = profile.areaServed.trim();
   const website = profile.website.trim();
@@ -125,6 +128,33 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
 
   return (
     <PageShell title={profile.name} eyebrow="REGISTERED VENDOR">
+      {isOwner && (
+        <div
+          style={{
+            border: `1px solid ${HAIRLINE}`,
+            borderRadius: 2,
+            background: PANEL,
+            padding: '9px 16px',
+            margin: '-10px 0 26px',
+            textAlign: 'center',
+            fontFamily: SERIF,
+            fontSize: 13,
+            color: MUTED,
+          }}
+        >
+          This is your store —{' '}
+          <Link
+            href="/account?tab=stores"
+            style={{
+              color: GOLD,
+              textDecoration: 'none',
+              letterSpacing: '0.12em',
+            }}
+          >
+            manage it in MY STORES →
+          </Link>
+        </div>
+      )}
       {(location || areaServed || hasContact) && (
         <div style={{ margin: '-18px 0 30px', textAlign: 'center' }}>
           {location && (

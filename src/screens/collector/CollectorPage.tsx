@@ -5,7 +5,7 @@ import ShareButton from '../../components/ShareButton';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import type { PublicCollectorProfile } from '../../lib/publicCollectors';
-import { cardDetailsLine } from '../../lib/cardMeta';
+import { cardDetailsLine, hasCardMeta } from '../../lib/cardMeta';
 import { orderForWalls, hiddenFromWalls } from '../../lib/wallOrder';
 import { formatLocation } from '../../lib/locations';
 import {
@@ -171,7 +171,10 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
                       background: '#0d0b0a',
                     }}
                   />
-                  {(item.name || cardDetailsLine(item.meta)) && (
+                  {/* Name only once the owner set placard metadata — same gate
+                      as App.tsx's museum captions, so raw upload filenames
+                      never reach the public grid. */}
+                  {((item.name && hasCardMeta(item.meta)) || cardDetailsLine(item.meta)) && (
                     <figcaption
                       style={{
                         marginTop: 10,
@@ -182,12 +185,14 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
                         textAlign: 'center',
                       }}
                     >
-                      {item.name && <span style={{ fontStyle: 'italic' }}>{item.name}</span>}
+                      {item.name && hasCardMeta(item.meta) && (
+                        <span style={{ fontStyle: 'italic' }}>{item.name}</span>
+                      )}
                       {cardDetailsLine(item.meta) && (
                         <span
                           style={{
                             display: 'block',
-                            marginTop: item.name ? 4 : 0,
+                            marginTop: item.name && hasCardMeta(item.meta) ? 4 : 0,
                             fontSize: 11.5,
                             letterSpacing: '0.05em',
                           }}

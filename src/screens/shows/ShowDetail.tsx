@@ -136,6 +136,9 @@ export default function ShowDetail({ showId }: { showId: string }) {
   }, [showId]);
 
   const canWalk = Boolean(show?.meta && show?.planUrl);
+  // The signed-in organizer of this show gets owner affordances instead of
+  // the visitor apply flow (owners shouldn't apply to their own show).
+  const isOwner = Boolean(userId && show && show.organizerId === userId);
 
   if (walking && show && show.meta && show.planUrl) {
     return (
@@ -262,6 +265,22 @@ export default function ShowDetail({ showId }: { showId: string }) {
             >
               WALK THIS SHOW →
             </button>
+            {isOwner && (
+              <div style={{ marginTop: 14 }}>
+                <Link
+                  href={`/organizer/show/${showId}/edit`}
+                  style={{
+                    fontFamily: SERIF,
+                    fontSize: 12.5,
+                    letterSpacing: '0.18em',
+                    color: GOLD,
+                    textDecoration: 'none',
+                  }}
+                >
+                  ✎ EDIT THIS SHOW →
+                </Link>
+              </div>
+            )}
           </div>
           {!canWalk && (
             <p style={{ ...noteStyle, fontSize: 14, margin: '0 0 26px', textAlign: 'center' }}>
@@ -368,7 +387,30 @@ export default function ShowDetail({ showId }: { showId: string }) {
             )}
           </Section>
 
-          {myStores.length > 0 && (
+          {isOwner && (
+            <Section title="EXHIBIT AT THIS SHOW">
+              <p style={{ ...noteStyle, fontSize: 14.5, margin: 0 }}>
+                This is your show — vendors apply to you, so there&rsquo;s nothing to
+                apply for here.
+              </p>
+              <p style={{ margin: '14px 0 0' }}>
+                <Link
+                  href={`/organizer/show/${showId}/edit`}
+                  style={{
+                    fontFamily: SERIF,
+                    fontSize: 12.5,
+                    letterSpacing: '0.18em',
+                    color: GOLD,
+                    textDecoration: 'none',
+                  }}
+                >
+                  Review booth applications →
+                </Link>
+              </p>
+            </Section>
+          )}
+
+          {!isOwner && myStores.length > 0 && (
             <Section title="EXHIBIT AT THIS SHOW">
               {myApps.length > 0 && (
                 <div style={{ marginBottom: 16 }}>

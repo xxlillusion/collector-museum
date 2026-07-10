@@ -33,6 +33,9 @@ export interface ShowLocationFilter {
 export interface ShowWalkData {
   id: string;
   name: string;
+  /** The organizing profile's id — ShowDetail swaps in owner affordances
+   *  (edit link, review-applications note) when it matches the session. */
+  organizerId: string;
   showDate: string | null;
   country: string | null;
   state: string | null;
@@ -157,7 +160,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     const { data, error } = await sb
       .from('shows')
       .select(
-        'id, name, show_date, country, state, city, venue_name, address, hours, admission, external_url, plan_image_path, plan_meta, booths(rect, vendor_id)',
+        'id, name, organizer_id, show_date, country, state, city, venue_name, address, hours, admission, external_url, plan_image_path, plan_meta, booths(rect, vendor_id)',
       )
       .eq('id', id)
       .maybeSingle();
@@ -165,6 +168,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     const show = data as {
       id: string;
       name: string;
+      organizer_id: string;
       show_date: string | null;
       country: string | null;
       state: string | null;
@@ -282,6 +286,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     return {
       id: show.id,
       name: show.name,
+      organizerId: show.organizer_id,
       showDate: show.show_date ?? null,
       country: show.country ?? null,
       state: show.state ?? null,

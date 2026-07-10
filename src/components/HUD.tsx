@@ -43,10 +43,12 @@ export default function HUD({
 }: HUDProps) {
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10, fontFamily: 'sans-serif' }}>
-      {/* Controls prompt — no hints while an inspect overlay covers the scene */}
+      {/* Controls prompt — no hints while an inspect overlay covers the scene.
+          Touch hint sits at the BOTTOM (above the joystick zone) so it never
+          collides with the top chrome (☰ Vendors / Floor Plan / minimap). */}
       {!overlayOpen && (isTouchDevice ? (
         !binderOpen && (
-          <div style={{ ...pillStyle, top: '16px' }}>
+          <div style={{ ...pillStyle, bottom: '132px', maxWidth: 'calc(100vw - 24px)' }}>
             Joystick to move · Drag to look · Tap a card or the binder
           </div>
         )

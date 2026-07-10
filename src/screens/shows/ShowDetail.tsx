@@ -149,6 +149,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
           fetchInventory={show.fetchInventory}
           starredVendorIds={starred}
           onToggleStar={handleToggleStar}
+          linkVendors
           onBack={() => setWalking(false)}
           exitLabel="← Leave Show"
         />

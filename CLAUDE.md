@@ -289,7 +289,9 @@ parallel streams, additive-only changes since — never reshape existing signatu
   look-drags on mobile don't open the inspect overlay.
 6. `**useTexture` doesn't set color space** — CardFrame sets `texture.colorSpace =
   SRGBColorSpace` manually; without it cards look washed out.
-7. **OneDrive path**: project lives under OneDrive Desktop; quote paths in shell commands.
+7. **Path**: the project moved OFF OneDrive to `C:\Users\jason\Desktop\playground\vendor-museum`
+   (2026-07-10, user un-synced OneDrive). The old OneDrive quirks — locked `.git/worktrees`
+   metadata, glacial recursive deletes — no longer apply.
 8. **drei `PointerLockControls` needs `domElement={gl.domElement}`**: without it, drei binds
   to `events.connected || gl.domElement`. Scene connects R3F events to the canvas's *parent
   div* (deferred `setTimeout` in `onCreated`), while `tryLock` locks the *canvas* — if PLC

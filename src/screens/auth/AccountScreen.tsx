@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { Link, useLocation, useSearch } from 'wouter';
 import PageShell from '../PageShell';
@@ -137,6 +137,37 @@ export default function AccountScreen() {
   const [progress, setProgress] = useState('');
   const [importDone, setImportDone] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  // One-shot ?import=1 (signup routes here when the browser holds guest
+  // data): scroll to and pulse the import panel below.
+  const importPanelRef = useRef<HTMLElement | null>(null);
+  const [highlightImport, setHighlightImport] = useState(false);
+
+  // Read the param once at mount, then strip it via replaceState so
+  // refresh/back land on a plain /account — the /?view=vendors pattern.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('import') !== '1') return;
+    setHighlightImport(true);
+    params.delete('import');
+    const rest = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash,
+    );
+  }, []);
+
+  // Keep the panel in view while the sections above it load in (profile /
+  // snapshot arriving shifts the layout), then let the highlight fade.
+  useEffect(() => {
+    if (!highlightImport) return;
+    importPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [highlightImport, profile, snapshot]);
+  useEffect(() => {
+    if (!highlightImport) return;
+    const t = setTimeout(() => setHighlightImport(false), 6000);
+    return () => clearTimeout(t);
+  }, [highlightImport]);
 
   // Signed out (or never signed in) — this page is account-only.
   useEffect(() => {
@@ -493,11 +524,18 @@ export default function AccountScreen() {
                 </label>
                 <StatusLine status={collStatus} error={collError} />
                 {profile.collectionPublic && (
-                  <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
-                    <Link href={`/collector/${userId}`} style={{ color: GOLD }}>
-                      View my public collection page →
-                    </Link>
-                  </p>
+                  <>
+                    <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
+                      <Link href={`/collector/${userId}`} style={{ color: GOLD }}>
+                        View my public collection page →
+                      </Link>
+                    </p>
+                    <p style={{ margin: '6px 0 0', fontSize: 14, color: MUTED }}>
+                      <Link href={`/museum/collector/${userId}`} style={{ color: GOLD }}>
+                        Walk my public museum →
+                      </Link>
+                    </p>
+                  </>
                 )}
               </section>
 
@@ -571,7 +609,24 @@ export default function AccountScreen() {
             </>
           )}
 
-          <section style={panelStyle}>
+          <style>{`@keyframes vmImportPulse {
+            0% { box-shadow: 0 0 0 0 rgba(212,175,55,0.55); }
+            70% { box-shadow: 0 0 0 16px rgba(212,175,55,0); }
+            100% { box-shadow: 0 0 0 0 rgba(212,175,55,0); }
+          }`}</style>
+          <section
+            ref={importPanelRef}
+            id="import-panel"
+            style={{
+              ...panelStyle,
+              ...(highlightImport
+                ? {
+                    border: `1px solid ${GOLD}`,
+                    animation: 'vmImportPulse 1.8s ease-out 3',
+                  }
+                : {}),
+            }}
+          >
             <h2 style={panelTitleStyle}>BRING IN THIS BROWSER&rsquo;S COLLECTION</h2>
             <p style={{ margin: '0 0 14px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
               Anything added while browsing as a guest lives only in this browser. Copy it into

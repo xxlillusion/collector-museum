@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link } from 'wouter';
+import type { Session } from '@supabase/supabase-js';
 import { useAuth } from '../lib/auth';
+import { useMyProfile } from '../lib/useMyProfile';
 import SiteFooter from '../components/SiteFooter';
 import {
   GOLD, HAIRLINE, TEXT, MUTED, SERIF, SANS, PAGE_BG,
@@ -13,6 +15,26 @@ import {
  * serif letterspaced title, ornament rule — matching the home page. Owns its
  * own scrolling — html/body/#root keep overflow hidden for the canvases.
  */
+/** Signup writes display_name into auth metadata (lib/auth.tsx), so it's
+ *  available synchronously while the profile row is still loading. */
+function metadataDisplayName(session: Session): string | null {
+  const raw: unknown = session.user.user_metadata?.display_name;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+/** Corner-pill label: profile display name → signup metadata → email. */
+export function accountLabel(
+  session: Session,
+  profileName: string | null | undefined,
+): string {
+  return (
+    (profileName ?? '').trim()
+    || metadataDisplayName(session)
+    || session.user.email
+    || 'MY ACCOUNT'
+  );
+}
+
 export default function PageShell({ title, eyebrow, wide, children }: {
   title: string;
   /** Small-caps line above the title, e.g. "PUBLIC DIRECTORY". */
@@ -22,6 +44,7 @@ export default function PageShell({ title, eyebrow, wide, children }: {
   children: ReactNode;
 }) {
   const { configured, session } = useAuth();
+  const { profile } = useMyProfile();
   return (
     <div
       style={{
@@ -79,7 +102,7 @@ export default function PageShell({ title, eyebrow, wide, children }: {
               textOverflow: 'ellipsis',
             }}
           >
-            {session ? (session.user.email ?? 'MY ACCOUNT') : 'SIGN IN'}
+            {session ? accountLabel(session, profile?.displayName) : 'SIGN IN'}
           </Link>
         )}
       </div>

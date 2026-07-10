@@ -4,6 +4,7 @@ import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
 import type { AccountType } from '../../lib/auth';
+import { readLocalSnapshot } from '../../lib/importLocal';
 import {
   authLabelStyle,
   authInputStyle,
@@ -71,6 +72,23 @@ function TypeCard({
   );
 }
 
+/**
+ * Post-signup destination, set by the submit handler just before signUp and
+ * read by the session effect. Module-scoped ON PURPOSE: when the new session
+ * arrives, DataProviderBoundary remounts the whole data subtree (identity
+ * key), so the effect runs in a fresh component instance — refs and state
+ * don't survive, this does. Time-boxed so a much later visit to /signup
+ * while signed in still bounces to plain '/'.
+ */
+let postSignupDest: { dest: string; at: number } | null = null;
+
+/** Not cleared on read — StrictMode runs the session effect twice and both
+ *  invocations must see the same destination. */
+function getPostSignupDest(): string {
+  const fresh = postSignupDest && Date.now() - postSignupDest.at < 60_000;
+  return fresh ? postSignupDest!.dest : '/';
+}
+
 // Owned by the accounts workstream (Stream A).
 export default function SignupScreen() {
   const { configured, session, signUp } = useAuth();
@@ -83,9 +101,14 @@ export default function SignupScreen() {
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  // Signed in (auto-confirm signups create a session immediately) — go home.
+  // Signed in (auto-confirm signups create a session immediately) — go to
+  // the destination decided before signUp ran. NOTE: the destination lives at
+  // MODULE scope (postSignupDest below), not in a ref — the provider seam
+  // remounts the whole data subtree when the auth identity changes
+  // (DataProviderBoundary keys on it), so this effect actually runs in a
+  // FRESH SignupScreen instance whose refs/state were reset.
   useEffect(() => {
-    if (session) navigate('/');
+    if (session) navigate(getPostSignupDest());
   }, [session, navigate]);
 
   async function onSubmit(e: FormEvent) {
@@ -93,6 +116,22 @@ export default function SignupScreen() {
     setError(null);
     setBusy(true);
     try {
+      // Decide the post-signup destination BEFORE calling signUp — the
+      // session effect above fires as soon as the auth state changes, so
+      // the flag must already hold the answer (roadmap 15: guests with local
+      // cards/vendors/plans land on the account import panel, not bare home).
+      try {
+        const snap = await readLocalSnapshot();
+        postSignupDest = {
+          dest:
+            snap.cards.length + snap.vendors.length + snap.plans.length > 0
+              ? '/account?import=1'
+              : '/',
+          at: Date.now(),
+        };
+      } catch {
+        postSignupDest = null;
+      }
       const { error: err } = await signUp(email.trim(), password, {
         displayName: displayName.trim(),
         accountType,

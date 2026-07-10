@@ -36,10 +36,11 @@ export default function VendorRoom({ width, depth, height }: VendorRoomProps) {
         />
       </mesh>
 
-      {/* Ceiling */}
+      {/* Ceiling — warm charcoal (an expo hall, not a void; the truss grid
+          and glowing panel rows in HallAtmosphere read against it) */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, height, 0]}>
         <planeGeometry args={[width, depth]} />
-        <meshStandardMaterial color="#24221f" roughness={0.95} />
+        <meshStandardMaterial color="#2d2723" roughness={0.95} />
       </mesh>
 
       {/* North wall (z = -depth/2) */}

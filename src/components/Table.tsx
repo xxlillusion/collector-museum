@@ -4,6 +4,7 @@ import { ROOM, TABLE } from './Room';
 import {
   CLOTH_COLOR,
   CLOTH_ROUGHNESS,
+  CLOTH_ENVMAP_INTENSITY,
   CLOTH_W,
   CLOTH_D,
   CLOTH_TOP_Y,
@@ -44,7 +45,7 @@ function BannerDrape({ url, geometry }: { url: string; geometry: THREE.PlaneGeom
   if (!texture) return null;
   return (
     <mesh geometry={geometry} position={[0, 0, 0.004]} receiveShadow>
-      <meshStandardMaterial map={texture} roughness={CLOTH_ROUGHNESS} />
+      <meshStandardMaterial map={texture} roughness={CLOTH_ROUGHNESS} envMapIntensity={CLOTH_ENVMAP_INTENSITY} />
     </mesh>
   );
 }
@@ -112,13 +113,13 @@ export default function Table({ bannerUrl }: TableProps) {
           rotation={[-Math.PI / 2, 0, 0]}
           receiveShadow
         >
-          <meshStandardMaterial color={CLOTH_COLOR} roughness={CLOTH_ROUGHNESS} side={THREE.DoubleSide} />
+          <meshStandardMaterial color={CLOTH_COLOR} roughness={CLOTH_ROUGHNESS} envMapIntensity={CLOTH_ENVMAP_INTENSITY} side={THREE.DoubleSide} />
         </mesh>
 
         {/* Front drape (faces the room) */}
         <group position={[0, CLOTH_TOP_Y - DRAPE_H / 2, CLOTH_D / 2]}>
           <mesh geometry={frontGeo} receiveShadow>
-            <meshStandardMaterial color={CLOTH_COLOR} roughness={CLOTH_ROUGHNESS} side={THREE.DoubleSide} />
+            <meshStandardMaterial color={CLOTH_COLOR} roughness={CLOTH_ROUGHNESS} envMapIntensity={CLOTH_ENVMAP_INTENSITY} side={THREE.DoubleSide} />
           </mesh>
           {bannerUrl && <BannerDrape url={bannerUrl} geometry={frontGeo} />}
         </group>
@@ -129,7 +130,7 @@ export default function Table({ bannerUrl }: TableProps) {
           rotation={[0, -Math.PI / 2, 0]}
         >
           <mesh geometry={sideGeoL} receiveShadow>
-            <meshStandardMaterial color={CLOTH_COLOR} roughness={CLOTH_ROUGHNESS} side={THREE.DoubleSide} />
+            <meshStandardMaterial color={CLOTH_COLOR} roughness={CLOTH_ROUGHNESS} envMapIntensity={CLOTH_ENVMAP_INTENSITY} side={THREE.DoubleSide} />
           </mesh>
         </group>
         <group
@@ -137,7 +138,7 @@ export default function Table({ bannerUrl }: TableProps) {
           rotation={[0, Math.PI / 2, 0]}
         >
           <mesh geometry={sideGeoR} receiveShadow>
-            <meshStandardMaterial color={CLOTH_COLOR} roughness={CLOTH_ROUGHNESS} side={THREE.DoubleSide} />
+            <meshStandardMaterial color={CLOTH_COLOR} roughness={CLOTH_ROUGHNESS} envMapIntensity={CLOTH_ENVMAP_INTENSITY} side={THREE.DoubleSide} />
           </mesh>
         </group>
       </group>

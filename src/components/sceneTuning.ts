@@ -13,14 +13,19 @@
 // Museum (Scene.tsx)
 // ---------------------------------------------------------------------------
 
-/** Canvas gl toneMappingExposure (ACES). */
-export const MUSEUM_EXPOSURE = 1.15;
+/** Canvas gl toneMappingExposure (ACES).
+ *  1.15 → 1.08 (2026-07-10 close-range washout pass): cards were blowing out
+ *  to flat cream when inspected from ~1 m; the spawn look barely shifts. */
+export const MUSEUM_EXPOSURE = 1.08;
 
-/** Warm track spotlight painting each frame cluster (WallSpot). */
+/** Warm track spotlight painting each frame cluster (WallSpot).
+ *  intensity 60 → 48, penumbra 0.85 → 0.95 (same washout pass): softer,
+ *  ~20% dimmer pools keep the passe-partout off full white up close while
+ *  the pooled-light look at spawn distance is preserved. */
 export const MUSEUM_WALL_SPOT = {
-  intensity: 60,
+  intensity: 48,
   angle: 0.7,
-  penumbra: 0.85,
+  penumbra: 0.95,
   decay: 2,
   distance: 11,
   color: '#ffe6bd',

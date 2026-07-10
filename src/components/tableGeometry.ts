@@ -9,7 +9,11 @@ import { TABLE } from './Room';
 // the geometry, not animated.
 
 export const CLOTH_COLOR = '#6b1d1d';
-export const CLOTH_ROUGHNESS = 0.92;
+// 0.97 / 0.35 (was 0.92 / default 1): kills the white specular ovals that
+// bloomed on every tabletop under the hall's downlights — matte polyester
+// cloth, env reflections damped so the reflector floor stays the star.
+export const CLOTH_ROUGHNESS = 0.97;
+export const CLOTH_ENVMAP_INTENSITY = 0.35;
 
 // Drape measurements (cloth overhangs the top by a small margin, then falls
 // to just above the floor)
@@ -19,7 +23,11 @@ export const CLOTH_D = TABLE.topD + OVERHANG * 2;
 export const CLOTH_TOP_Y = TABLE.topH + 0.006;
 export const DRAPE_H = CLOTH_TOP_Y - 0.015; // stops just off the floor
 
-/** Gentle sagging cloth top — vertices displaced once, normals recomputed. */
+/** Gentle sagging cloth top — vertices displaced once, normals recomputed.
+ *  Sag is capped at 4 mm: the cloth plane sits 6 mm above the laminate board
+ *  (CLOTH_TOP_Y vs topH), and the old 8 mm sag pushed the cloth center BELOW
+ *  the board's top face — the light board poked through as a big cream oval
+ *  on every tabletop (long misread as a specular artifact). */
 export function makeTopGeometry(): THREE.PlaneGeometry {
   const geo = new THREE.PlaneGeometry(CLOTH_W, CLOTH_D, 24, 12);
   const pos = geo.attributes.position;
@@ -27,7 +35,7 @@ export function makeTopGeometry(): THREE.PlaneGeometry {
     const u = pos.getX(i) / CLOTH_W + 0.5;
     const v = pos.getY(i) / CLOTH_D + 0.5;
     // Sag toward the middle (plane is later rotated flat, so displace Z)
-    const sag = 0.008 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
+    const sag = 0.004 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
     pos.setZ(i, pos.getZ(i) - sag);
   }
   geo.computeVertexNormals();
@@ -106,6 +114,7 @@ export function getClothMaterial(): THREE.MeshStandardMaterial {
     clothMaterial = new THREE.MeshStandardMaterial({
       color: CLOTH_COLOR,
       roughness: CLOTH_ROUGHNESS,
+      envMapIntensity: CLOTH_ENVMAP_INTENSITY,
       side: THREE.DoubleSide,
     });
   }

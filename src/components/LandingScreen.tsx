@@ -1,15 +1,21 @@
-import { Link, useLocation } from 'wouter';
+import { useLocation } from 'wouter';
 import SearchBox from './SearchBox';
 import SiteFooter from './SiteFooter';
 import {
-  GOLD, HAIRLINE, TEXT, MUTED, SERIF, SANS, PAGE_BG,
+  GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF, SANS, PAGE_BG,
   Ornament, QuickAction, primaryButtonStyle, ghostButtonStyle,
 } from './museumKit';
+// Hero stills captured in-app (sandbox gallery + the /demo hall).
+// TODO: re-capture on a real GPU (SwiftShader stills — software GL flattens
+// the warm spot pools and tablecloth sheen).
+import heroGallery from '../assets/hero-gallery.webp';
+import heroHall from '../assets/hero-hall.webp';
 
 /**
  * The logged-out home: a museum-styled landing page. No local-collection
  * sections here — the guest experience lives at /sandbox; accounts get the
- * full home. Anyone (signed in or not) can browse published shows.
+ * full home. Anyone (signed in or not) can browse published shows or walk
+ * the bundled demo hall at /demo.
  */
 export default function LandingScreen() {
   const [, navigate] = useLocation();
@@ -31,9 +37,39 @@ export default function LandingScreen() {
           private 3D gallery.
         </p>
 
-        <div style={{ marginTop: 40, display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
+        {/* In-engine stills, hung museum-plaque style. */}
+        <div style={{ marginTop: 42, display: 'flex', gap: 18, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {([
+            [heroGallery, 'The private gallery — six framed cards under warm spotlights', 'The gallery — your collection, spotlit'],
+            [heroHall, 'A convention hall of red-clothed vendor tables with lettered drapes', 'A show floor, walkable before you go'],
+          ] as const).map(([src, alt, caption]) => (
+            <figure key={caption} style={{ margin: 0, flex: '1 1 300px', maxWidth: 356 }}>
+              <div style={{ border: `1px solid ${HAIRLINE}`, background: PANEL, borderRadius: 2, padding: 7 }}>
+                <img src={src} alt={alt} style={{ display: 'block', width: '100%', borderRadius: 1 }} />
+              </div>
+              <figcaption style={{ marginTop: 9, fontFamily: SERIF, fontStyle: 'italic', fontSize: 12.5, color: MUTED, letterSpacing: '0.04em' }}>
+                {caption}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+
+        {/* The wow path — see it move before committing to anything. */}
+        <div style={{ marginTop: 34 }}>
+          <button
+            onClick={() => navigate('/demo')}
+            style={{ ...ghostButtonStyle, border: `1px solid ${GOLD}`, padding: '14px 40px', fontSize: 13.5 }}
+          >
+            ◈ WALK A DEMO SHOW →
+          </button>
+          <p style={{ margin: '10px 0 0', fontFamily: SERIF, fontStyle: 'italic', fontSize: 12.5, color: MUTED }}>
+            a sample hall with four vendors and browsable binders — no account, nothing to install
+          </p>
+        </div>
+
+        <div style={{ marginTop: 26, display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
           <button onClick={() => navigate('/signup')} style={{ ...primaryButtonStyle, padding: '15px 42px', fontSize: 14 }}>
-            CREATE AN ACCOUNT →
+            CREATE AN ACCOUNT →
           </button>
           <button onClick={() => navigate('/login')} style={{ ...ghostButtonStyle, padding: '15px 34px' }}>
             SIGN IN
@@ -47,22 +83,21 @@ export default function LandingScreen() {
           </div>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'stretch' }}>
             <QuickAction
-              label="EXPLORE CARD SHOWS →"
+              label={'EXPLORE CARD SHOWS →'}
               sub="browse published shows by location and walk them"
               onClick={() => navigate('/shows')}
             />
             <QuickAction
-              label="VENDOR DIRECTORY →"
+              label={'VENDOR DIRECTORY →'}
               sub="registered vendors across the platform"
               onClick={() => navigate('/vendors')}
             />
+            <QuickAction
+              label={'TRY IT NOW →'}
+              sub="everything works in your browser — no account"
+              onClick={() => navigate('/sandbox')}
+            />
           </div>
-          <p style={{ margin: '30px 0 0', fontSize: 13, color: MUTED, fontFamily: SERIF, fontStyle: 'italic' }}>
-            No account? Everything still works in your browser —{' '}
-            <Link href="/sandbox" style={{ color: GOLD }}>
-              try the local sandbox →
-            </Link>
-          </p>
         </div>
 
         <footer style={{ marginTop: 84 }}>

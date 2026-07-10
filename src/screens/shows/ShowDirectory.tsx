@@ -126,11 +126,35 @@ export default function ShowDirectory() {
       )}
 
       {isSupabaseConfigured && shows !== null && shows.length === 0 && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>
-          {filtered
-            ? 'No shows in this area yet — try widening the search.'
-            : 'No shows published yet — check back soon.'}
-        </p>
+        <>
+          <p style={{ ...noteStyle, fontSize: 16 }}>
+            {filtered
+              ? 'No shows in this area yet — try widening the search.'
+              : 'No shows published yet — check back soon.'}
+          </p>
+          {!filtered && (
+            // UX Wave A (Stream A1): empty directory still offers the bundled
+            // demo hall, so first visitors always have something to walk.
+            <p style={{ marginTop: 18 }}>
+              <Link
+                href="/demo"
+                style={{
+                  display: 'inline-block',
+                  color: GOLD,
+                  textDecoration: 'none',
+                  border: `1px solid ${HAIRLINE}`,
+                  borderRadius: 2,
+                  padding: '11px 22px',
+                  fontFamily: SERIF,
+                  fontSize: 12,
+                  letterSpacing: '0.16em',
+                }}
+              >
+                {'WALK THE DEMO SHOW →'}
+              </Link>
+            </p>
+          )}
+        </>
       )}
 
       {shows !== null && shows.length > 0 && (

@@ -28,6 +28,19 @@ export default function SiteFooter() {
           ),
         )}
       </nav>
+      <p
+        style={{
+          margin: '12px 0 0',
+          fontFamily: SERIF,
+          fontStyle: 'italic',
+          fontSize: 10.5,
+          letterSpacing: '0.06em',
+          color: MUTED,
+          opacity: 0.75,
+        }}
+      >
+        © 2026 Vendor Museum — a personal project, built with care
+      </p>
     </footer>
   );
 }

@@ -14,7 +14,6 @@ import { listRegisteredVendors } from '../../lib/publicVendors';
 import type { RegisteredVendorSummary } from '../../lib/publicVendors';
 import { COUNTRIES, regionOptions } from '../../lib/locations';
 import { useVendorPlan } from '../../lib/useVendorPlan';
-import { useVendors } from '../../lib/useVendors';
 import type { VendorSummary } from '../../lib/useVendors';
 import { useProvider } from '../../lib/provider/context';
 // Legacy per-box banner slots belong to the working plan image — seeding or
@@ -47,7 +46,6 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   const provider = useProvider();
   const vendorPlan = useVendorPlan();
   const { setPlan, clearPlan, reload: reloadPlan } = vendorPlan;
-  const localVendors = useVendors();
   const workbenchRef = useRef<PlanWorkbenchHandle>(null);
 
   // undefined = still loading, null = no profile row
@@ -98,8 +96,10 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
 
   const isOrganizer = Boolean(profile?.isOrganizer);
 
-  // ---- vendors for the assignment dropdown: registered accounts ∪ the
-  // organizer's own placeholder records, deduped by id (registered wins) ----
+  // ---- vendors for the assignment dropdown: registered accounts only — a
+  // booth is assigned to a real store or left empty (no placeholder rows;
+  // legacy placeholder assignments render as unassigned here but keep
+  // rendering in old walks) ----
   useEffect(() => {
     let cancelled = false;
     listRegisteredVendors().then((list) => { if (!cancelled) setRegistered(list); });
@@ -141,17 +141,14 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   );
 
   const vendors = useMemo<VendorSummary[]>(() => {
-    const map = new Map<string, VendorSummary>();
-    for (const v of localVendors.vendors) map.set(v.id, v);
-    for (const r of registered) map.set(r.id, r);
-    return [...map.values()].sort((a, b) => {
+    return [...registered].sort((a, b) => {
       // Approved applicants first, then everyone else alphabetically
       const pa = approvedApplicantIds.has(a.id) ? 0 : 1;
       const pb = approvedApplicantIds.has(b.id) ? 0 : 1;
       if (pa !== pb) return pa - pb;
       return a.name.localeCompare(b.name);
     });
-  }, [localVendors.vendors, registered, approvedApplicantIds]);
+  }, [registered, approvedApplicantIds]);
 
   // ---- edit mode: load the show ----
   useEffect(() => {
@@ -649,7 +646,6 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           onSaveMeta={vendorPlan.saveMeta}
           onClearPlan={handleClearPlan}
           vendors={vendors}
-          onAddVendor={localVendors.addVendor}
           onStateChange={setWb}
         />
       </Suspense>

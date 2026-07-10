@@ -19,11 +19,30 @@ const browser = await chromium.launch({
 });
 ```
 
+**Pointer lock is DENIED in headless Edge** (as of 2026-07-10 —
+`THREE.PointerLockControls: Unable to use Pointer Lock API`). Shim it via
+`context.addInitScript` BEFORE any page load; PLC, the crosshair raycast
+compute, HUD lock state and Esc-relock all believe it:
+
+```js
+await ctx.addInitScript(() => {
+  let fake = null;
+  Element.prototype.requestPointerLock = function () { fake = this; document.dispatchEvent(new Event('pointerlockchange')); };
+  try { Object.defineProperty(Document.prototype, 'pointerLockElement', { configurable: true, get: () => fake }); } catch { /* */ }
+  Document.prototype.exitPointerLock = function () { fake = null; document.dispatchEvent(new Event('pointerlockchange')); };
+});
+```
+
 Write drive scripts as `*.tmp.mjs` in the repo root (so `import 'playwright'`
-resolves against the project's node_modules); delete them when done.
-Screenshots go to `$CLAUDE_JOB_DIR/tmp`. SwiftShader inflates all GPU costs
-(shader compiles take seconds) — treat frame timings as relative, not
-absolute. Collect `console`/`pageerror` events; zero errors is part of PASS.
+resolves against the project's node_modules); delete them when done. (From a
+scratchpad dir instead: `createRequire('<repo>/package.json')` and
+`require('playwright')`.) Screenshots go to `$CLAUDE_JOB_DIR/tmp`. SwiftShader
+inflates all GPU costs (shader compiles take seconds) — treat frame timings as
+relative, not absolute, and treat glossy-material highlights (e.g. tablecloth
+sheen) as unreliable. Collect `console`/`pageerror` events; zero errors is
+part of PASS. A `WebGL context lost — remounting canvas to recover` warning
+can fire under SwiftShader load; the app self-heals (that's the recovery path
+working), but repeated losses mean the run is too heavy.
 
 ## Seeding data (fresh profile = empty IndexedDB every launch)
 
@@ -31,30 +50,45 @@ Generate images in-page with a canvas, then upload through the real inputs:
 
 - cards: `#home-file-input` (home screen); thumbnails = `img[alt^="..."]`
 - vendor: VENDOR REGISTRY → `input[placeholder="New vendor name"]` + Enter;
-  inventory: `#vendor-inventory-input` (multi-file); items counted via
-  `input[placeholder="Add a caption…"]`
-- floor plan: WALK A CARD SHOW → `#plan-input`; `floorplan_example.png` in
+  inventory: **`input[type=file][multiple]` inside the vendor panel** (the old
+  `#vendor-inventory-input` id is GONE — VendorManagementPanel uses refs; the
+  single-file input alongside it is the banner). Items counted via
+  `input[placeholder="Add a caption…"]`; sale fields per tile:
+  `input[placeholder="$ price"]`, `select` (For sale/Sold/Display only),
+  `input[placeholder^="Condition"]`.
+- floor plan: BUILD A SHOW → `#plan-input`; `floorplan_example.png` in
   the repo root detects 50 boxes; wait for `/\d+ boxes/` in body text
 - assign a booth: click a `<svg> rect` center → "Vendor at this booth:"
-  panel → `selectOption`. **Re-read element coordinates after any panel
-  opens/DOM change — the page scrolls and stale coords miss silently**
-  (this broke a "Set start" click once; the feature was fine).
+  panel → `selectOption`. **Scroll the plan svg into view first and re-read
+  element coordinates after any panel opens/DOM change — the page scrolls and
+  stale coords miss silently** (on ShowEditorScreen the plan sits below the
+  fold; a click computed from a pre-scroll rect lands nowhere). Pick the svg
+  with the most `rect` children — PageShell chrome adds other svgs.
+- persistent profiles: `chromium.launchPersistentContext(dir, …)` keeps
+  IndexedDB/localStorage across runs — build the sandbox state once, reuse it
+  for museum/hall/mobile passes (relaunch same dir with a different viewport
+  for touch).
 
 ## Driving the 3D scenes
 
-- Click canvas center to engage pointer lock.
+- Click canvas center to engage (shimmed) pointer lock.
 - Steer under pointer lock with synthetic events (PointerLockControls reads
   `movementX/Y`, gain 0.002 rad/px, yaw -= mX·0.002):
   `document.dispatchEvent(new MouseEvent('mousemove', { movementX, movementY }))`
 - Walk with `keyboard.down/up('KeyW')` bursts.
-- **Hall navigation**: the minimap marker div (`img[alt="Minimap"]`'s next
-  sibling) exposes live pose: `translate(Xpx, Ypx) rotate(Rrad)` where
-  `u=(X+6)/mapW`, `v=(Y+7.2)/mapH`, `yaw=-R`. Camera forward in image axes
-  is `(-sin yaw, -cos yaw)`, so steer with `desiredYaw = atan2(-du, -dv)`,
+- **Hall navigation**: the minimap is `img[alt="Minimap"]`; its parent's DIV
+  children are the overlays — the **player marker** is the child whose
+  `style.transform` matches `translate(Xpx, Ypx) rotate(Rrad)`
+  (`u=(X+6)/mapW`, `v=(Y+7.2)/mapH`, `yaw=-R`); **booth dots** are small
+  (4–10px) `border-radius: 50%` DIVs positioned via `left/top` (gold
+  `rgba(212,175,55,…)`; starred = 7px `rgb(255,215,94)` + glow — match on
+  size/shape, not one color). Navigate to a booth dot's uv directly instead of
+  recomputing plan-image coordinates. Camera forward in image axes is
+  `(-sin yaw, -cos yaw)`, so steer with `desiredYaw = atan2(-du, -dv)`,
   walk, repeat. Player is blocked ~0.8 m from a table; binders sit ~0.9 m
-  below eye height, so once "stuck" against the booth, pitch down (-0.3 to
-  -0.9 rad) and sweep yaw until "Press F to open the binder" appears in
-  body text. Hard-won navigation details (2026-07-06 M0 run):
+  below eye height, so once "stuck" against the booth, pitch down (+mY 150–450)
+  and sweep yaw until "Press F to open the binder" appears in body text.
+  Hard-won details:
   - Match transform numbers permissively (`[-\d.eE+]+`) — near-zero rotate
     renders in scientific notation — and retry when the regex misses (the
     first frame can have an empty transform).
@@ -67,6 +101,10 @@ Generate images in-page with a canvas, then upload through the real inputs:
     stops you ~27 px out — a tighter threshold never triggers).
 - Binder: F opens, Arrow keys flip, F/Esc closes; the open-spread HUD text
   is "flip pages"; InspectOverlay shows "click anywhere to return".
+  **Opening the binder EXITS pointer lock** (free cursor for card clicks) —
+  so `page.mouse.click(x, y)` must target the card's actual screen pixels
+  (first spread's top-left card ≈ (810, 307) at 1440×900), NOT the center
+  crosshair. Center-clicks silently miss.
 - Measure open-animation smoothness by recording rAF deltas around the F
   press and reporting the max gap.
 
@@ -75,4 +113,7 @@ Generate images in-page with a canvas, then upload through the real inputs:
 museum: upload cards → ENTER THE GALLERY → binder open/flip/close.
 hall: vendor+inventory → plan → assign booth → GENERATE → navigate to booth
 → F → check first spread (textures), last spread (no pocket bleed-through),
-card click → inspect, close → reopen (warm cache).
+card click → inspect (placard shows caption + price/condition when set),
+close → reopen (warm cache).
+signed-in (live Supabase): reuse the uxtest account in memory
+(project-uxtest-account) rather than minting new ones.

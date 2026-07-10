@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'wouter';
 import SearchBox from './SearchBox';
+import SiteFooter from './SiteFooter';
 import {
   GOLD, HAIRLINE, TEXT, MUTED, SERIF, SANS, PAGE_BG,
   Ornament, QuickAction, primaryButtonStyle, ghostButtonStyle,
@@ -71,6 +72,7 @@ export default function LandingScreen() {
           <p style={{ margin: 0, fontSize: 11, letterSpacing: '0.2em', color: MUTED }}>
             SHOWS ARE PUBLIC · COLLECTIONS ARE YOURS
           </p>
+          <SiteFooter />
         </footer>
       </div>
     </div>

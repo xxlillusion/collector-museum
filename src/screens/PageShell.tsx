@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'wouter';
 import { useAuth } from '../lib/auth';
+import SiteFooter from '../components/SiteFooter';
 import {
   GOLD, HAIRLINE, TEXT, MUTED, SERIF, SANS, PAGE_BG,
   Ornament, museumHoverCss, noteStyle,
@@ -113,6 +114,7 @@ export default function PageShell({ title, eyebrow, wide, children }: {
           </div>
         </header>
         {children}
+        <SiteFooter />
       </div>
     </div>
   );

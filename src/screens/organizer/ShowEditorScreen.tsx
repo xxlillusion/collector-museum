@@ -371,8 +371,8 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>
           {isEdit
-            ? 'Editing this show loads its floor plan into the editor, replacing the draft in your local sandbox (Convention View).'
-            : 'Start a new show? Your local sandbox draft will be replaced.'}
+            ? "Editing opens this show's floor plan in the plan workspace. If you have an unsaved plan in BUILD A SHOW, it will be replaced — save it as a plan first if you want to keep it."
+            : "A new show starts with a fresh floor plan in the plan workspace. You have an unsaved plan in BUILD A SHOW — starting fresh replaces it (save it as a plan first if you want to keep it), or use it as this show's floor plan."}
         </p>
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 24, alignItems: 'center' }}>
           {isEdit ? (
@@ -397,7 +397,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
                 onClick={() => setConfirmed(true)}
                 style={ghostButtonStyle}
               >
-                Keep the sandbox draft as this show's plan
+                Use my BUILD A SHOW plan for this show
               </button>
             </>
           )}

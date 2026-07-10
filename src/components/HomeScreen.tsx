@@ -1,11 +1,15 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '../lib/auth';
+import { useMyProfile } from '../lib/useMyProfile';
 import { cardDetailsLine } from '../lib/cardMeta';
 import { orderForWalls, hiddenFromWalls } from '../lib/wallOrder';
 import type { CardWithUrl } from '../lib/useCards';
 import type { CardPatch, SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
+import { accountLabel } from '../screens/PageShell';
+import OnboardingChecklist from './OnboardingChecklist';
+import SiteFooter from './SiteFooter';
 import {
   GOLD, BG, PANEL, HAIRLINE, TEXT, MUTED, SERIF, SANS,
   Ornament, QuickAction, Section, museumHoverCss, ghostButtonStyle,
@@ -235,6 +239,9 @@ export default function HomeScreen({
   ].join(' · ');
 
   const { configured: authConfigured, session } = useAuth();
+  // Authoritative display name (and onboarding role/flags) — light per-mount
+  // select; resolves null while signed out or in guest-only mode.
+  const { profile } = useMyProfile();
 
   // Vendors with inventory can hang their collection in the gallery
   const showableVendors = vendors.filter((v) => v.inventoryCount > 0);
@@ -255,9 +262,15 @@ export default function HomeScreen({
         <div style={{ position: 'absolute', top: 18, right: 22, fontFamily: SERIF, fontSize: 12, letterSpacing: '0.12em' }}>
           <Link
             href={session ? '/account' : '/login'}
-            style={{ color: GOLD, textDecoration: 'none', border: `1px solid ${HAIRLINE}`, borderRadius: '999px', padding: '8px 18px' }}
+            style={{
+              color: GOLD, textDecoration: 'none', border: `1px solid ${HAIRLINE}`,
+              borderRadius: '999px', padding: '8px 18px',
+              display: 'inline-block', maxWidth: 'min(44vw, 260px)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              boxSizing: 'border-box', verticalAlign: 'middle',
+            }}
           >
-            {session ? (session.user.email ?? 'MY ACCOUNT') : 'SIGN IN'}
+            {session ? accountLabel(session, profile?.displayName) : 'SIGN IN'}
           </Link>
         </div>
       )}
@@ -289,7 +302,8 @@ export default function HomeScreen({
               {authConfigured && (
                 <>
                   {' '}(<Link href="/signup" style={{ color: GOLD }}>create an account</Link> to
-                  take them online)
+                  take them online — everything built here can be imported into
+                  your account right after you sign up)
                 </>
               )}.
             </div>
@@ -382,8 +396,23 @@ export default function HomeScreen({
           </div>
         </header>
 
+        {/* Getting-started checklist — signed-in home only (never sandbox /
+            guest-only). Gated on profile + cards having loaded so ✓ states
+            don't flash, and on the component's own dismissal/auto-hide. */}
+        {!sandbox && authConfigured && session && profile && !loading && (
+          <OnboardingChecklist
+            userId={session.user.id}
+            role={profile.accountType}
+            cardCount={cards.length}
+            hasInventory={vendors.some((v) => v.inventoryCount > 0)}
+            collectionPublic={profile.collectionPublic}
+            onEnterGallery={onEnter}
+          />
+        )}
+
         <Section numeral="I." title="ACQUISITIONS">
           <div
+            id="home-dropzone"
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
@@ -690,6 +719,7 @@ export default function HomeScreen({
             </p>
           )}
         </footer>
+        <SiteFooter />
       </div>
     </div>
   );

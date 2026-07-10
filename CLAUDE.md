@@ -739,6 +739,37 @@ parallel streams, additive-only changes since — never reshape existing signatu
     overwrite the scenes' custom `events.compute` after mount (pre-existing race,
     harmless on real GPUs) — re-install via the R3F store's `setEvents` before
     scripted canvas clicks (also recorded in the verify skill).
+- **UX Wave C shipped** (2026-07-10, branch `ux-waves`; 2 worktree streams, merged
+  conflict-free; per-stream gates 65/65 + 36/36 PASS, zero console errors): **creator
+  polish & trust wave** — closes the 3-wave program from the live UX review
+  (`~/.claude/plans/your-role-you-re-delegated-brook.md`).
+  - **Stream C1** (`9fbeff1`): show-owner affordances (`getShowForWalk` exposes
+    `organizerId`; ShowDetail gives the owner "✎ EDIT THIS SHOW →" and swaps the apply
+    section for "Review booth applications →"), vendor-owner banner on /vendor/:id
+    ("This is your store — manage it in MY STORES →"), `hasCardMeta` filename gating on
+    BOTH public collector leak sites (CollectorPage grid caption + CollectorMuseum
+    inspect captions — matches App.tsx's own-museum rule), and **DELETE MY DATA**
+    (`lib/accountDeletion.ts` + AccountScreen panel: typed-DELETE confirm → RLS-scoped
+    FK-safe row purge → sign-out; login survives, full removal via /contact).
+    ⚠ **Storage finding (live-proven)**: only the `cards` bucket is client-deletable —
+    banners/inventory/plans have DELETE policies but NO storage.objects SELECT policy,
+    and the storage service silently skips objects it can't see (`remove()` → `data: []`,
+    no error — same service-quirk family as the upsert-403 gotcha). Purge deletes card
+    images, skips the rest ("become unreachable, periodically cleaned" copy). Future
+    one-line migration: owner-prefix SELECT on those buckets.
+  - **Stream C2** (`2528262`): edit-show interstitial reworded to organizer language
+    (the "replaces your local sandbox draft" plumbing leak; **deliberately NO
+    auto-snapshot** — remote `savePlanRecord` maps to `upsertCloudPlan` and would mint a
+    stray cloud show), PlanEditor mode toolbar moved out of the plan image into a
+    normal-flow row, "R×C · N tables" labels now hover/selected-only (vendor-name labels
+    stay always-on; dashed grid previews kept — faint and informative), PlanWorkbench
+    helper strip ("Drag boxes to fix detection · click a box to assign a vendor ·
+    rotate with the handle"), and `docs/og-previews-spike.md` — decision-ready per-route
+    OG design against the real deploy (self-controlled nginx in Docker behind Traefik:
+    bot-UA map → Supabase Edge Function `og-render` reading with the anon key so RLS
+    enforces visibility; static → dynamic og:image phases; needs the user to CONFIRM
+    docker-compose.deploy.yml is the live path). `nginx.conf` gained comment markers
+    only.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

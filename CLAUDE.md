@@ -161,7 +161,9 @@ one panel per store).
   texture. Booths with inventory get **binders** (`VendorHallBinders.tsx`): 90 items per
   binder (10 faces × 9), binder *i* on booth table *i* (emission order), extras side by
   side on the last table, duplicated at each of the vendor's booths. Closed binders =
-  **2 instanced draws total** (merged leather shells + ring packs), zero textures. F (or
+  **2 instanced draws total** (merged leather shells + ring packs; since UX Wave B the
+  shared leather material carries two small canvas textures — embossed map + grain
+  roughness/bump from `binderShellAssets.ts` — constant cost, still 2 draws). F (or
   click/tap) opens: the instance collapses to scale 0 and the real `Binder` mounts in its
   place with the inventory slice (`lazySheetWindow=1` — textures only near the open
   spread), full flip/inspect/caption flow, then unmounts on close.
@@ -211,7 +213,8 @@ bypasses the editor: it loads the snapshot into the working slots and goes direc
   draw calls by table count (reflector renders the scene twice). Per-vendor front drapes
   are the sanctioned exception: one extra instanced draw per *unique vendor texture*
   (not per table).
-- Closed binders are exactly 2 instanced draws (shells + rings), zero textures. Only the
+- Closed binders are exactly 2 instanced draws (shells + rings; two small shared canvas
+  textures on the leather material since UX Wave B — constant cost). Only the
   one open binder mounts card textures, and only near its current spread
   (`lazySheetWindow=1`). Never mount per-table React binder components.
 
@@ -697,6 +700,45 @@ parallel streams, additive-only changes since — never reshape existing signatu
   - Live test data from the review remains on prod for reuse (account
     jason.a.dale2+uxtest0709@gmail.com, store e34bbc71, published "UX Test Show (safe to
     delete)" e785d845 + two uxa2verify accounts) — see memory `project-uxtest-account`.
+- **UX Wave B shipped** (2026-07-10, branch `ux-waves`; scaffold with its own E2E gate +
+  2 worktree streams, merged conflict-free; per-stream gates 38/38 + 63/63 PASS, merged
+  /demo smoke green, zero console errors): **in-hall experience & wow-factor wave.**
+  - **Scaffold** (`bfd27ce`): InspectOverlay gained `nav {index,total,onPrev,onNext}` /
+    `vendor {name, href?}` / `onAddDetails?`; VendorHallBinders' `onInspect` now emits
+    the ordered binder slice as `InspectPayload {items, index, vendorId}`; Scene inspect
+    = `{list, index}` (wall order from frames, collection order from the binder;
+    wrap-around nav); HUD `overlayOpen` (hint pills hidden while the overlay is up —
+    both scenes also pass `frozen` while inspecting, since ArrowLeft/Right are strafe
+    keys); `HallAtmosphere` stub mounted by VendorScene; **`sceneTuning.ts`** holds every
+    lighting/exposure literal both scenes consume (extraction verified byte-identical);
+    `binderShellAssets.ts` owns the closed-shell geometry/material singletons;
+    App→HomeScreen `autoEditCardId` for the overlay's "✎ add details". ⚠ Museum
+    ambient/hemi still live in Room.tsx (deliberately untouched).
+  - **Stream B1 — hall atmosphere** (`040a871`): CARD SHOW header + pennant banners
+    (instanced, canvas textures), ENTRANCE doors + emissive sign at the south spawn,
+    ceiling truss web + hanging banners (kills the black void; warmer `#2d2723`
+    ceiling), aisle carpet runners, leather binder shells (embossed/stitched canvas
+    map + grain bump). Budget held exactly: 10 lights unchanged, +8 draw calls, binders
+    still 2 draws. **Tabletop "white ovals" root-caused: the board poked through the
+    cloth** (8 mm sag vs 6 mm clearance in `makeTopGeometry`) — sag capped at 4 mm; also
+    cloth roughness 0.92→0.97 + `envMapIntensity 0.35`. Museum close-range washout:
+    `MUSEUM_EXPOSURE` 1.15→1.08, wall-spot intensity 60→48, penumbra 0.85→0.95, mat
+    `#f2eee6`. ⚠ Real-GPU eyeball still owed (SwiftShader can't judge gloss).
+  - **Stream B2 — overlay/wayfinding/price** (`eb945d5`): **public-walk placard price
+    bug FIXED** (`publicShows.ts getShowForWalk` now selects + maps
+    price/status/condition; live-proven — anonymous walk shows the $75 placard);
+    museum-refined overlay (hairline-circle ‹ › side arrows — placard row <641px —
+    small-caps "n of N", italic "from VENDOR" + VISIT VENDOR PAGE → when the host
+    passes `linkVendors` (ShowDetail does; /demo doesn't), ✎/want ghost pills, bottom
+    clipping fixed via shrinkable-image flex column); minimap dots 6/9/10px + hover
+    name tooltips + ⤢ enlarge toggle (scale about top-right, tracker math composes;
+    also fixed a pre-existing bug: the marker div sat untransformed after binder close
+    until movement); touch hint pill moved to bottom:132 (clears joystick + top
+    chrome at 375px).
+  - Headless note for future runs: under SwiftShader, R3F's Canvas config effect can
+    overwrite the scenes' custom `events.compute` after mount (pre-existing race,
+    harmless on real GPUs) — re-install via the R3F store's `setEvents` before
+    scripted canvas clicks (also recorded in the verify skill).
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

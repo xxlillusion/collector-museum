@@ -71,6 +71,12 @@ Generate images in-page with a canvas, then upload through the real inputs:
 
 ## Driving the 3D scenes
 
+- **SwiftShader race**: R3F's Canvas config effect can overwrite the scenes'
+  custom crosshair `events.compute` after mount (pre-existing, harmless on real
+  GPUs). If a scripted CANVAS CLICK must raycast from the crosshair, re-install
+  the compute via the R3F store first (`window.__R3F`-style store access →
+  `store.setEvents({ compute: <the crosshair compute> })`), or aim the
+  crosshair and click the true screen-center pixel.
 - Click canvas center to engage (shimmed) pointer lock.
 - Steer under pointer lock with synthetic events (PointerLockControls reads
   `movementX/Y`, gain 0.002 rad/px, yaw -= mX·0.002):

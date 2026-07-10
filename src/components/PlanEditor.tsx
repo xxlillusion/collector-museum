@@ -72,6 +72,10 @@ export default function PlanEditor({
   const tableW = standardTableW(tableLengthFt);
   const svgRef = useRef<SVGSVGElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  // Mouse/pen hover only — real plans print their own booth numbers, so the
+  // per-box table-count label shows just for the hovered or selected rect
+  // (touch has no hover: selected-only there).
+  const [hovered, setHovered] = useState<string | null>(null);
   const [mode, setMode] = useState<EditorMode>('select');
   const [calLine, setCalLine] = useState<CalLine | null>(null);
   const calLineRef = useRef<CalLine | null>(null);
@@ -287,7 +291,39 @@ export default function PlanEditor({
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', userSelect: 'none' }}>
+    <div style={{ width: '100%', userSelect: 'none' }}>
+      {/* Mode toggles in normal flow ABOVE the stage — floated over the image
+          they covered the plan's own top-left content */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        <button
+          onClick={() => setMode((m) => (m === 'add' ? 'select' : 'add'))}
+          style={toolButton(mode === 'add')}
+        >
+          {mode === 'add' ? '✓ Drawing tables — click to finish' : '+ Add table'}
+        </button>
+        {onCalibrateLine && (
+          <button
+            onClick={() => {
+              calLineRef.current = null;
+              setCalLine(null);
+              setMode((m) => (m === 'calibrate' ? 'select' : 'calibrate'));
+            }}
+            style={toolButton(mode === 'calibrate')}
+          >
+            {mode === 'calibrate' ? '✓ Drag a line over a known length' : '📏 Calibrate'}
+          </button>
+        )}
+        {onStartChange && (
+          <button
+            onClick={() => setMode((m) => (m === 'setStart' ? 'select' : 'setStart'))}
+            style={toolButton(mode === 'setStart')}
+          >
+            {mode === 'setStart' ? '✓ Click where you want to start' : '🚩 Set start'}
+          </button>
+        )}
+      </div>
+
+      <div style={{ position: 'relative', width: '100%' }}>
       <img
         src={planUrl}
         alt="Floor plan"
@@ -312,6 +348,10 @@ export default function PlanEditor({
       >
         {rects.map((r) => {
           const isSel = r.id === selected;
+          // Table-count labels collided with the plan's printed booth numbers
+          // (label soup on real plans) — hover/selection reveals them. Vendor
+          // names always render: they carry info the plan itself doesn't.
+          const showCount = isSel || hovered === r.id;
           const { nw, nh } = gridForRect(r);
           const k = nw * nh;
           const rcx = r.x + r.w / 2;
@@ -327,7 +367,17 @@ export default function PlanEditor({
           return (
             // Rotation on the group: rect, label, and every handle render in
             // the rotated frame for free
-            <g key={r.id} transform={`rotate(${r.rotationDeg ?? 0} ${rcx} ${rcy})`}>
+            <g
+              key={r.id}
+              transform={`rotate(${r.rotationDeg ?? 0} ${rcx} ${rcy})`}
+              // Boundary events on the group so handles/labels don't flicker
+              // it off; touch taps fire enter/leave too, so gate to mouse/pen
+              // (touch reveals the count via selection instead)
+              onPointerEnter={(e) => {
+                if (e.pointerType !== 'touch') setHovered(r.id);
+              }}
+              onPointerLeave={() => setHovered((h) => (h === r.id ? null : h))}
+            >
               <rect
                 x={r.x}
                 y={r.y}
@@ -371,28 +421,30 @@ export default function PlanEditor({
                     style={{ pointerEvents: 'none' }}
                   />
                 ))}
-              <text
-                x={rcx}
-                y={vendorName ? rcy - labelSize * 0.55 : rcy}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fill="#fff"
-                stroke="#000"
-                strokeWidth={ui * 0.06}
-                paintOrder="stroke"
-                fontSize={labelSize}
-                style={{ pointerEvents: 'none', fontFamily: 'Georgia, serif' }}
-              >
-                {nw > 1 && nh > 1
-                  ? `${nh}×${nw} · ${k} tables`
-                  : k > 1
-                    ? `${k} tables`
-                    : '1 table'}
-              </text>
+              {showCount && (
+                <text
+                  x={rcx}
+                  y={vendorName ? rcy - labelSize * 0.55 : rcy}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fill="#fff"
+                  stroke="#000"
+                  strokeWidth={ui * 0.06}
+                  paintOrder="stroke"
+                  fontSize={labelSize}
+                  style={{ pointerEvents: 'none', fontFamily: 'Georgia, serif' }}
+                >
+                  {nw > 1 && nh > 1
+                    ? `${nh}×${nw} · ${k} tables`
+                    : k > 1
+                      ? `${k} tables`
+                      : '1 table'}
+                </text>
+              )}
               {vendorName && (
                 <text
                   x={rcx}
-                  y={rcy + labelSize * 0.65}
+                  y={showCount ? rcy + labelSize * 0.65 : rcy}
                   textAnchor="middle"
                   dominantBaseline="central"
                   fill={GOLD}
@@ -515,35 +567,6 @@ export default function PlanEditor({
           </g>
         )}
       </svg>
-
-      {/* Mode toggles live with the canvas so they read as tools */}
-      <div style={{ position: 'absolute', top: '10px', left: '10px', display: 'flex', gap: '8px' }}>
-        <button
-          onClick={() => setMode((m) => (m === 'add' ? 'select' : 'add'))}
-          style={toolButton(mode === 'add')}
-        >
-          {mode === 'add' ? '✓ Drawing tables — click to finish' : '+ Add table'}
-        </button>
-        {onCalibrateLine && (
-          <button
-            onClick={() => {
-              calLineRef.current = null;
-              setCalLine(null);
-              setMode((m) => (m === 'calibrate' ? 'select' : 'calibrate'));
-            }}
-            style={toolButton(mode === 'calibrate')}
-          >
-            {mode === 'calibrate' ? '✓ Drag a line over a known length' : '📏 Calibrate'}
-          </button>
-        )}
-        {onStartChange && (
-          <button
-            onClick={() => setMode((m) => (m === 'setStart' ? 'select' : 'setStart'))}
-            style={toolButton(mode === 'setStart')}
-          >
-            {mode === 'setStart' ? '✓ Click where you want to start' : '🚩 Set start'}
-          </button>
-        )}
       </div>
     </div>
   );

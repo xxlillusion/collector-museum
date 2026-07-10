@@ -9,7 +9,10 @@ import type { AccountType } from './auth';
  *
  * "Store" = a vendors row with profile_id = the account (migration 0004:
  * up to STORE_LIMIT per profile, exactly one flagship — the default store).
- * Placeholder vendors (profile_id null) are not stores and never appear here.
+ * Unlinked vendors (profile_id null — legacy registry entries and old organizer
+ * placeholders) are not stores, but the claim functions below let their owner
+ * register them: RLS's update policy allows an owner to set profile_id to
+ * their own uid, and the store-limit trigger backstops the cap.
  */
 
 export const STORE_LIMIT = 2;
@@ -200,6 +203,119 @@ export async function ensureFirstStore(
   const existing = await listMyStores(userId);
   if (existing.length > 0) return existing[0];
   return createStore(userId, displayName);
+}
+
+/** A vendor row the account owns that isn't registered as a store. */
+export interface UnclaimedVendor {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+/** Vendors with owner_id = the account and no profile link — oldest first. */
+export async function listUnclaimedVendors(userId: string): Promise<UnclaimedVendor[]> {
+  const sb = client();
+  const { data, error } = await sb
+    .from('vendors')
+    .select('id, name, created_at')
+    .eq('owner_id', userId)
+    .is('profile_id', null)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`load unclaimed vendors: ${error.message}`);
+  return ((data ?? []) as { id: string; name: string; created_at: string }[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    createdAt: Date.parse(r.created_at),
+  }));
+}
+
+/**
+ * Register an owned unlinked vendor as one of the account's stores. The
+ * `profile_id is null` predicate makes concurrent/repeated claims no-op
+ * (0 rows matched → error) instead of double-writing. First store mirrors
+ * createStore: flagship + account_type 'vendor'.
+ */
+export async function claimVendorAsStore(userId: string, vendorId: string): Promise<MyStoreRecord> {
+  const sb = client();
+  const existing = await listMyStores(userId);
+  if (existing.length >= STORE_LIMIT) {
+    throw new Error(`Store limit reached — an account may hold at most ${STORE_LIMIT} stores.`);
+  }
+  const { data, error } = await sb
+    .from('vendors')
+    .update({ profile_id: userId, updated_at: new Date().toISOString() })
+    .eq('id', vendorId)
+    .eq('owner_id', userId)
+    .is('profile_id', null)
+    .select(STORE_COLUMNS)
+    .maybeSingle();
+  if (error) throw new Error(`claim vendor: ${error.message}`);
+  if (!data) throw new Error('claim vendor: already claimed or not yours — reload to refresh.');
+  const store = toStore(data as unknown as MyStoreRow);
+  if (!existing.some((s) => s.isFlagship)) {
+    // Covers the first claim on an empty account AND accounts whose flagship
+    // was deleted. Best-effort, like createStore's accountType flip.
+    try {
+      await setFlagshipStore(store.id);
+      store.isFlagship = true;
+    } catch { /* non-fatal */ }
+  }
+  if (existing.length === 0) {
+    try {
+      await updateMyProfile(userId, { accountType: 'vendor' });
+    } catch { /* non-fatal */ }
+  }
+  return store;
+}
+
+export interface ClaimSummary {
+  stores: MyStoreRecord[];
+  unclaimed: UnclaimedVendor[];
+  /** True when the claims took the account from 0 stores to 1+. */
+  becameVendor: boolean;
+}
+
+/**
+ * Silent adoption pass for the My Stores tab: claim the account's unlinked
+ * vendors oldest-first until the store cap; whatever doesn't fit (or fails
+ * the trigger in a race) is returned as still-unclaimed for the manual
+ * CLAIM list.
+ */
+export async function autoClaimMyVendors(userId: string): Promise<ClaimSummary> {
+  let stores = await listMyStores(userId);
+  const hadStores = stores.length > 0;
+  const unclaimed = await listUnclaimedVendors(userId);
+  const remaining: UnclaimedVendor[] = [];
+  let claimedAny = false;
+  for (const vendor of unclaimed) {
+    if (stores.length >= STORE_LIMIT) {
+      remaining.push(vendor);
+      continue;
+    }
+    try {
+      stores.push(await claimVendorAsStore(userId, vendor.id));
+      claimedAny = true;
+    } catch {
+      remaining.push(vendor);
+    }
+  }
+  if (claimedAny) stores = await listMyStores(userId); // authoritative order (flagship first)
+  return { stores, unclaimed: remaining, becameVendor: !hadStores && stores.length > 0 };
+}
+
+/**
+ * Free a store slot: unlink the vendor from the account. The row, its
+ * inventory and any booth assignments survive — it just stops being a
+ * registered store (and reappears as claimable).
+ */
+export async function unregisterStore(userId: string, storeId: string): Promise<void> {
+  const sb = client();
+  const { error } = await sb
+    .from('vendors')
+    .update({ profile_id: null, is_flagship: false, updated_at: new Date().toISOString() })
+    .eq('id', storeId)
+    .eq('owner_id', userId);
+  if (error) throw new Error(`unregister store: ${error.message}`);
 }
 
 export async function updateMyStoreSettings(

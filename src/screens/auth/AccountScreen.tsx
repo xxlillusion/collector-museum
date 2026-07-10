@@ -1,19 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
-import QRCode from 'qrcode';
-import { Link, useLocation } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
-import {
-  STORE_LIMIT,
-  getMyProfile,
-  updateMyProfile,
-  listMyStores,
-  createStore,
-  setFlagshipStore,
-  updateMyStoreSettings,
-} from '../../lib/profileService';
-import type { ProfileRecord, MyStoreRecord } from '../../lib/profileService';
+import { getMyProfile, updateMyProfile } from '../../lib/profileService';
+import type { ProfileRecord } from '../../lib/profileService';
 import { COUNTRIES, regionOptions } from '../../lib/locations';
 import {
   readLocalSnapshot,
@@ -21,17 +12,17 @@ import {
   importedFlagKey,
 } from '../../lib/importLocal';
 import type { LocalSnapshot, ImportSelection } from '../../lib/importLocal';
+import MyStoresTab from './MyStoresTab';
+import { errMsg, StatusLine, checkLabelStyle } from './accountShared';
 import {
   GOLD,
   HAIRLINE,
   TEXT,
   MUTED,
-  ERROR,
+  SERIF,
   panelStyle,
   panelTitleStyle,
   ghostButtonStyle,
-  noteStyle,
-  errorTextStyle,
 } from '../../components/museumKit';
 import {
   authLabelStyle,
@@ -41,46 +32,19 @@ import {
   NotConfiguredNote,
 } from './LoginScreen';
 
-/** Inner bordered card for one store inside the MY STORES panel. */
-const storeCardStyle: CSSProperties = {
-  border: `1px solid ${HAIRLINE}`,
-  borderRadius: 4,
-  background: 'rgba(0,0,0,0.18)',
-  padding: '18px 20px',
-  marginBottom: 18,
-};
+type AccountTab = 'profile' | 'stores';
 
-const checkLabelStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: 12,
-  fontSize: 15,
-  color: TEXT,
+const tabButtonStyle = (active: boolean): CSSProperties => ({
+  background: 'transparent',
+  border: 'none',
+  borderBottom: active ? `2px solid ${GOLD}` : '2px solid transparent',
+  color: active ? GOLD : MUTED,
+  fontFamily: SERIF,
+  fontSize: 13,
+  letterSpacing: '0.18em',
+  padding: '10px 4px',
   cursor: 'pointer',
-};
-
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
-
-function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function StatusLine({ status, error }: { status: SaveStatus; error?: string | null }) {
-  return (
-    <p
-      style={{
-        margin: '6px 0 0',
-        fontSize: 12,
-        color: status === 'error' ? ERROR : MUTED,
-        minHeight: 15,
-      }}
-    >
-      {status === 'saving' && 'Saving…'}
-      {status === 'saved' && 'Saved.'}
-      {status === 'error' && (error || 'Could not save — try again.')}
-    </p>
-  );
-}
+});
 
 function ImportRow({
   label,
@@ -120,361 +84,18 @@ function ImportRow({
   );
 }
 
-/**
- * Booth QR modal: a printable code linking to the store's public page —
- * tape it to the physical table at real shows. Print uses the visibility
- * trick so only the QR sheet reaches paper.
- */
-function StoreQrModal({ store, onClose }: { store: MyStoreRecord; onClose: () => void }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const url = `${window.location.origin}/vendor/${store.id}`;
-
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    QRCode.toCanvas(canvasRef.current, url, {
-      width: 260,
-      margin: 2,
-      color: { dark: '#1a1611', light: '#ffffff' },
-    }).catch(() => {});
-  }, [url]);
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.8)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 100,
-      }}
-    >
-      <style>{`@media print {
-        body * { visibility: hidden !important; }
-        .qr-print-area, .qr-print-area * { visibility: visible !important; }
-        .qr-print-area { position: fixed !important; inset: 0 !important; background: #fff !important; }
-      }`}</style>
-      <div
-        className="qr-print-area"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: '#ffffff',
-          borderRadius: 6,
-          padding: '34px 40px',
-          textAlign: 'center',
-          maxWidth: 360,
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "Georgia, 'Times New Roman', serif",
-            fontSize: 20,
-            letterSpacing: '0.12em',
-            color: '#1a1611',
-            marginBottom: 6,
-          }}
-        >
-          {store.name.toUpperCase()}
-        </div>
-        <div style={{ fontSize: 11.5, color: '#6b6257', letterSpacing: '0.08em', marginBottom: 16 }}>
-          SCAN TO BROWSE MY INVENTORY & MUSEUM
-        </div>
-        <canvas ref={canvasRef} style={{ display: 'block', margin: '0 auto' }} />
-        <div style={{ fontSize: 10.5, color: '#6b6257', marginTop: 12, wordBreak: 'break-all' }}>
-          {url}
-        </div>
-        <div
-          className="qr-modal-actions"
-          style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 20 }}
-        >
-          <style>{`@media print { .qr-modal-actions { display: none !important; } }`}</style>
-          <button
-            onClick={() => window.print()}
-            style={{
-              background: '#1a1611',
-              color: '#f5efe2',
-              border: 'none',
-              borderRadius: 3,
-              padding: '9px 22px',
-              fontSize: 12,
-              letterSpacing: '0.12em',
-              cursor: 'pointer',
-            }}
-          >
-            PRINT
-          </button>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              color: '#6b6257',
-              border: '1px solid #c9c2b6',
-              borderRadius: 3,
-              padding: '9px 22px',
-              fontSize: 12,
-              letterSpacing: '0.12em',
-              cursor: 'pointer',
-            }}
-          >
-            CLOSE
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * One store's settings card. Owns its optimistic record slice + save status
- * (the old saveVendor pattern, per store): patch state, call
- * updateMyStoreSettings, revert on error. Flagship state comes from the
- * parent's list (refreshed after setFlagshipStore) via the `store` prop.
- */
-function StorePanel({
-  store,
-  flagshipBusy,
-  onMakeFlagship,
-}: {
-  store: MyStoreRecord;
-  flagshipBusy: boolean;
-  onMakeFlagship: (storeId: string) => void;
-}) {
-  const [rec, setRec] = useState<MyStoreRecord>(store);
-  const [nameDraft, setNameDraft] = useState(store.name);
-  const [areaDraft, setAreaDraft] = useState(store.areaServed);
-  const [websiteDraft, setWebsiteDraft] = useState(store.website);
-  const [emailDraft, setEmailDraft] = useState(store.contactEmail);
-  const [instagramDraft, setInstagramDraft] = useState(store.instagram);
-  const [status, setStatus] = useState<SaveStatus>('idle');
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [qrOpen, setQrOpen] = useState(false);
-
-  const save = useCallback(
-    async (patch: Partial<Omit<MyStoreRecord, 'id' | 'isFlagship'>>) => {
-      const prev = rec;
-      setRec({ ...rec, ...patch });
-      setStatus('saving');
-      setSaveError(null);
-      try {
-        await updateMyStoreSettings(rec.id, patch);
-        setStatus('saved');
-      } catch (err) {
-        setRec(prev);
-        setStatus('error');
-        setSaveError(errMsg(err));
-      }
-    },
-    [rec],
-  );
-
-  function onCountryChange(nextRaw: string) {
-    const next = nextRaw || null;
-    // Keep the region only when it exists in the new country's list.
-    const keep = next !== null && regionOptions(next).some((r) => r.code === rec.state);
-    void save({ country: next, state: keep ? rec.state : null });
-  }
-
-  const regions = regionOptions(rec.country);
-  const id = store.id;
-
-  return (
-    <div style={storeCardStyle}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        {store.isFlagship ? (
-          <span>
-            <span style={{ color: GOLD, fontSize: 12, letterSpacing: '0.18em' }}>
-              ★ FLAGSHIP
-            </span>
-            <span style={{ marginLeft: 10, fontSize: 12, color: MUTED, fontStyle: 'italic' }}>
-              your default store
-            </span>
-          </span>
-        ) : (
-          <button
-            onClick={() => onMakeFlagship(id)}
-            disabled={flagshipBusy}
-            style={{
-              ...ghostButtonStyle,
-              padding: '6px 14px',
-              fontSize: 11,
-              opacity: flagshipBusy ? 0.6 : 1,
-            }}
-          >
-            MAKE FLAGSHIP
-          </button>
-        )}
-        <span style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
-          <button
-            onClick={() => setQrOpen(true)}
-            title="Printable QR linking to your public page — for your physical booth table"
-            style={{ ...ghostButtonStyle, padding: '6px 14px', fontSize: 11 }}
-          >
-            ▦ BOOTH QR
-          </button>
-          <Link href={`/vendor/${id}`} style={{ color: GOLD, fontSize: 13 }}>
-            View public page →
-          </Link>
-        </span>
-      </div>
-      {qrOpen && <StoreQrModal store={rec} onClose={() => setQrOpen(false)} />}
-      <div style={{ maxWidth: 420 }}>
-        <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-name`} style={authLabelStyle}>
-            STORE NAME
-          </label>
-          <input
-            id={`store-${id}-name`}
-            type="text"
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={() => {
-              const trimmed = nameDraft.trim();
-              if (!trimmed) {
-                setNameDraft(rec.name); // never save an empty name
-                return;
-              }
-              if (trimmed !== rec.name) void save({ name: trimmed });
-            }}
-            style={authInputStyle}
-          />
-        </div>
-        <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-country`} style={authLabelStyle}>
-            COUNTRY
-          </label>
-          <select
-            id={`store-${id}-country`}
-            value={rec.country ?? ''}
-            onChange={(e) => onCountryChange(e.target.value)}
-            style={authInputStyle}
-          >
-            <option value="">—</option>
-            {COUNTRIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        {regions.length > 0 && (
-          <div style={{ marginBottom: 18 }}>
-            <label htmlFor={`store-${id}-state`} style={authLabelStyle}>
-              {rec.country === 'CA' ? 'PROVINCE' : 'STATE'}
-            </label>
-            <select
-              id={`store-${id}-state`}
-              value={rec.state ?? ''}
-              onChange={(e) => void save({ state: e.target.value || null })}
-              style={authInputStyle}
-            >
-              <option value="">—</option>
-              {regions.map((r) => (
-                <option key={r.code} value={r.code}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-area`} style={authLabelStyle}>
-            AREA SERVED
-          </label>
-          <input
-            id={`store-${id}-area`}
-            type="text"
-            value={areaDraft}
-            placeholder='e.g. "Greater Philadelphia / tri-state shows"'
-            onChange={(e) => setAreaDraft(e.target.value)}
-            onBlur={() => {
-              const trimmed = areaDraft.trim();
-              if (trimmed !== rec.areaServed) void save({ areaServed: trimmed });
-            }}
-            style={authInputStyle}
-          />
-        </div>
-        <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-website`} style={authLabelStyle}>
-            WEBSITE
-          </label>
-          <input
-            id={`store-${id}-website`}
-            type="url"
-            value={websiteDraft}
-            placeholder="https://…"
-            onChange={(e) => setWebsiteDraft(e.target.value)}
-            onBlur={() => {
-              const trimmed = websiteDraft.trim();
-              if (trimmed !== rec.website) void save({ website: trimmed });
-            }}
-            style={authInputStyle}
-          />
-        </div>
-        <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-email`} style={authLabelStyle}>
-            PUBLIC CONTACT EMAIL
-          </label>
-          <input
-            id={`store-${id}-email`}
-            type="email"
-            value={emailDraft}
-            placeholder="Shown on your public page"
-            onChange={(e) => setEmailDraft(e.target.value)}
-            onBlur={() => {
-              const trimmed = emailDraft.trim();
-              if (trimmed !== rec.contactEmail) void save({ contactEmail: trimmed });
-            }}
-            style={authInputStyle}
-          />
-        </div>
-        <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-instagram`} style={authLabelStyle}>
-            INSTAGRAM
-          </label>
-          <input
-            id={`store-${id}-instagram`}
-            type="text"
-            value={instagramDraft}
-            placeholder="handle (without the @)"
-            onChange={(e) => setInstagramDraft(e.target.value)}
-            onBlur={() => {
-              const trimmed = instagramDraft.trim().replace(/^@/, '');
-              if (trimmed !== instagramDraft) setInstagramDraft(trimmed);
-              if (trimmed !== rec.instagram) void save({ instagram: trimmed });
-            }}
-            style={authInputStyle}
-          />
-        </div>
-        <label style={checkLabelStyle}>
-          <input
-            type="checkbox"
-            checked={rec.inventoryPublic}
-            onChange={(e) => void save({ inventoryPublic: e.target.checked })}
-            style={{ accentColor: GOLD }}
-          />
-          <span>Show my inventory publicly</span>
-        </label>
-        <StatusLine status={status} error={saveError} />
-      </div>
-    </div>
-  );
-}
-
 // Owned by the accounts workstream (Stream A).
 export default function AccountScreen() {
   const { configured, session, loading, signOut, updatePassword } = useAuth();
   const [, navigate] = useLocation();
+  const search = useSearch();
   const userId = session?.user.id ?? null;
+
+  // Tab from the query param so MY STORES is deep-linkable (/account?tab=stores).
+  const tab: AccountTab =
+    new URLSearchParams(search).get('tab') === 'stores' ? 'stores' : 'profile';
+  const setTab = (next: AccountTab) =>
+    navigate(next === 'stores' ? '/account?tab=stores' : '/account', { replace: true });
 
   // ---- profile (loaded once via profileService; sections edit slices of it) ----
   const [profile, setProfile] = useState<ProfileRecord | null>(null);
@@ -482,14 +103,14 @@ export default function AccountScreen() {
 
   // ---- display name ----
   const [displayName, setDisplayName] = useState('');
-  const [nameStatus, setNameStatus] = useState<SaveStatus>('idle');
+  const [nameStatus, setNameStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // ---- location & bio ----
   const [country, setCountry] = useState<string | null>(null);
   const [stateRegion, setStateRegion] = useState<string | null>(null);
   const [city, setCity] = useState('');
   const [bio, setBio] = useState('');
-  const [locStatus, setLocStatus] = useState<SaveStatus>('idle');
+  const [locStatus, setLocStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [locError, setLocError] = useState<string | null>(null);
 
   // ---- change password ----
@@ -500,19 +121,10 @@ export default function AccountScreen() {
   const [pwError, setPwError] = useState<string | null>(null);
 
   // ---- organizer / collection toggles ----
-  const [orgStatus, setOrgStatus] = useState<SaveStatus>('idle');
+  const [orgStatus, setOrgStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [orgError, setOrgError] = useState<string | null>(null);
-  const [collStatus, setCollStatus] = useState<SaveStatus>('idle');
+  const [collStatus, setCollStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [collError, setCollError] = useState<string | null>(null);
-
-  // ---- my stores (any account may hold up to STORE_LIMIT) ----
-  const [stores, setStores] = useState<MyStoreRecord[] | null>(null); // null = loading
-  const [storesLoadError, setStoresLoadError] = useState<string | null>(null);
-  const [newStoreName, setNewStoreName] = useState('');
-  const [creatingStore, setCreatingStore] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [flagshipBusy, setFlagshipBusy] = useState(false);
-  const [flagshipError, setFlagshipError] = useState<string | null>(null);
 
   // ---- import wizard ----
   const [snapshot, setSnapshot] = useState<LocalSnapshot | null>(null);
@@ -551,27 +163,6 @@ export default function AccountScreen() {
       })
       .catch((err) => {
         if (!cancelled) setProfileLoadError(errMsg(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
-
-  // Load the account's stores — every account type may hold them.
-  useEffect(() => {
-    if (!userId) return;
-    let cancelled = false;
-    setStores(null);
-    setStoresLoadError(null);
-    listMyStores(userId)
-      .then((list) => {
-        if (!cancelled) setStores(list);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setStores([]);
-          setStoresLoadError(errMsg(err));
-        }
       });
     return () => {
       cancelled = true;
@@ -699,43 +290,6 @@ export default function AccountScreen() {
     }
   }
 
-  async function openStore() {
-    if (!userId || !stores) return;
-    const name = newStoreName.trim();
-    if (!name || creatingStore) return;
-    setCreatingStore(true);
-    setCreateError(null);
-    try {
-      const wasFirst = stores.length === 0;
-      const created = await createStore(userId, name);
-      setStores([...stores, created]);
-      setNewStoreName('');
-      if (wasFirst) {
-        // createStore flips account_type server-side; mirror it locally so the
-        // page reflects vendor status without a reload.
-        setProfile((p) => (p ? { ...p, accountType: 'vendor' } : p));
-      }
-    } catch (err) {
-      setCreateError(errMsg(err));
-    } finally {
-      setCreatingStore(false);
-    }
-  }
-
-  async function makeFlagship(storeId: string) {
-    if (!userId || flagshipBusy) return;
-    setFlagshipBusy(true);
-    setFlagshipError(null);
-    try {
-      await setFlagshipStore(storeId);
-      setStores(await listMyStores(userId));
-    } catch (err) {
-      setFlagshipError(errMsg(err));
-    } finally {
-      setFlagshipBusy(false);
-    }
-  }
-
   async function runImport() {
     if (!userId || !snapshot) return;
     setImporting(true);
@@ -773,372 +327,315 @@ export default function AccountScreen() {
     snapshot.plans.length === 0;
 
   const regions = regionOptions(country);
-  const canOpenStore = stores !== null && stores.length < STORE_LIMIT;
-
-  const openStoreForm = (
-    <div style={{ display: 'flex', gap: 12, maxWidth: 420, alignItems: 'stretch' }}>
-      <input
-        type="text"
-        value={newStoreName}
-        placeholder="Store name"
-        onChange={(e) => {
-          setNewStoreName(e.target.value);
-          setCreateError(null);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') void openStore();
-        }}
-        style={{ ...authInputStyle, flex: 1 }}
-      />
-      <button
-        onClick={() => void openStore()}
-        disabled={creatingStore || !newStoreName.trim()}
-        style={{
-          ...ghostButtonStyle,
-          whiteSpace: 'nowrap',
-          opacity: creatingStore || !newStoreName.trim() ? 0.6 : 1,
-        }}
-      >
-        {creatingStore
-          ? 'OPENING…'
-          : stores && stores.length > 0
-            ? 'OPEN A SECOND STORE'
-            : 'OPEN A STORE'}
-      </button>
-    </div>
-  );
 
   return (
     <PageShell title="My Account" eyebrow="MEMBERS">
-      <section style={panelStyle}>
-        <h2 style={panelTitleStyle}>PROFILE</h2>
-        <p style={{ margin: '0 0 18px', fontSize: 15, color: MUTED }}>
-          Signed in as <span style={{ color: TEXT }}>{session.user.email}</span>
-        </p>
-        <div style={{ maxWidth: 420, marginBottom: 20 }}>
-          <label htmlFor="account-display-name" style={authLabelStyle}>
-            DISPLAY NAME
-          </label>
-          <input
-            id="account-display-name"
-            type="text"
-            value={displayName}
-            placeholder="How you appear across the museum"
-            onChange={(e) => {
-              setDisplayName(e.target.value);
-              setNameStatus('idle');
-            }}
-            onBlur={saveDisplayName}
-            style={authInputStyle}
-          />
-          <StatusLine status={nameStatus} />
-        </div>
-        <button
-          onClick={async () => {
-            await signOut();
-            navigate('/');
-          }}
-          style={ghostButtonStyle}
-        >
-          SIGN OUT
+      {/* Tab bar — MY STORES holds every store surface (settings + inventory). */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 26,
+          borderBottom: `1px solid ${HAIRLINE}`,
+          marginBottom: 28,
+        }}
+      >
+        <button onClick={() => setTab('profile')} style={tabButtonStyle(tab === 'profile')}>
+          PROFILE
         </button>
-      </section>
+        <button onClick={() => setTab('stores')} style={tabButtonStyle(tab === 'stores')}>
+          MY STORES
+        </button>
+      </div>
 
-      {profileLoadError && (
-        <section style={panelStyle}>
-          <p style={{ ...authErrorStyle, margin: 0 }}>{profileLoadError}</p>
-        </section>
-      )}
-      {!profile && !profileLoadError && (
-        <section style={panelStyle}>
-          <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading profile…</p>
-        </section>
-      )}
-
-      {profile && (
+      {tab === 'stores' && userId ? (
+        <MyStoresTab
+          userId={userId}
+          onBecameVendor={() =>
+            setProfile((p) => (p ? { ...p, accountType: 'vendor' } : p))
+          }
+        />
+      ) : (
         <>
           <section style={panelStyle}>
-            <h2 style={panelTitleStyle}>LOCATION &amp; BIO</h2>
-            <div style={{ maxWidth: 420 }}>
-              <div style={{ marginBottom: 18 }}>
-                <label htmlFor="account-country" style={authLabelStyle}>
-                  COUNTRY
-                </label>
-                <select
-                  id="account-country"
-                  value={country ?? ''}
-                  onChange={(e) => onCountryChange(e.target.value)}
-                  style={authInputStyle}
-                >
-                  <option value="">—</option>
-                  {COUNTRIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {regions.length > 0 && (
-                <div style={{ marginBottom: 18 }}>
-                  <label htmlFor="account-state" style={authLabelStyle}>
-                    {country === 'CA' ? 'PROVINCE' : 'STATE'}
-                  </label>
-                  <select
-                    id="account-state"
-                    value={stateRegion ?? ''}
-                    onChange={(e) => {
-                      const next = e.target.value || null;
-                      setStateRegion(next);
-                      void saveLocation({ state: next });
-                    }}
-                    style={authInputStyle}
-                  >
-                    <option value="">—</option>
-                    {regions.map((r) => (
-                      <option key={r.code} value={r.code}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div style={{ marginBottom: 18 }}>
-                <label htmlFor="account-city" style={authLabelStyle}>
-                  CITY
-                </label>
-                <input
-                  id="account-city"
-                  type="text"
-                  value={city}
-                  placeholder="e.g. Philadelphia"
-                  onChange={(e) => setCity(e.target.value)}
-                  onBlur={() => void saveLocation({ city: city.trim() || null })}
-                  style={authInputStyle}
-                />
-              </div>
-              <div>
-                <label htmlFor="account-bio" style={authLabelStyle}>
-                  BIO
-                </label>
-                <textarea
-                  id="account-bio"
-                  value={bio}
-                  placeholder="A few lines about you and what you collect"
-                  onChange={(e) => setBio(e.target.value)}
-                  onBlur={() => void saveLocation({ bio })}
-                  rows={4}
-                  style={{ ...authInputStyle, lineHeight: 1.6, resize: 'vertical' }}
-                />
-                <StatusLine status={locStatus} error={locError} />
-              </div>
+            <h2 style={panelTitleStyle}>PROFILE</h2>
+            <p style={{ margin: '0 0 18px', fontSize: 15, color: MUTED }}>
+              Signed in as <span style={{ color: TEXT }}>{session.user.email}</span>
+            </p>
+            <div style={{ maxWidth: 420, marginBottom: 20 }}>
+              <label htmlFor="account-display-name" style={authLabelStyle}>
+                DISPLAY NAME
+              </label>
+              <input
+                id="account-display-name"
+                type="text"
+                value={displayName}
+                placeholder="How you appear across the museum"
+                onChange={(e) => {
+                  setDisplayName(e.target.value);
+                  setNameStatus('idle');
+                }}
+                onBlur={saveDisplayName}
+                style={authInputStyle}
+              />
+              <StatusLine status={nameStatus} />
             </div>
+            <button
+              onClick={async () => {
+                await signOut();
+                navigate('/');
+              }}
+              style={ghostButtonStyle}
+            >
+              SIGN OUT
+            </button>
           </section>
 
-          <section style={panelStyle}>
-            <h2 style={panelTitleStyle}>MY STORES</h2>
-            {storesLoadError ? (
-              <p style={{ ...authErrorStyle, margin: 0 }}>{storesLoadError}</p>
-            ) : stores === null ? (
-              <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading stores…</p>
-            ) : stores.length === 0 ? (
-              <>
-                <p style={{ ...noteStyle, margin: '0 0 16px' }}>
-                  Sell cards? Open a store — it lists you in the vendor directory and lets
-                  organizers assign you to show booths.
-                </p>
-                {openStoreForm}
-                {createError && <p style={authErrorStyle}>{createError}</p>}
-              </>
-            ) : (
-              <>
-                {stores.map((s) => (
-                  <StorePanel
-                    key={s.id}
-                    store={s}
-                    flagshipBusy={flagshipBusy}
-                    onMakeFlagship={(id) => void makeFlagship(id)}
-                  />
-                ))}
-                {flagshipError && <p style={errorTextStyle}>{flagshipError}</p>}
-                {canOpenStore ? (
-                  <div style={{ marginTop: 4 }}>
-                    {openStoreForm}
-                    {createError && <p style={authErrorStyle}>{createError}</p>}
+          {profileLoadError && (
+            <section style={panelStyle}>
+              <p style={{ ...authErrorStyle, margin: 0 }}>{profileLoadError}</p>
+            </section>
+          )}
+          {!profile && !profileLoadError && (
+            <section style={panelStyle}>
+              <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading profile…</p>
+            </section>
+          )}
+
+          {profile && (
+            <>
+              <section style={panelStyle}>
+                <h2 style={panelTitleStyle}>LOCATION &amp; BIO</h2>
+                <div style={{ maxWidth: 420 }}>
+                  <div style={{ marginBottom: 18 }}>
+                    <label htmlFor="account-country" style={authLabelStyle}>
+                      COUNTRY
+                    </label>
+                    <select
+                      id="account-country"
+                      value={country ?? ''}
+                      onChange={(e) => onCountryChange(e.target.value)}
+                      style={authInputStyle}
+                    >
+                      <option value="">—</option>
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ) : (
-                  <p style={{ margin: '4px 0 0', fontSize: 13, color: MUTED, fontStyle: 'italic' }}>
-                    Store limit reached ({STORE_LIMIT} per account).
+                  {regions.length > 0 && (
+                    <div style={{ marginBottom: 18 }}>
+                      <label htmlFor="account-state" style={authLabelStyle}>
+                        {country === 'CA' ? 'PROVINCE' : 'STATE'}
+                      </label>
+                      <select
+                        id="account-state"
+                        value={stateRegion ?? ''}
+                        onChange={(e) => {
+                          const next = e.target.value || null;
+                          setStateRegion(next);
+                          void saveLocation({ state: next });
+                        }}
+                        style={authInputStyle}
+                      >
+                        <option value="">—</option>
+                        {regions.map((r) => (
+                          <option key={r.code} value={r.code}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div style={{ marginBottom: 18 }}>
+                    <label htmlFor="account-city" style={authLabelStyle}>
+                      CITY
+                    </label>
+                    <input
+                      id="account-city"
+                      type="text"
+                      value={city}
+                      placeholder="e.g. Philadelphia"
+                      onChange={(e) => setCity(e.target.value)}
+                      onBlur={() => void saveLocation({ city: city.trim() || null })}
+                      style={authInputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="account-bio" style={authLabelStyle}>
+                      BIO
+                    </label>
+                    <textarea
+                      id="account-bio"
+                      value={bio}
+                      placeholder="A few lines about you and what you collect"
+                      onChange={(e) => setBio(e.target.value)}
+                      onBlur={() => void saveLocation({ bio })}
+                      rows={4}
+                      style={{ ...authInputStyle, lineHeight: 1.6, resize: 'vertical' }}
+                    />
+                    <StatusLine status={locStatus} error={locError} />
+                  </div>
+                </div>
+              </section>
+
+              <section style={panelStyle}>
+                <h2 style={panelTitleStyle}>MY COLLECTION</h2>
+                <label style={checkLabelStyle}>
+                  <input
+                    type="checkbox"
+                    checked={profile.collectionPublic}
+                    onChange={(e) => void toggleCollectionPublic(e.target.checked)}
+                    style={{ accentColor: GOLD }}
+                  />
+                  <span>Make my collection public</span>
+                </label>
+                <StatusLine status={collStatus} error={collError} />
+                {profile.collectionPublic && (
+                  <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
+                    <Link href={`/collector/${userId}`} style={{ color: GOLD }}>
+                      View my public collection page →
+                    </Link>
                   </p>
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 20 }}>
-                  <Link
-                    href="/?view=vendors"
-                    style={{ ...ghostButtonStyle, textDecoration: 'none', display: 'inline-block' }}
+              </section>
+
+              <section style={panelStyle}>
+                <h2 style={panelTitleStyle}>ORGANIZER</h2>
+                <label style={checkLabelStyle}>
+                  <input
+                    type="checkbox"
+                    checked={profile.isOrganizer}
+                    onChange={(e) => void toggleOrganizer(e.target.checked)}
+                    style={{ accentColor: GOLD }}
+                  />
+                  <span>Organizer — I run card shows</span>
+                </label>
+                <StatusLine status={orgStatus} error={orgError} />
+                {profile.isOrganizer && (
+                  <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
+                    <Link href="/organizer" style={{ color: GOLD }}>
+                      Go to organizer tools →
+                    </Link>
+                  </p>
+                )}
+              </section>
+
+              <section style={panelStyle}>
+                <h2 style={panelTitleStyle}>CHANGE PASSWORD</h2>
+                <form onSubmit={onChangePassword} style={{ maxWidth: 420 }}>
+                  <div style={{ marginBottom: 18 }}>
+                    <label htmlFor="account-new-password" style={authLabelStyle}>
+                      NEW PASSWORD
+                    </label>
+                    <input
+                      id="account-new-password"
+                      type="password"
+                      required
+                      minLength={6}
+                      autoComplete="new-password"
+                      value={newPw}
+                      onChange={(e) => setNewPw(e.target.value)}
+                      style={authInputStyle}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 20 }}>
+                    <label htmlFor="account-confirm-password" style={authLabelStyle}>
+                      CONFIRM NEW PASSWORD
+                    </label>
+                    <input
+                      id="account-confirm-password"
+                      type="password"
+                      required
+                      minLength={6}
+                      autoComplete="new-password"
+                      value={confirmPw}
+                      onChange={(e) => setConfirmPw(e.target.value)}
+                      style={authInputStyle}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={pwBusy}
+                    style={{ ...authButtonStyle, opacity: pwBusy ? 0.6 : 1 }}
                   >
-                    MANAGE INVENTORY IN THE REGISTRY →
-                  </Link>
-                  <span style={{ fontSize: 13, color: MUTED, lineHeight: 1.6 }}>
-                    banners, captioned items and shows attended
-                  </span>
+                    {pwBusy ? 'UPDATING…' : 'UPDATE PASSWORD →'}
+                  </button>
+                  <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
+                    {pwDone && 'Password updated.'}
+                  </p>
+                  {pwError && <p style={authErrorStyle}>{pwError}</p>}
+                </form>
+              </section>
+            </>
+          )}
+
+          <section style={panelStyle}>
+            <h2 style={panelTitleStyle}>BRING IN THIS BROWSER&rsquo;S COLLECTION</h2>
+            <p style={{ margin: '0 0 14px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
+              Anything added while browsing as a guest lives only in this browser. Copy it into
+              your account — the local data stays untouched, and running the import again simply
+              re-syncs the same items.
+            </p>
+            {alreadyImported && !importDone && (
+              <p style={{ margin: '0 0 14px', fontSize: 13, color: MUTED, fontStyle: 'italic' }}>
+                Imported previously on {new Date(alreadyImported).toLocaleDateString()} — you can
+                import again.
+              </p>
+            )}
+            {snapshot === null ? (
+              <p style={{ fontSize: 14, color: MUTED }}>Reading local data…</p>
+            ) : nothingLocal ? (
+              <p style={{ fontSize: 14, color: MUTED, fontStyle: 'italic' }}>
+                Nothing to import — this browser has no guest data.
+              </p>
+            ) : (
+              <>
+                <ImportRow
+                  label="My collection"
+                  count={`${snapshot.cards.length} ${snapshot.cards.length === 1 ? 'card' : 'cards'}`}
+                  checked={selection.cards}
+                  disabled={importing || snapshot.cards.length === 0}
+                  onChange={(v) => setSelection((s) => ({ ...s, cards: v }))}
+                />
+                <ImportRow
+                  label="My vendors & inventory"
+                  count={`${snapshot.vendors.length} ${snapshot.vendors.length === 1 ? 'vendor' : 'vendors'} · ${snapshot.inventory.length} ${snapshot.inventory.length === 1 ? 'item' : 'items'}`}
+                  checked={selection.vendors}
+                  disabled={importing || snapshot.vendors.length === 0}
+                  onChange={(v) => setSelection((s) => ({ ...s, vendors: v }))}
+                />
+                <ImportRow
+                  label="My saved plans (become draft shows)"
+                  count={`${snapshot.plans.length} ${snapshot.plans.length === 1 ? 'plan' : 'plans'}`}
+                  checked={selection.plans}
+                  disabled={importing || snapshot.plans.length === 0}
+                  onChange={(v) => setSelection((s) => ({ ...s, plans: v }))}
+                />
+                <div style={{ marginTop: 18 }}>
+                  <button
+                    onClick={runImport}
+                    disabled={importing || nothingSelected}
+                    style={{
+                      ...authButtonStyle,
+                      opacity: importing || nothingSelected ? 0.55 : 1,
+                      cursor: importing || nothingSelected ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {importing ? 'IMPORTING…' : importDone || alreadyImported ? 'IMPORT AGAIN →' : 'IMPORT →'}
+                  </button>
+                  <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
+                    {importing && progress}
+                    {importDone && !importing && 'Done — everything selected is now in your account.'}
+                  </p>
+                  {importError && <p style={authErrorStyle}>{importError}</p>}
                 </div>
               </>
             )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={panelTitleStyle}>MY COLLECTION</h2>
-            <label style={checkLabelStyle}>
-              <input
-                type="checkbox"
-                checked={profile.collectionPublic}
-                onChange={(e) => void toggleCollectionPublic(e.target.checked)}
-                style={{ accentColor: GOLD }}
-              />
-              <span>Make my collection public</span>
-            </label>
-            <StatusLine status={collStatus} error={collError} />
-            {profile.collectionPublic && (
-              <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
-                <Link href={`/collector/${userId}`} style={{ color: GOLD }}>
-                  View my public collection page →
-                </Link>
-              </p>
-            )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={panelTitleStyle}>ORGANIZER</h2>
-            <label style={checkLabelStyle}>
-              <input
-                type="checkbox"
-                checked={profile.isOrganizer}
-                onChange={(e) => void toggleOrganizer(e.target.checked)}
-                style={{ accentColor: GOLD }}
-              />
-              <span>Organizer — I run card shows</span>
-            </label>
-            <StatusLine status={orgStatus} error={orgError} />
-            {profile.isOrganizer && (
-              <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
-                <Link href="/organizer" style={{ color: GOLD }}>
-                  Go to organizer tools →
-                </Link>
-              </p>
-            )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={panelTitleStyle}>CHANGE PASSWORD</h2>
-            <form onSubmit={onChangePassword} style={{ maxWidth: 420 }}>
-              <div style={{ marginBottom: 18 }}>
-                <label htmlFor="account-new-password" style={authLabelStyle}>
-                  NEW PASSWORD
-                </label>
-                <input
-                  id="account-new-password"
-                  type="password"
-                  required
-                  minLength={6}
-                  autoComplete="new-password"
-                  value={newPw}
-                  onChange={(e) => setNewPw(e.target.value)}
-                  style={authInputStyle}
-                />
-              </div>
-              <div style={{ marginBottom: 20 }}>
-                <label htmlFor="account-confirm-password" style={authLabelStyle}>
-                  CONFIRM NEW PASSWORD
-                </label>
-                <input
-                  id="account-confirm-password"
-                  type="password"
-                  required
-                  minLength={6}
-                  autoComplete="new-password"
-                  value={confirmPw}
-                  onChange={(e) => setConfirmPw(e.target.value)}
-                  style={authInputStyle}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={pwBusy}
-                style={{ ...authButtonStyle, opacity: pwBusy ? 0.6 : 1 }}
-              >
-                {pwBusy ? 'UPDATING…' : 'UPDATE PASSWORD →'}
-              </button>
-              <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
-                {pwDone && 'Password updated.'}
-              </p>
-              {pwError && <p style={authErrorStyle}>{pwError}</p>}
-            </form>
           </section>
         </>
       )}
-
-      <section style={panelStyle}>
-        <h2 style={panelTitleStyle}>BRING IN THIS BROWSER&rsquo;S COLLECTION</h2>
-        <p style={{ margin: '0 0 14px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
-          Anything added while browsing as a guest lives only in this browser. Copy it into
-          your account — the local data stays untouched, and running the import again simply
-          re-syncs the same items.
-        </p>
-        {alreadyImported && !importDone && (
-          <p style={{ margin: '0 0 14px', fontSize: 13, color: MUTED, fontStyle: 'italic' }}>
-            Imported previously on {new Date(alreadyImported).toLocaleDateString()} — you can
-            import again.
-          </p>
-        )}
-        {snapshot === null ? (
-          <p style={{ fontSize: 14, color: MUTED }}>Reading local data…</p>
-        ) : nothingLocal ? (
-          <p style={{ fontSize: 14, color: MUTED, fontStyle: 'italic' }}>
-            Nothing to import — this browser has no guest data.
-          </p>
-        ) : (
-          <>
-            <ImportRow
-              label="My collection"
-              count={`${snapshot.cards.length} ${snapshot.cards.length === 1 ? 'card' : 'cards'}`}
-              checked={selection.cards}
-              disabled={importing || snapshot.cards.length === 0}
-              onChange={(v) => setSelection((s) => ({ ...s, cards: v }))}
-            />
-            <ImportRow
-              label="My vendors & inventory"
-              count={`${snapshot.vendors.length} ${snapshot.vendors.length === 1 ? 'vendor' : 'vendors'} · ${snapshot.inventory.length} ${snapshot.inventory.length === 1 ? 'item' : 'items'}`}
-              checked={selection.vendors}
-              disabled={importing || snapshot.vendors.length === 0}
-              onChange={(v) => setSelection((s) => ({ ...s, vendors: v }))}
-            />
-            <ImportRow
-              label="My saved plans (become draft shows)"
-              count={`${snapshot.plans.length} ${snapshot.plans.length === 1 ? 'plan' : 'plans'}`}
-              checked={selection.plans}
-              disabled={importing || snapshot.plans.length === 0}
-              onChange={(v) => setSelection((s) => ({ ...s, plans: v }))}
-            />
-            <div style={{ marginTop: 18 }}>
-              <button
-                onClick={runImport}
-                disabled={importing || nothingSelected}
-                style={{
-                  ...authButtonStyle,
-                  opacity: importing || nothingSelected ? 0.55 : 1,
-                  cursor: importing || nothingSelected ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {importing ? 'IMPORTING…' : importDone || alreadyImported ? 'IMPORT AGAIN →' : 'IMPORT →'}
-              </button>
-              <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
-                {importing && progress}
-                {importDone && !importing && 'Done — everything selected is now in your account.'}
-              </p>
-              {importError && <p style={authErrorStyle}>{importError}</p>}
-            </div>
-          </>
-        )}
-      </section>
     </PageShell>
   );
 }

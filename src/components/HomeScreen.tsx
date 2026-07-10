@@ -344,13 +344,13 @@ export default function HomeScreen({
                 onClick={() => navigate('/shows')}
               />
             )}
-            <QuickAction
-              label="BUILD A SHOW →"
-              sub={sandbox || !authConfigured
-                ? 'floor-plan editor, this browser only'
-                : 'draft a floor plan and walk it in 3D'}
-              onClick={onVendor}
-            />
+            {(sandbox || !authConfigured) && (
+              <QuickAction
+                label="BUILD A SHOW →"
+                sub="floor-plan editor, this browser only"
+                onClick={onVendor}
+              />
+            )}
             {authConfigured && !sandbox && (
               <QuickAction
                 label="VENDOR DIRECTORY →"
@@ -361,10 +361,15 @@ export default function HomeScreen({
             {showRegistry && (
               <QuickAction
                 label="VENDOR REGISTRY →"
-                sub={sandbox || !authConfigured
-                  ? 'local vendors and their inventory'
-                  : 'manage your stores and inventory'}
+                sub="local vendors and their inventory"
                 onClick={onVendors}
+              />
+            )}
+            {authConfigured && !sandbox && session && (
+              <QuickAction
+                label="MY STORES →"
+                sub="your stores, inventory and banners"
+                onClick={() => navigate('/account?tab=stores')}
               />
             )}
             {showOrganizer && !sandbox && (

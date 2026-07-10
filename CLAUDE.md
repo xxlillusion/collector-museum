@@ -60,9 +60,10 @@ shows / vendor directory / sign in / sandbox link — NO local-collection sectio
 env). `SandboxApp` (route `/sandbox`) is the no-account experience: `MuseumApp` wrapped
 in a forced-local `DataProviderBoundary` (identity `"sandbox"`), so a signed-in user's
 sandbox visit never touches cloud data. HomeScreen takes `sandbox` (local-only banner,
-back-to-main link, no auth corner), `showRegistry` (Vendor Registry CTA — vendor
-accounts only when configured; always in sandbox/guest-only) and `showOrganizer`
-(Organizer Tools CTA) — gating comes from `useMyProfile()` (`src/lib/useMyProfile.ts`).
+back-to-main link, no auth corner), `showRegistry` (Vendor Registry + Build a Show CTAs
+— **sandbox/guest-only surfaces**, `!configured`; signed-in configured accounts get a
+MY STORES → `/account?tab=stores` tile instead) and `showOrganizer` (Organizer Tools
+CTA) — organizer gating comes from `useMyProfile()` (`src/lib/useMyProfile.ts`).
 
 **Museum style kit** (`src/components/museumKit.tsx`): the "Museum Refined" colors
 (GOLD/BG/PANEL/HAIRLINE/TEXT/MUTED), SERIF/SANS, PAGE_BG, `Ornament`/`Section`/
@@ -137,10 +138,11 @@ reflector resolution 512 (vs 1024). Movement/look come from the shared mutable o
 ## Vendors (first-class entity, db v4, 2026-07-06)
 
 A vendor owns a name, an optional banner image, captioned inventory images and derived
-"shows attended". Managed in `VendorsScreen.tsx` (HomeScreen → "Vendor Registry"):
-vendor list + selected profile (rename on blur, banner slot, inventory grid with
-debounced caption inputs + inert "Public (future)" checkbox, shows list with manual
-add/remove).
+"shows attended". The banner / shows-attended / inventory management UI lives in the
+shared `VendorManagementPanel.tsx` (2026-07-09 unification wave), consumed by two hosts:
+`VendorsScreen.tsx` — the **sandbox/guest-only** Vendor Registry (vendor list + ADD,
+rename on blur, delete) — and the signed-in `/account?tab=stores` tab (`MyStoresTab`,
+one panel per store).
 
 - **Assignment**: `VendorRect.vendorId` (set in the setup screen's per-box panel,
   dropdown + quick-create; assigning clears legacy `bannerId`). Same vendor may hold
@@ -613,6 +615,47 @@ parallel streams, additive-only changes since — never reshape existing signatu
   - Housekeeping: stale `.git/worktrees/*` metadata (disc-/pt- stream ghosts) is
     OneDrive-locked on this machine — run `git worktree prune` later; the ghosts are
     inert (0000000, directories already deleted).
+- **Registry → My Stores unification shipped** (2026-07-09; headless guest-only E2E
+  PASS, zero console errors). Root cause of the registry ↔ MY STORES disconnect:
+  remote `createVendor` wrote `owner_id` only while `listMyStores` filters
+  `profile_id = uid` — registry vendors were invisible to the account by construction.
+  Fixes, **no migration needed** (0004's update RLS already lets an owner set their own
+  `profile_id`; the store-limit trigger backstops the cap):
+  (1) `profileService` claim functions — `listUnclaimedVendors` / `claimVendorAsStore`
+  (idempotent via `and profile_id is null` predicate; first claim → flagship RPC +
+  accountType flip like createStore) / `autoClaimMyVendors` (oldest-first up to
+  STORE_LIMIT) / `unregisterStore` (profile_id → null, frees a slot, row + inventory
+  survive).
+  (2) **Tabbed /account** — PROFILE | MY STORES, tab from `?tab=stores` (deep-linkable,
+  `useSearch`). `MyStoresTab.tsx` (StorePanel + StoreQrModal moved out of AccountScreen;
+  shared helpers in `accountShared.tsx`): auto-claim on load, UNCLAIMED VENDOR PAGES
+  list with per-row CLAIM (disabled at cap), UNREGISTER / DELETE actions per store, and
+  per-store `VendorManagementPanel` fed by `useVendors`/`useSavedPlans` through the
+  provider seam (remote getVendors filters owner_id, so stores come back automatically;
+  after `createStore` — a direct-Supabase write — call `vendors.reload()`).
+  (3) **`VendorManagementPanel.tsx`** — banner/shows/inventory machinery extracted from
+  VendorsScreen (captions, SaleFields + syncKey contract, bulk panel, ♥ counts, import
+  collection); file inputs are refs, not fixed DOM ids, because two mount at once on the
+  stores tab. VendorsScreen keeps its external prop contract (App.tsx untouched) and is
+  now sandbox/guest-only (public-page link removed).
+  (4) **Home tiles** — BUILD A SHOW + VENDOR REGISTRY render only when
+  `sandbox || !configured`; `showRegistry={!configured}` and the `view === 'vendors'`
+  branch is guarded by it (stale signed-in `/?view=vendors` falls through to home, param
+  stripped). Signed-in home gets MY STORES → `/account?tab=stores`.
+  (5) **Organizer placeholders removed** — PlanWorkbench `onAddVendor` is optional
+  (quick-create UI hidden when absent); ShowEditorScreen passes registered vendors only
+  (approved applicants still sort first) and no quick-create. Legacy placeholder booth
+  assignments render as unassigned in the editor but keep rendering in walks; their
+  owner sees them as claimable on the stores tab. Sandbox VendorSetupScreen still passes
+  onAddVendor — local quick-create unchanged.
+  Verified headless (guest-only + sandbox): tiles, registry create/rename/delete, drop
+  upload, caption/price/condition/status persist across reload, bulk apply re-syncs via
+  syncKey, banner upload, manual shows, `/?view=vendors` deep-link, /account renders
+  NotConfiguredNote. **Live checks pending** (need the real Supabase project):
+  auto-claim/claim/unregister round-trip, tab deep-link signed-in, ♥ counts on the tab,
+  organizer dropdown = registered-only. Note: concurrent debounce flushes of caption +
+  price + condition can race the read-modify-write in useVendorInventory (pre-existing,
+  human typing never hits it — only same-tick synthetic writes).
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

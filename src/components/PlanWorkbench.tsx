@@ -43,7 +43,10 @@ interface PlanWorkbenchProps {
   onSaveMeta: (meta: VendorPlanMeta) => Promise<void>;
   onClearPlan: () => Promise<void>;
   vendors: VendorSummary[];
-  onAddVendor: (name: string) => Promise<string>;
+  /** Quick-create-and-assign a new vendor. Omit to restrict assignment to
+   *  the `vendors` list — the cloud show editor does (registered vendors
+   *  only, no placeholder rows); the sandbox keeps it (local registry). */
+  onAddVendor?: (name: string) => Promise<string>;
   /** Rendered at the head of the actions row, before Re-detect / Replace. */
   actions?: (state: PlanWorkbenchState) => ReactNode;
   /** Fires when hasMeta / detecting / totalTables change — hosts gate their
@@ -189,7 +192,7 @@ export default function PlanWorkbench({
 
   const handleQuickCreateVendor = useCallback(async () => {
     const name = creatingVendor?.trim();
-    if (!name) return;
+    if (!name || !onAddVendor) return;
     const id = await onAddVendor(name);
     setCreatingVendor(null);
     handleAssignVendor(id);
@@ -346,7 +349,7 @@ export default function PlanWorkbench({
                       <option key={v.id} value={v.id}>{v.name}</option>
                     ))}
                   </select>
-                  {creatingVendor === null ? (
+                  {onAddVendor && (creatingVendor === null ? (
                     <button
                       onClick={() => setCreatingVendor('')}
                       style={{ ...secondaryButton, padding: '6px 12px', fontSize: '12px' }}
@@ -395,7 +398,7 @@ export default function PlanWorkbench({
                         Cancel
                       </button>
                     </>
-                  )}
+                  ))}
                   {!selectedRect.vendorId && (
                     <span style={{ color: '#666' }}>unassigned — plain cloth / global banner</span>
                   )}

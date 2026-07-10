@@ -35,8 +35,10 @@ function ChunkFallback() {
 type View = 'home' | 'gallery' | 'vendorSetup' | 'vendorWalk' | 'vendors';
 
 /** The view union is plain state, so DOM pages deep-link into it with
- *  `/?view=vendors` (the Account page's registry button). Read once at
- *  mount; the effect below strips the param so refresh/back land on home. */
+ *  `/?view=vendors` (sandbox / guest-only registry deep-links; signed-in
+ *  accounts manage stores on /account?tab=stores instead and fall through
+ *  to home). Read once at mount; the effect below strips the param so
+ *  refresh/back land on home. */
 function initialViewFromUrl(): View {
   return new URLSearchParams(window.location.search).get('view') === 'vendors'
     ? 'vendors'
@@ -47,8 +49,10 @@ function initialViewFromUrl(): View {
  * Default route. Logged-out visitors on a configured deployment get the
  * landing page (published shows are public; the local experience lives at
  * /sandbox). Signed-in users — and guest-only deployments with no Supabase
- * env — get the full museum home. CTAs gate on the profile: Vendor Registry
- * for vendor accounts, Organizer Tools for organizer-designated ones.
+ * env — get the full museum home. CTAs gate on the profile: Organizer Tools
+ * for organizer-designated accounts. The local registry + show builder are
+ * sandbox/guest-only surfaces — signed-in accounts use /account?tab=stores
+ * and the organizer show editor instead.
  */
 export default function App() {
   const { configured, session, loading } = useAuth();
@@ -63,7 +67,7 @@ export default function App() {
 
   return (
     <MuseumApp
-      showRegistry={!configured || profile?.accountType === 'vendor'}
+      showRegistry={!configured}
       showOrganizer={Boolean(profile?.isOrganizer)}
     />
   );
@@ -214,7 +218,10 @@ function MuseumApp({
     );
   }
 
-  if (view === 'vendors') {
+  // Signed-in configured accounts have no registry view — a stale
+  // `/?view=vendors` deep-link falls through to the home screen (the mount
+  // effect above already stripped the param).
+  if (view === 'vendors' && showRegistry) {
     return (
       <VendorsScreen
         vendors={vendors.vendors}

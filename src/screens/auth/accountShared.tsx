@@ -1,0 +1,37 @@
+import type { CSSProperties } from 'react';
+import { TEXT, MUTED, ERROR } from '../../components/museumKit';
+
+// Small helpers shared by AccountScreen's tabs (profile sections and
+// MyStoresTab) — kept out of both files so neither imports the other.
+
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+export function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export function StatusLine({ status, error }: { status: SaveStatus; error?: string | null }) {
+  return (
+    <p
+      style={{
+        margin: '6px 0 0',
+        fontSize: 12,
+        color: status === 'error' ? ERROR : MUTED,
+        minHeight: 15,
+      }}
+    >
+      {status === 'saving' && 'Saving…'}
+      {status === 'saved' && 'Saved.'}
+      {status === 'error' && (error || 'Could not save — try again.')}
+    </p>
+  );
+}
+
+export const checkLabelStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 12,
+  fontSize: 15,
+  color: TEXT,
+  cursor: 'pointer',
+};

@@ -656,6 +656,47 @@ parallel streams, additive-only changes since — never reshape existing signatu
   organizer dropdown = registered-only. Note: concurrent debounce flushes of caption +
   price + condition can race the read-modify-write in useVendorInventory (pre-existing,
   human typing never hits it — only same-tick synthetic writes).
+- **UX Wave A shipped** (2026-07-10, branch `ux-waves`; from the live UX review plan
+  `~/.claude/plans/your-role-you-re-delegated-brook.md` — scaffold + 2 worktree streams
+  merged conflict-free; per-stream verification 53/53 + 34/34 PASS, merged smoke green,
+  zero console errors): **cold-start/first-impressions wave.**
+  - Landing: two in-engine hero stills in museum-plaque framing (`src/assets/hero-*.webp`,
+    TODO re-capture on a real GPU — SwiftShader), "◈ WALK A DEMO SHOW →" CTA, sandbox
+    footnote promoted to a "TRY IT NOW →" tile, NBSP-bound arrows (no orphaned →).
+  - **Bundled demo show** at `/demo`: `lib/demoShow.ts` manifest (real detection meta
+    from floorplan_example.png — 50 rects @41.37 px/m; 4 fictional vendors on 6 booths;
+    16 fictional-creature WebP cards with prices/conditions incl. one sold + one display)
+    + `screens/demo/DemoShowScreen.tsx` mounting the lazy `VendorScene` exactly like
+    ShowDetail's walk (`fetchInventory` = bundled URL → Blob → `InventoryItemRecord`).
+    Account-free, DB-reset-proof, exercises the placard path. "SAMPLE EXHIBITION ·
+    FICTIONAL VENDORS" fixed placard; ShowDirectory's empty state links to it.
+  - Trust surface: `SiteFooter` (About/Privacy/Terms/Contact) mounted in PageShell +
+    LandingScreen + HomeScreen; real copy in `screens/static/StaticPages.tsx` (privacy
+    names Supabase vs IndexedDB/localStorage, "no analytics, no trackers"; contact =
+    mailto).
+  - Signed-in: role-aware `OnboardingChecklist` under the home masthead (steps derive
+    `done` live from cards/stores/profile — nothing stored but the ✕ dismissal,
+    localStorage `vendor-museum:onboarding:<uid>`; derivable steps render ✓/○,
+    signal-less steps render → CTAs; auto-hides when derivable steps all done); corner
+    chrome shows display name via `accountLabel()` (PageShell export: profile
+    displayName → `user_metadata.display_name` → email); /account gains "Walk my public
+    museum →" beside the public-page link.
+  - **Signup-time sandbox import (roadmap item 15 closed)**: SignupScreen checks
+    `readLocalSnapshot()` and lands data-carrying signups on `/account?import=1`
+    (AccountScreen scrolls to + gold-pulses the existing import panel, strips the param).
+    ⚠ Gotcha found live: a component ref can't carry the post-signup destination —
+    `DataProviderBoundary`'s `key={identity}` remount resets it; a module-scoped,
+    time-boxed (60s) flag survives the remount.
+  - `.claude/skills/verify/SKILL.md` refreshed (2026-07-10 discoveries): headless Edge
+    now DENIES pointer lock → addInitScript shim (fake `requestPointerLock` /
+    `pointerLockElement` + `pointerlockchange`); binder opens EXIT pointer lock → click
+    card pixels with the free cursor; vendor-inventory input is `input[type=file][multiple]`
+    in the panel (old id gone); minimap booth/star dots = small round DIV children of the
+    map img's parent (player marker = the translate+rotate child); scroll the editor svg
+    into view + re-read coords before rect clicks.
+  - Live test data from the review remains on prod for reuse (account
+    jason.a.dale2+uxtest0709@gmail.com, store e34bbc71, published "UX Test Show (safe to
+    delete)" e785d845 + two uxa2verify accounts) — see memory `project-uxtest-account`.
 - Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
   export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
   the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup

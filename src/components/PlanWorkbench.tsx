@@ -313,7 +313,7 @@ export default function PlanWorkbench({
                   margin: '0 0 10px',
                 }}
               >
-                Drag boxes to fix detection · click a box to assign a vendor · rotate with the handle above a box
+                Drag boxes to fix detection · click a box to assign a vendor · Shift-click or drag empty space to select several · scroll to zoom, Space- or middle-drag to pan
               </div>
               <PlanEditor
                 planUrl={planUrl}

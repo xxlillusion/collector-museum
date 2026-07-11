@@ -1,7 +1,14 @@
 # Per-route OG previews — design spike
 
-Status: **decision doc, nothing implemented.** Companion comment markers sit in
-`nginx.conf` showing where the two config blocks would land.
+Status: **phase 1 IMPLEMENTED** (2026-07-10, branch `u2a-og`) — Edge Function
+`supabase/functions/og-render/` (pure logic in `og.ts`, 10/10 unit tests),
+nginx bot-split live in `nginx.conf` (container-validated `nginx -t` + curl
+matrix), and four static 1200×630 cards in `public/` (`og-show.png`,
+`og-vendor.png`, `og-collector.png`, `og-default.png`, ~39 kB each). One
+as-built deviation from §b below: the nginx branch uses a **302 redirect** to
+the function instead of `proxy_pass` (rationale under "As shipped"). Deploy
+runbook at the bottom — the function still needs `supabase functions deploy`
+and the VPS needs a rebuild before this is live.
 
 ## a) The problem
 
@@ -106,6 +113,30 @@ Implementation notes (the sharp edges, found while sketching):
   share-worthy. `/demo` and directories (`/shows`, `/vendors`) keep the
   site-level card; add them later only if wanted.
 
+**As shipped (phase 1): `return 302` instead of `proxy_pass`.** The bot branch
+in `nginx.conf` redirects crawlers to
+`https://pawtjhjmqzhueuebfnof.supabase.co/functions/v1/og-render?path=$request_uri`
+rather than proxying the function response through nginx. Tradeoff, made
+deliberately:
+
+- *Pro:* zero proxy plumbing — no `nginx.conf` → envsubst template conversion,
+  no Dockerfile change, no request-time `resolver`/SNI directives, nothing to
+  break at 3am. The functions URL is public information (same origin the
+  shipped JS already calls), so hardcoding it costs nothing.
+- *Con:* crawlers must follow the redirect. The major unfurlers all do
+  (Facebook/Messenger, X/Twitter, Slack, Discord, Telegram, WhatsApp,
+  LinkedIn, Google/bing follow 3xx when resolving cards); the shared URL in
+  the unfurl stays the museum URL because the OG HTML sets `og:url` back to
+  `museum.maybesomething.tech`. An unfurler that refuses redirects would show
+  no card at all (not a wrong card). If one ever matters, the §b `proxy_pass`
+  variant above is the drop-in upgrade — the function is agnostic (it reads
+  `?path=`, with `X-Original-Path` already supported as the proxy-mode
+  fallback).
+- `$request_uri` keeps the original query string, so the redirect target can
+  contain a nested `?` (e.g. `?path=/show/<id>?utm=x`). That is legal — the
+  second `?` is literal query-string data — and `parsePath` strips query/hash
+  before matching. Verified by curl.
+
 ### 3. `og-render` Supabase Edge Function
 
 A small Deno function, ~100 lines:
@@ -132,11 +163,14 @@ A small Deno function, ~100 lines:
 
 ## c) og:image strategy
 
-- **Phase 1 — static per-type images.** Three hand-made 1200×630 images shipped
-  in `public/` (`og-show.png`, `og-vendor.png`, `og-collector.png`): museum-dark
-  background, gold serif "CARD SHOW" / "VENDOR" / "COLLECTION" treatment.
+- **Phase 1 — static per-type images (SHIPPED).** Four 1200×630 images in
+  `public/` (`og-show.png`, `og-vendor.png`, `og-collector.png`,
+  `og-default.png`): museum-dark radial background, gold serif VENDOR MUSEUM
+  masthead + ❖ ornament (museumKit palette), per-type line ("WALK THIS CARD
+  SHOW IN 3D" / "VENDOR INVENTORY & MUSEUM" / "A PRIVATE COLLECTION,
+  SPOTLIT" / "WALK CARD SHOWS IN 3D"). Palette-quantized PNG-8, ~39 kB each.
   The function picks by route type; title/description carry the specifics.
-  Zero moving parts, ships with the first cut.
+  Zero moving parts.
 - **Phase 2 — dynamic images.** Real assets already exist in *public* storage
   buckets: vendor **banners** (`banners` bucket) and show **floor-plan images**
   (`plans` bucket). The function swaps `og:image` to the stored public URL from
@@ -198,3 +232,82 @@ A small Deno function, ~100 lines:
 
 Rollback story is trivial at every step: delete the two nginx blocks and bots see
 the site-level card again.
+
+## g) DEPLOY RUNBOOK (phase 1)
+
+Two independent halves; either can ship first (bots just get the old behavior
+from whichever half is missing).
+
+### 1. Deploy the Edge Function (once, from any machine with the Supabase CLI)
+
+```sh
+# from the repo root, linked to project pawtjhjmqzhueuebfnof
+supabase functions deploy og-render --no-verify-jwt --project-ref pawtjhjmqzhueuebfnof
+```
+
+`--no-verify-jwt` is required: crawlers arrive with no Authorization header.
+The function is read-only and anon-key-scoped (RLS applies), so this is the
+same trust level as the shipped JS. No secrets to set — `SUPABASE_URL` /
+`SUPABASE_ANON_KEY` are injected by the Edge runtime automatically.
+
+Smoke-test the function directly (works before the nginx half ships):
+
+```sh
+curl -s "https://pawtjhjmqzhueuebfnof.supabase.co/functions/v1/og-render?path=/show/<a-published-show-uuid>" | grep og:title
+# expect: <meta property="og:title" content="<show name> — Vendor Museum">
+curl -s "https://pawtjhjmqzhueuebfnof.supabase.co/functions/v1/og-render?path=/nonsense" | grep og:title
+# expect the generic site card, HTTP 200
+```
+
+### 2. Ship the nginx config + images to the VPS
+
+`nginx.conf` and the `public/og-*.png` files are baked into the image at
+build time (Dockerfile `COPY` — no compose/env changes needed), so this is
+the standard deploy:
+
+```sh
+# on the VPS, in the repo checkout
+git pull
+docker compose -f docker-compose.deploy.yml up -d --build
+```
+
+No Traefik changes; the redirect happens inside the museum container.
+
+### 3. Verify from anywhere
+
+```sh
+# Bot UA → 302 into the Edge Function, whose HTML carries the per-route tags
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+  -A Twitterbot https://museum.maybesomething.tech/show/<id>
+# expect: 302 https://pawtjhjmqzhueuebfnof.supabase.co/functions/v1/og-render?path=/show/<id>
+
+curl -sL -A Twitterbot https://museum.maybesomething.tech/show/<id> | grep -E 'og:(title|image)'
+# expect the show's name + https://museum.maybesomething.tech/og-show.png
+
+# Human UA → the SPA shell, exactly as before
+curl -s -A "Mozilla/5.0" https://museum.maybesomething.tech/show/<id> | grep -o '<div id="root">'
+
+# Directories are untouched even for bots
+curl -s -o /dev/null -w '%{http_code}\n' -A Twitterbot https://museum.maybesomething.tech/shows
+# expect: 200
+```
+
+Then paste a show URL into the real validators: Facebook Sharing Debugger
+(developers.facebook.com/tools/debug), X Card Validator, and a Discord DM to
+yourself. Remember unfurlers cache hard — use each tool's "scrape again".
+
+### Local verification already performed (2026-07-10, pre-deploy)
+
+- `og.ts` unit tests: 10/10 under Node's test runner (parsePath all 5 shapes +
+  garbage, HTML escaping incl. `<script>` in a show name, tag structure,
+  field composition, date formatting). Strict `tsc --noEmit` clean.
+- Live-data handler test: the real `index.ts` handler exercised under Node
+  with a Deno shim against the live project — published show / registered
+  vendor / public collector each produced correct per-route cards; a missing
+  row and a garbage path produced the generic card, HTTP 200,
+  `Cache-Control: public, max-age=600`.
+- nginx: `nginx -t` green inside `nginx:alpine` with the config mounted at
+  `/etc/nginx/conf.d/default.conf` (the Dockerfile's COPY target), plus a
+  running-container curl matrix: Twitterbot/Slackbot/WhatsApp UAs → 302 with
+  `?path=$request_uri`; human UA → SPA shell; bot on `/shows` → 200 SPA;
+  `/assets/*` keeps `max-age=31536000, immutable`.

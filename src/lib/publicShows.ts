@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { publicImageUrl, downloadImage } from './supabaseImages';
 import type { VendorPlanMeta, VendorRect } from './vendorPlan';
 import type { VendorSummary } from './useVendors';
-import type { InventoryItemRecord, VendorShowEntry } from './db';
+import type { InventoryItemRecord, InventoryStatus, VendorShowEntry } from './db';
 
 /**
  * Anonymous public reads for the shows directory and the 3D walk.
@@ -33,6 +33,9 @@ export interface ShowLocationFilter {
 export interface ShowWalkData {
   id: string;
   name: string;
+  /** The organizing profile's id — ShowDetail swaps in owner affordances
+   *  (edit link, review-applications note) when it matches the session. */
+  organizerId: string;
   showDate: string | null;
   country: string | null;
   state: string | null;
@@ -157,7 +160,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     const { data, error } = await sb
       .from('shows')
       .select(
-        'id, name, show_date, country, state, city, venue_name, address, hours, admission, external_url, plan_image_path, plan_meta, booths(rect, vendor_id)',
+        'id, name, organizer_id, show_date, country, state, city, venue_name, address, hours, admission, external_url, plan_image_path, plan_meta, booths(rect, vendor_id)',
       )
       .eq('id', id)
       .maybeSingle();
@@ -165,6 +168,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     const show = data as {
       id: string;
       name: string;
+      organizer_id: string;
       show_date: string | null;
       country: string | null;
       state: string | null;
@@ -234,7 +238,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
       try {
         const { data: items, error: invErr } = await sb
           .from('inventory_items')
-          .select('id, vendor_id, image_path, caption, visible, aspect, added_at')
+          .select('id, vendor_id, image_path, caption, visible, aspect, added_at, price, status, condition')
           .eq('vendor_id', vendorId)
           .eq('visible', true)
           .order('added_at', { ascending: true });
@@ -248,6 +252,9 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
             visible: boolean;
             aspect: number | null;
             added_at: string;
+            price: number | null;
+            status: InventoryStatus | null;
+            condition: string | null;
           }[]).map(async (item): Promise<InventoryItemRecord | null> => {
             try {
               const imageBlob = await downloadImage('inventory', item.image_path);
@@ -259,6 +266,11 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
                 visible: item.visible !== false,
                 aspect: typeof item.aspect === 'number' && item.aspect > 0 ? item.aspect : 0.714,
                 addedAt: Date.parse(item.added_at) || 0,
+                // Sale metadata (0005) — same mapping as provider/remote.ts, so
+                // public-show binder placards match sandbox/registry walks.
+                price: item.price ?? undefined,
+                status: item.status ?? undefined,
+                condition: item.condition || undefined,
               };
             } catch {
               return null; // a missing image shouldn't sink the whole binder
@@ -274,6 +286,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     return {
       id: show.id,
       name: show.name,
+      organizerId: show.organizer_id,
       showDate: show.show_date ?? null,
       country: show.country ?? null,
       state: show.state ?? null,

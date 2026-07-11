@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
@@ -7,6 +7,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { getShowForWalk } from '../../lib/publicShows';
 import type { ShowWalkData } from '../../lib/publicShows';
 import { getStarredVendors, toggleStarredVendor } from '../../lib/starredVendors';
+import { recordWalk, fetchWalks } from '../../lib/visitService';
 import { useAuth } from '../../lib/auth';
 import { listMyStores } from '../../lib/profileService';
 import type { MyStoreRecord } from '../../lib/profileService';
@@ -46,6 +47,12 @@ export default function ShowDetail({ showId }: { showId: string }) {
   // Route planning: starred vendors glow on the minimap during the walk.
   // localStorage-backed per show — works for anonymous visitors.
   const [starred, setStarred] = useState<Set<string>>(() => getStarredVendors(showId));
+  // Anonymous walk counter (0007) — null until fetched / on any failure
+  // (unapplied migration, no row yet), which simply hides the line.
+  const [walks, setWalks] = useState<number | null>(null);
+  // Booth-marker name label on the 2D plan preview: hover on desktop, tap on
+  // touch (index into boothMarkers).
+  const [activeMarker, setActiveMarker] = useState<number | null>(null);
 
   const handleToggleStar = (vendorId: string) => {
     setStarred(toggleStarredVendor(showId, vendorId));
@@ -130,12 +137,43 @@ export default function ShowDetail({ showId }: { showId: string }) {
     getShowForWalk(showId).then((s) => {
       if (alive) setShow(s);
     });
+    setWalks(null);
+    fetchWalks('show', showId).then((n) => {
+      if (alive) setWalks(n);
+    });
     return () => {
       alive = false;
     };
   }, [showId]);
 
+  // Assigned booth centers as percentages of the plan image — route planning
+  // on the 2D preview without entering 3D. Same source as the in-hall minimap
+  // dots (rect centers are rotation-invariant); dangling vendor ids skipped.
+  const boothMarkers = useMemo(() => {
+    const meta = show?.meta;
+    if (!meta || !show) return [];
+    const nameById = new Map(show.vendors.map((v) => [v.id, v.name]));
+    return meta.rects
+      .filter((r) => r.vendorId && nameById.has(r.vendorId))
+      .map((r) => ({
+        leftPct: ((r.x + r.w / 2) / meta.imgW) * 100,
+        topPct: ((r.y + r.h / 2) / meta.imgH) * 100,
+        vendorId: r.vendorId!,
+        name: nameById.get(r.vendorId!)!,
+      }));
+  }, [show]);
+
   const canWalk = Boolean(show?.meta && show?.planUrl);
+
+  const handleWalk = () => {
+    // Anonymous walk counter — public show walks only (the /demo route and
+    // sandbox halls never pass through here). Fire-and-forget, day-deduped.
+    recordWalk('show', showId);
+    setWalking(true);
+  };
+  // The signed-in organizer of this show gets owner affordances instead of
+  // the visitor apply flow (owners shouldn't apply to their own show).
+  const isOwner = Boolean(userId && show && show.organizerId === userId);
 
   if (walking && show && show.meta && show.planUrl) {
     return (
@@ -149,6 +187,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
           fetchInventory={show.fetchInventory}
           starredVendorIds={starred}
           onToggleStar={handleToggleStar}
+          linkVendors
           onBack={() => setWalking(false)}
           exitLabel="← Leave Show"
         />
@@ -204,6 +243,23 @@ export default function ShowDetail({ showId }: { showId: string }) {
                 ◈ WALKABLE IN 3D
               </div>
             )}
+            {walks !== null && walks >= 1 && (
+              <div
+                style={{
+                  display: 'inline-block',
+                  fontFamily: SERIF,
+                  fontSize: 12,
+                  fontVariant: 'small-caps',
+                  letterSpacing: '0.14em',
+                  color: MUTED,
+                  padding: '3px 6px',
+                  marginBottom: 12,
+                  marginLeft: canWalk ? 8 : 0,
+                }}
+              >
+                ◈ {walks} {walks === 1 ? 'walk' : 'walks'}
+              </div>
+            )}
             <div style={{ fontFamily: SERIF, fontSize: 17, letterSpacing: '0.05em', color: TEXT }}>
               {formatShowDate(show.showDate) ?? 'Date to be announced'}
             </div>
@@ -251,7 +307,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
 
           <div style={{ textAlign: 'center', marginBottom: canWalk ? 34 : 12 }}>
             <button
-              onClick={() => setWalking(true)}
+              onClick={handleWalk}
               disabled={!canWalk}
               style={{
                 ...(canWalk ? primaryButtonStyle : primaryButtonDisabledStyle),
@@ -261,6 +317,22 @@ export default function ShowDetail({ showId }: { showId: string }) {
             >
               WALK THIS SHOW →
             </button>
+            {isOwner && (
+              <div style={{ marginTop: 14 }}>
+                <Link
+                  href={`/organizer/show/${showId}/edit`}
+                  style={{
+                    fontFamily: SERIF,
+                    fontSize: 12.5,
+                    letterSpacing: '0.18em',
+                    color: GOLD,
+                    textDecoration: 'none',
+                  }}
+                >
+                  ✎ EDIT THIS SHOW →
+                </Link>
+              </div>
+            )}
           </div>
           {!canWalk && (
             <p style={{ ...noteStyle, fontSize: 14, margin: '0 0 26px', textAlign: 'center' }}>
@@ -278,11 +350,99 @@ export default function ShowDetail({ showId }: { showId: string }) {
                 marginBottom: 38,
               }}
             >
-              <img
-                src={show.planUrl}
-                alt={`${show.name} floor plan`}
-                style={{ width: '100%', display: 'block' }}
-              />
+              {/* position:relative wrapper hugs the image exactly (no panel
+                  padding inside), so percentage-positioned booth dots land on
+                  the same spots at every viewport width. */}
+              <div
+                style={{ position: 'relative' }}
+                // Tap/click anywhere else on the plan dismisses the label
+                // (touch has no mouseleave); dot clicks stopPropagation.
+                onClick={() => setActiveMarker(null)}
+              >
+                <img
+                  src={show.planUrl}
+                  alt={`${show.name} floor plan`}
+                  style={{ width: '100%', display: 'block' }}
+                />
+                {boothMarkers.map((m, i) => {
+                  const isStarred = starred.has(m.vendorId);
+                  const size = isStarred ? 13 : 9;
+                  return (
+                    <div
+                      key={i}
+                      data-booth-marker={m.vendorId}
+                      onMouseEnter={() => setActiveMarker(i)}
+                      onMouseLeave={() => setActiveMarker((cur) => (cur === i ? null : cur))}
+                      // Set, never toggle — a tap synthesizes mouseenter first,
+                      // and enter-then-toggle would flash the label off again.
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMarker(i);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: `${m.leftPct}%`,
+                        top: `${m.topPct}%`,
+                        width: size,
+                        height: size,
+                        transform: 'translate(-50%, -50%)',
+                        borderRadius: '50%',
+                        // Same family as the in-hall minimap dots: gold points,
+                        // starred vendors bigger + steady glow.
+                        background: isStarred ? '#ffd75e' : 'rgba(212,175,55,0.85)',
+                        boxShadow: isStarred
+                          ? '0 0 8px 2px rgba(255,215,94,0.75)'
+                          : '0 0 3px rgba(0,0,0,0.6)',
+                        cursor: 'default',
+                      }}
+                    />
+                  );
+                })}
+                {activeMarker !== null && boothMarkers[activeMarker] && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      // Clamp so labels on edge booths never spill out of the
+                      // preview (matters at 375px — no horizontal scroll).
+                      left: `clamp(70px, ${boothMarkers[activeMarker].leftPct}%, calc(100% - 70px))`,
+                      top: `${boothMarkers[activeMarker].topPct}%`,
+                      transform:
+                        boothMarkers[activeMarker].topPct < 12
+                          ? 'translate(-50%, 14px)'
+                          : 'translate(-50%, calc(-100% - 14px))',
+                      background: 'rgba(8,6,4,0.92)',
+                      color: TEXT,
+                      border: '1px solid rgba(212,175,55,0.4)',
+                      fontFamily: SERIF,
+                      fontSize: 12,
+                      letterSpacing: '0.06em',
+                      padding: '3px 9px',
+                      borderRadius: 4,
+                      whiteSpace: 'nowrap',
+                      maxWidth: '60vw',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      pointerEvents: 'none',
+                      zIndex: 2,
+                    }}
+                  >
+                    {boothMarkers[activeMarker].name}
+                  </div>
+                )}
+              </div>
+              {boothMarkers.length > 0 && (
+                <p
+                  style={{
+                    ...noteStyle,
+                    fontSize: 12,
+                    margin: '8px 2px 2px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <span style={{ color: GOLD, fontStyle: 'normal' }}>●</span> assigned booths
+                  · glowing = vendors you starred
+                </p>
+              )}
             </div>
           )}
 
@@ -367,7 +527,30 @@ export default function ShowDetail({ showId }: { showId: string }) {
             )}
           </Section>
 
-          {myStores.length > 0 && (
+          {isOwner && (
+            <Section title="EXHIBIT AT THIS SHOW">
+              <p style={{ ...noteStyle, fontSize: 14.5, margin: 0 }}>
+                This is your show — vendors apply to you, so there&rsquo;s nothing to
+                apply for here.
+              </p>
+              <p style={{ margin: '14px 0 0' }}>
+                <Link
+                  href={`/organizer/show/${showId}/edit`}
+                  style={{
+                    fontFamily: SERIF,
+                    fontSize: 12.5,
+                    letterSpacing: '0.18em',
+                    color: GOLD,
+                    textDecoration: 'none',
+                  }}
+                >
+                  Review booth applications →
+                </Link>
+              </p>
+            </Section>
+          )}
+
+          {!isOwner && myStores.length > 0 && (
             <Section title="EXHIBIT AT THIS SHOW">
               {myApps.length > 0 && (
                 <div style={{ marginBottom: 16 }}>

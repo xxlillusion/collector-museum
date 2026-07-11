@@ -22,6 +22,12 @@ const ShowEditorScreen = lazy(() => import('./screens/organizer/ShowEditorScreen
 const SearchScreen = lazy(() => import('./screens/search/SearchScreen'));
 const WantListScreen = lazy(() => import('./screens/wants/WantListScreen'));
 const NotFoundScreen = lazy(() => import('./screens/NotFoundScreen'));
+// UX Wave A: the bundled demo show + static trust pages.
+const DemoShowScreen = lazy(() => import('./screens/demo/DemoShowScreen'));
+const AboutPage = lazy(() => import('./screens/static/StaticPages').then((m) => ({ default: m.AboutPage })));
+const PrivacyPage = lazy(() => import('./screens/static/StaticPages').then((m) => ({ default: m.PrivacyPage })));
+const TermsPage = lazy(() => import('./screens/static/StaticPages').then((m) => ({ default: m.TermsPage })));
+const ContactPage = lazy(() => import('./screens/static/StaticPages').then((m) => ({ default: m.ContactPage })));
 
 function PageFallback() {
   return <div style={{ height: '100vh', background: '#0b0a08' }} />;
@@ -47,6 +53,12 @@ export default function AppRoutes() {
         {/* Discovery wave: cross-entity search (?q=…) + the visitor want-list. */}
         <Route path="/search" component={SearchScreen} />
         <Route path="/wants" component={WantListScreen} />
+        {/* UX Wave A: bundled demo show (no account, survives DB resets) + trust pages. */}
+        <Route path="/demo" component={DemoShowScreen} />
+        <Route path="/about" component={AboutPage} />
+        <Route path="/privacy" component={PrivacyPage} />
+        <Route path="/terms" component={TermsPage} />
+        <Route path="/contact" component={ContactPage} />
         <Route path="/organizer" component={OrganizerHome} />
         {/* The local, no-account experience — forced local provider; shares
             App's chunk (and its lazily loaded canvases) on purpose. */}

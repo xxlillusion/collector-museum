@@ -3,8 +3,9 @@ import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
-import { cardDetailsLine } from '../../lib/cardMeta';
+import { cardDetailsLine, hasCardMeta } from '../../lib/cardMeta';
 import { orderForWalls } from '../../lib/wallOrder';
+import { recordWalk } from '../../lib/visitService';
 import type { CardWithUrl } from '../../lib/useCards';
 
 // Walk a collector's public collection in the 3D museum
@@ -125,10 +126,16 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
       const captions = new Map<string, string>();
       const details = new Map<string, string>();
       for (const item of profile.items) {
-        if (item.name) captions.set(item.imageUrl, item.name);
+        // Caption only once the owner set placard metadata (same gate as
+        // App.tsx's own-museum captions) — unedited uploads keep their raw
+        // filenames off the public placard.
+        if (item.name && hasCardMeta(item.meta)) captions.set(item.imageUrl, item.name);
         const line = cardDetailsLine(item.meta);
         if (line) details.set(item.imageUrl, line);
       }
+      // Anonymous walk counter — the public collector museum actually opens
+      // (never the sandbox/own museum). Fire-and-forget, day-deduped.
+      recordWalk('collector', profileId);
       setState({ status: 'ready', cards, wallCards: orderForWalls(cards), captions, details });
     })();
     return () => {

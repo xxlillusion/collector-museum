@@ -2,8 +2,8 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import Binder, { BinderMaterialWarmup, COVER_W, COVER_H, COVER_T, CARDS_PER_SHEET } from './Binder';
+import Binder, { BinderMaterialWarmup, CARDS_PER_SHEET } from './Binder';
+import { getBinderShellAssets } from './binderShellAssets';
 import { CLOTH_TOP_Y } from './tableGeometry';
 import { TABLE } from './Room';
 import { prefetchSleeveTexture } from '../lib/sleeveTextures';
@@ -19,6 +19,23 @@ import type { CardWithUrl } from '../lib/useCards';
  * signed in. VendorScene threads this from the app side.
  */
 export type FetchInventory = (vendorId: string) => Promise<InventoryItemRecord[]>;
+
+/** One card of the open binder's slice, as the inspect overlay needs it. */
+export interface InspectItem {
+  url: string;
+  caption?: string;
+  sale?: InspectSale;
+  itemId?: string;
+}
+
+/** What a card click emits: the open binder's FULL ordered slice plus the
+ *  clicked index — the host pages prev/next through `items` without another
+ *  inventory read — and the owning vendor (name/link lookups host-side). */
+export interface InspectPayload {
+  items: InspectItem[];
+  index: number;
+  vendorId: string;
+}
 
 // Inventory binders on assigned tables. Closed binders are two instanced
 // draws total (leather shells + ring packs) with zero textures; opening one
@@ -99,31 +116,6 @@ export function computeBinderPoses(
   return poses;
 }
 
-/** Leather shells (covers + spine) and ring packs, geometry in binder-local
- *  space so instance matrices are just each binder's pose. */
-let shellGeos: { leather: THREE.BufferGeometry; rings: THREE.BufferGeometry } | null = null;
-function getShellGeometries() {
-  if (shellGeos) return shellGeos;
-  const back = new THREE.BoxGeometry(COVER_W + 0.02, COVER_H, COVER_T);
-  back.translate(COVER_W / 2 - 0.01, 0, -0.006);
-  const spine = new THREE.BoxGeometry(0.02, COVER_H, 0.032);
-  spine.translate(-0.012, 0, 0.004);
-  const front = new THREE.BoxGeometry(COVER_W, COVER_H, COVER_T);
-  front.translate(COVER_W / 2, 0, 0.012);
-  const ringParts: THREE.BufferGeometry[] = [];
-  for (const y of [-0.11, 0, 0.11]) {
-    const ring = new THREE.TorusGeometry(0.012, 0.0022, 8, 24);
-    ring.rotateX(Math.PI / 2);
-    ring.translate(0.004, y, 0.005);
-    ringParts.push(ring);
-  }
-  shellGeos = {
-    leather: mergeGeometries([back, spine, front]),
-    rings: mergeGeometries(ringParts),
-  };
-  return shellGeos;
-}
-
 /** The opened binder: loads that vendor's inventory (object URLs live only
  *  while open) and drives the real Binder from its shell's resting pose. */
 function OpenHallBinder({
@@ -136,7 +128,7 @@ function OpenHallBinder({
   pose: BinderPose;
   fetchInventory: FetchInventory;
   suspended: boolean;
-  onInspect: (url: string, caption?: string, sale?: InspectSale, itemId?: string) => void;
+  onInspect: (payload: InspectPayload) => void;
   onClosed: (relock: boolean) => void;
 }) {
   // Same read-only shape as useVendorInventory, minus the context read
@@ -174,21 +166,24 @@ function OpenHallBinder({
     [items, pose.binderIndex],
   );
 
-  const captionByUrl = useMemo(
-    () => new Map(items.filter((i) => i.caption).map((i) => [i.imageUrl, i.caption])),
-    [items],
-  );
-  const saleByUrl = useMemo(
+  // The overlay payload: this binder's full slice in page order (same slice
+  // as `cards` above), so the host can page prev/next without re-reading.
+  const inspectItems = useMemo<InspectItem[]>(
     () =>
-      new Map(
-        items.map((i) => [
-          i.imageUrl,
-          { price: i.price, status: i.status, condition: i.condition },
-        ]),
-      ),
-    [items],
+      items
+        .slice(pose.binderIndex * ITEMS_PER_BINDER, (pose.binderIndex + 1) * ITEMS_PER_BINDER)
+        .map((i) => ({
+          url: i.imageUrl,
+          caption: i.caption || undefined,
+          sale: { price: i.price, status: i.status, condition: i.condition },
+          itemId: i.id,
+        })),
+    [items, pose.binderIndex],
   );
-  const idByUrl = useMemo(() => new Map(items.map((i) => [i.imageUrl, i.id])), [items]);
+  const indexByUrl = useMemo(
+    () => new Map(inspectItems.map((it, idx) => [it.url, idx])),
+    [inspectItems],
+  );
 
   return (
     <Binder
@@ -197,7 +192,12 @@ function OpenHallBinder({
       suspended={suspended}
       onOpenRequest={() => {}}
       onPromptChange={() => {}}
-      onInspect={(url) => onInspect(url, captionByUrl.get(url), saleByUrl.get(url), idByUrl.get(url))}
+      onInspect={(url) => {
+        const index = indexByUrl.get(url);
+        if (index !== undefined) {
+          onInspect({ items: inspectItems, index, vendorId: pose.vendorId });
+        }
+      }}
       onClosed={onClosed}
       restPose={{ position: pose.position, quaternion: pose.quaternion }}
       lazySheetWindow={1}
@@ -215,7 +215,7 @@ interface VendorHallBindersProps {
   suspended: boolean;
   onPromptChange: (visible: boolean) => void;
   onOpenChange: (open: boolean) => void;
-  onInspect: (url: string, caption?: string, sale?: InspectSale, itemId?: string) => void;
+  onInspect: (payload: InspectPayload) => void;
   /** Binder finished closing; relock = resume pointer lock. */
   onClosed: (relock: boolean) => void;
 }
@@ -234,23 +234,9 @@ export default function VendorHallBinders({
     () => computeBinderPoses(tables, inventoryCounts),
     [tables, inventoryCounts],
   );
-  const geos = useMemo(getShellGeometries, []);
-  const mats = useMemo(
-    () => ({
-      leather: new THREE.MeshPhysicalMaterial({
-        color: '#1c1a17',
-        roughness: 0.5,
-        clearcoat: 0.3,
-        clearcoatRoughness: 0.4,
-      }),
-      rings: new THREE.MeshStandardMaterial({
-        color: '#b8b8b8',
-        roughness: 0.25,
-        metalness: 0.9,
-      }),
-    }),
-    [],
-  );
+  // Shared shell singletons (see binderShellAssets.ts) — stable references,
+  // so the instanced meshes below are never recreated by a geo/mat change.
+  const { geometries: geos, materials: mats } = getBinderShellAssets();
 
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const openIdxRef = useRef(openIdx);

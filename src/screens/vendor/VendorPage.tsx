@@ -4,6 +4,7 @@ import PageShell from '../PageShell';
 import ShareButton from '../../components/ShareButton';
 import { useAuth } from '../../lib/auth';
 import { isWanted, toggleWant } from '../../lib/interestService';
+import { fetchWalks } from '../../lib/visitService';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import type { PublicVendorProfile } from '../../lib/publicVendors';
@@ -58,6 +59,9 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
     setWantVersion((v) => v + 1);
   };
 
+  // Anonymous walk counter (0007) — null on any failure hides the line.
+  const [walks, setWalks] = useState<number | null>(null);
+
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let cancelled = false;
@@ -65,6 +69,10 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
     getPublicVendorProfile(vendorId).then((profile) => {
       if (cancelled) return;
       setState(profile ? { status: 'ready', profile } : { status: 'notFound' });
+    });
+    setWalks(null);
+    fetchWalks('vendor', vendorId).then((n) => {
+      if (!cancelled) setWalks(n);
     });
     return () => {
       cancelled = true;
@@ -116,6 +124,9 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   }
 
   const { profile } = state;
+  // Signed-in owner viewing their own store — point them at MY STORES
+  // (anonymous visitors and other accounts see the page unchanged).
+  const isOwner = Boolean(profile.profileId && session?.user.id === profile.profileId);
   const location = formatLocation({ country: profile.country, state: profile.state });
   const areaServed = profile.areaServed.trim();
   const website = profile.website.trim();
@@ -125,6 +136,33 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
 
   return (
     <PageShell title={profile.name} eyebrow="REGISTERED VENDOR">
+      {isOwner && (
+        <div
+          style={{
+            border: `1px solid ${HAIRLINE}`,
+            borderRadius: 2,
+            background: PANEL,
+            padding: '9px 16px',
+            margin: '-10px 0 26px',
+            textAlign: 'center',
+            fontFamily: SERIF,
+            fontSize: 13,
+            color: MUTED,
+          }}
+        >
+          This is your store —{' '}
+          <Link
+            href="/account?tab=stores"
+            style={{
+              color: GOLD,
+              textDecoration: 'none',
+              letterSpacing: '0.12em',
+            }}
+          >
+            manage it in MY STORES →
+          </Link>
+        </div>
+      )}
       {(location || areaServed || hasContact) && (
         <div style={{ margin: '-18px 0 30px', textAlign: 'center' }}>
           {location && (
@@ -226,6 +264,11 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
             >
               WALK THE MUSEUM →
             </Link>
+            {walks !== null && walks >= 1 && (
+              <p style={{ ...noteStyle, fontSize: 12.5, margin: '-14px 0 26px' }}>
+                {walks} museum walk{walks === 1 ? '' : 's'}
+              </p>
+            )}
             <div
               style={{
                 display: 'grid',

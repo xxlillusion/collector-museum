@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { Link, useLocation, useSearch } from 'wouter';
 import PageShell from '../PageShell';
@@ -12,6 +12,7 @@ import {
   importedFlagKey,
 } from '../../lib/importLocal';
 import type { LocalSnapshot, ImportSelection } from '../../lib/importLocal';
+import { purgeMyData } from '../../lib/accountDeletion';
 import MyStoresTab from './MyStoresTab';
 import { errMsg, StatusLine, checkLabelStyle } from './accountShared';
 import {
@@ -33,6 +34,11 @@ import {
 } from './LoginScreen';
 
 type AccountTab = 'profile' | 'stores';
+
+// Red-tinged warning tone for the danger zone — the palette's existing
+// muted terracotta (declined chips / SOLD tags), never a raw alert red.
+const DANGER = '#b0685c';
+const DANGER_BORDER = 'rgba(176,104,92,0.5)';
 
 const tabButtonStyle = (active: boolean): CSSProperties => ({
   background: 'transparent',
@@ -137,6 +143,43 @@ export default function AccountScreen() {
   const [progress, setProgress] = useState('');
   const [importDone, setImportDone] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  // One-shot ?import=1 (signup routes here when the browser holds guest
+  // data): scroll to and pulse the import panel below.
+  const importPanelRef = useRef<HTMLElement | null>(null);
+  const [highlightImport, setHighlightImport] = useState(false);
+
+  // ---- delete my data (typed confirmation gates the button) ----
+  const [purgeText, setPurgeText] = useState('');
+  const [purging, setPurging] = useState(false);
+  const [purgeProgress, setPurgeProgress] = useState('');
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+
+  // Read the param once at mount, then strip it via replaceState so
+  // refresh/back land on a plain /account — the /?view=vendors pattern.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('import') !== '1') return;
+    setHighlightImport(true);
+    params.delete('import');
+    const rest = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash,
+    );
+  }, []);
+
+  // Keep the panel in view while the sections above it load in (profile /
+  // snapshot arriving shifts the layout), then let the highlight fade.
+  useEffect(() => {
+    if (!highlightImport) return;
+    importPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [highlightImport, profile, snapshot]);
+  useEffect(() => {
+    if (!highlightImport) return;
+    const t = setTimeout(() => setHighlightImport(false), 6000);
+    return () => clearTimeout(t);
+  }, [highlightImport]);
 
   // Signed out (or never signed in) — this page is account-only.
   useEffect(() => {
@@ -288,6 +331,23 @@ export default function AccountScreen() {
       setCollStatus('error');
       setCollError(errMsg(err));
     }
+  }
+
+  async function runPurge() {
+    if (!userId || purgeText !== 'DELETE' || purging) return;
+    setPurging(true);
+    setPurgeError(null);
+    try {
+      await purgeMyData(userId, setPurgeProgress);
+      // Everything owned is gone — end the session and land on the door.
+      await signOut();
+      navigate('/');
+    } catch (err) {
+      setPurgeError(errMsg(err));
+      setPurgeProgress('');
+      setPurging(false);
+    }
+    // No finally-reset on success: the sign-out redirect unmounts this screen.
   }
 
   async function runImport() {
@@ -493,11 +553,18 @@ export default function AccountScreen() {
                 </label>
                 <StatusLine status={collStatus} error={collError} />
                 {profile.collectionPublic && (
-                  <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
-                    <Link href={`/collector/${userId}`} style={{ color: GOLD }}>
-                      View my public collection page →
-                    </Link>
-                  </p>
+                  <>
+                    <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
+                      <Link href={`/collector/${userId}`} style={{ color: GOLD }}>
+                        View my public collection page →
+                      </Link>
+                    </p>
+                    <p style={{ margin: '6px 0 0', fontSize: 14, color: MUTED }}>
+                      <Link href={`/museum/collector/${userId}`} style={{ color: GOLD }}>
+                        Walk my public museum →
+                      </Link>
+                    </p>
+                  </>
                 )}
               </section>
 
@@ -571,7 +638,24 @@ export default function AccountScreen() {
             </>
           )}
 
-          <section style={panelStyle}>
+          <style>{`@keyframes vmImportPulse {
+            0% { box-shadow: 0 0 0 0 rgba(212,175,55,0.55); }
+            70% { box-shadow: 0 0 0 16px rgba(212,175,55,0); }
+            100% { box-shadow: 0 0 0 0 rgba(212,175,55,0); }
+          }`}</style>
+          <section
+            ref={importPanelRef}
+            id="import-panel"
+            style={{
+              ...panelStyle,
+              ...(highlightImport
+                ? {
+                    border: `1px solid ${GOLD}`,
+                    animation: 'vmImportPulse 1.8s ease-out 3',
+                  }
+                : {}),
+            }}
+          >
             <h2 style={panelTitleStyle}>BRING IN THIS BROWSER&rsquo;S COLLECTION</h2>
             <p style={{ margin: '0 0 14px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
               Anything added while browsing as a guest lives only in this browser. Copy it into
@@ -633,6 +717,65 @@ export default function AccountScreen() {
                 </div>
               </>
             )}
+          </section>
+
+          {/* ---- danger zone: clearly separated at the very bottom ---- */}
+          <section
+            style={{
+              ...panelStyle,
+              marginTop: 44,
+              border: `1px solid ${DANGER_BORDER}`,
+            }}
+          >
+            <h2 style={{ ...panelTitleStyle, color: DANGER }}>DELETE MY DATA</h2>
+            <p style={{ margin: '0 0 12px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
+              Permanently deletes everything this account owns — stores and their
+              inventory, shows and their booths, booth applications, your collection
+              cards, and your ♥ interest marks. Collection card images are removed
+              with the records; store banner, inventory and floor-plan images become
+              unreachable and are periodically cleaned. This cannot be undone.
+            </p>
+            <p style={{ margin: '0 0 20px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
+              Your login itself survives, so you can sign back in and start fresh. To
+              remove the account entirely, email us via the{' '}
+              <Link href="/contact" style={{ color: GOLD }}>
+                contact page
+              </Link>
+              .
+            </p>
+            <div style={{ maxWidth: 420 }}>
+              <label htmlFor="account-purge-confirm" style={authLabelStyle}>
+                TYPE DELETE TO CONFIRM
+              </label>
+              <input
+                id="account-purge-confirm"
+                type="text"
+                value={purgeText}
+                placeholder="DELETE"
+                autoComplete="off"
+                disabled={purging}
+                onChange={(e) => setPurgeText(e.target.value)}
+                style={authInputStyle}
+              />
+              <button
+                onClick={() => void runPurge()}
+                disabled={purgeText !== 'DELETE' || purging}
+                style={{
+                  ...ghostButtonStyle,
+                  marginTop: 16,
+                  color: DANGER,
+                  border: `1px solid ${DANGER_BORDER}`,
+                  opacity: purgeText !== 'DELETE' || purging ? 0.45 : 1,
+                  cursor: purgeText !== 'DELETE' || purging ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {purging ? 'DELETING…' : 'DELETE MY DATA →'}
+              </button>
+              <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
+                {purging && purgeProgress}
+              </p>
+              {purgeError && <p style={authErrorStyle}>{purgeError}</p>}
+            </div>
           </section>
         </>
       )}

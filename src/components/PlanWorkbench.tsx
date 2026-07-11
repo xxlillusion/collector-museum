@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import PlanEditor from './PlanEditor';
+import { noteStyle, HAIRLINE } from './museumKit';
 import { detectTables, inferScale } from '../lib/planDetect';
 import type { VendorRect, VendorPlanMeta } from '../lib/vendorPlan';
 import type { VendorSummary } from '../lib/useVendors';
@@ -299,6 +300,21 @@ export default function PlanWorkbench({
 
           {!detecting && meta && (
             <>
+              {/* One-line orientation for first-time editors — the tools
+                  below are otherwise discover-by-poking */}
+              <div
+                style={{
+                  ...noteStyle,
+                  fontSize: 13,
+                  textAlign: 'center',
+                  border: `1px solid ${HAIRLINE}`,
+                  borderRadius: '6px',
+                  padding: '8px 14px',
+                  margin: '0 0 10px',
+                }}
+              >
+                Drag boxes to fix detection · click a box to assign a vendor · Shift-click or drag empty space to select several · scroll to zoom, Space- or middle-drag to pan
+              </div>
               <PlanEditor
                 planUrl={planUrl}
                 imgW={meta.imgW}

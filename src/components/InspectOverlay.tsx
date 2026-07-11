@@ -1,6 +1,12 @@
 import { useEffect } from 'react';
+import type { CSSProperties } from 'react';
 import type { InventoryStatus } from '../lib/db';
 import { formatPrice } from '../lib/price';
+
+// Museum-refined accents (matches museumKit's palette — kept as local consts
+// so the 3D chunk stays self-contained, same idiom as the rest of this file).
+const GOLD = '#d4af37';
+const SERIF = "Georgia, 'Times New Roman', serif";
 
 /** Sale metadata shown on the placard under an inventory item (0005). */
 export interface InspectSale {
@@ -19,11 +25,19 @@ interface InspectOverlayProps {
   sale?: InspectSale;
   /** Want-list heart ("I'm interested") — host owns state + persistence. */
   want?: { wanted: boolean; onToggle: () => void };
+  /** Prev/next paging through the host's current list (wall order / binder
+   *  slice) — ‹ › buttons, an "n of N" counter, and ←/→ arrow keys. */
+  nav?: { index: number; total: number; onPrev: () => void; onNext: () => void };
+  /** Whose item this is (hall binders) — optionally linked to their page. */
+  vendor?: { name: string; href?: string };
+  /** Own-collection museums: opens the card's metadata editor. Rendered only
+   *  while the card has no caption and no details line yet. */
+  onAddDetails?: () => void;
   /** `relock` is true when closed by click — the caller may resume pointer lock */
   onClose: (relock: boolean) => void;
 }
 
-export default function InspectOverlay({ imageUrl, caption, details, sale, want, onClose }: InspectOverlayProps) {
+export default function InspectOverlay({ imageUrl, caption, details, sale, want, nav, vendor, onAddDetails, onClose }: InspectOverlayProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.code === 'Escape') onClose(false);
@@ -31,6 +45,21 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
+
+  // Arrow-key paging — a separate listener so the Esc-to-close handler above
+  // stays untouched. Hosts freeze movement / suspend the binder while the
+  // overlay is up, so the arrows reach only us.
+  const onPrev = nav?.onPrev;
+  const onNext = nav?.onNext;
+  useEffect(() => {
+    if (!onPrev || !onNext) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.code === 'ArrowLeft') onPrev();
+      else if (e.code === 'ArrowRight') onNext();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onPrev, onNext]);
 
   // Enforce "no pointer lock while open". The click that opens the overlay can
   // also trigger the canvas's click-to-lock, and the lock lands *after* our
@@ -43,6 +72,9 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
     document.addEventListener('pointerlockchange', exit);
     return () => document.removeEventListener('pointerlockchange', exit);
   }, []);
+
+  const showSale =
+    sale && (sale.price !== undefined || sale.condition || (sale.status && sale.status !== 'forSale'));
 
   return (
     <div
@@ -58,16 +90,25 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
         zIndex: 100,
         animation: 'fadeIn 0.15s ease',
         cursor: 'pointer',
-        gap: '16px',
+        gap: '14px',
+        // The column must never push the placard past the viewport: the
+        // image is the only shrinkable row (flex 0 1 auto + minHeight 0);
+        // everything below it is flexShrink 0 and stays fully visible.
+        maxHeight: '100vh',
+        boxSizing: 'border-box',
+        padding: '18px 12px',
+        overflow: 'hidden',
       }}
     >
       <img
         src={imageUrl}
         alt="Card"
         draggable={false}
+        className="inspect-card-img"
         style={{
-          maxHeight: '86vh',
-          maxWidth: '90vw',
+          flex: '0 1 auto',
+          minHeight: 0,
+          maxHeight: '82vh',
           borderRadius: '8px',
           boxShadow: '0 0 60px rgba(0,0,0,0.8)',
           animation: 'scaleIn 0.2s ease',
@@ -75,105 +116,312 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           userSelect: 'none',
         }}
       />
-      {caption && (
-        <div style={{
-          color: 'rgba(255,255,255,0.85)',
-          fontSize: '16px',
-          fontFamily: 'Georgia, serif',
-          fontStyle: 'italic',
-          letterSpacing: '0.04em',
-          maxWidth: '80vw',
-          textAlign: 'center',
-          userSelect: 'none',
-        }}>
-          {caption}
-        </div>
+
+      {/* ‹ › flanking the card — wide viewports only (the media query swaps
+          them into the placard row on narrow screens so they never cover
+          the card). */}
+      {nav && (
+        <>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              nav.onPrev();
+            }}
+            aria-label="Previous card"
+            className="inspect-nav-btn inspect-nav-side"
+            style={{ ...sideNavStyle, left: '26px' }}
+          >
+            ‹
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              nav.onNext();
+            }}
+            aria-label="Next card"
+            className="inspect-nav-btn inspect-nav-side"
+            style={{ ...sideNavStyle, right: '26px' }}
+          >
+            ›
+          </button>
+        </>
       )}
-      {details && (
-        <div style={{
-          color: 'rgba(255,255,255,0.6)',
-          fontSize: '13.5px',
-          fontFamily: 'Georgia, serif',
-          letterSpacing: '0.06em',
-          maxWidth: '80vw',
-          textAlign: 'center',
-          userSelect: 'none',
-          marginTop: caption ? '-8px' : 0,
-        }}>
-          {details}
-        </div>
-      )}
-      {sale && (sale.price !== undefined || sale.condition || (sale.status && sale.status !== 'forSale')) && (
-        <div style={{
+
+      {/* Placard — never clipped (flexShrink 0); the image absorbs the squeeze. */}
+      <div
+        style={{
+          flexShrink: 0,
           display: 'flex',
-          alignItems: 'baseline',
-          gap: '14px',
-          fontFamily: 'Georgia, serif',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '10px',
+          maxWidth: '92vw',
+        }}
+      >
+        {caption && (
+          <div style={{
+            color: 'rgba(255,255,255,0.85)',
+            fontSize: '16px',
+            fontFamily: SERIF,
+            fontStyle: 'italic',
+            letterSpacing: '0.04em',
+            maxWidth: '80vw',
+            textAlign: 'center',
+            userSelect: 'none',
+          }}>
+            {caption}
+          </div>
+        )}
+        {details && (
+          <div style={{
+            color: 'rgba(255,255,255,0.6)',
+            fontSize: '13.5px',
+            fontFamily: SERIF,
+            letterSpacing: '0.06em',
+            maxWidth: '80vw',
+            textAlign: 'center',
+            userSelect: 'none',
+          }}>
+            {details}
+          </div>
+        )}
+        {showSale && sale && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: '14px',
+            fontFamily: SERIF,
+            letterSpacing: '0.08em',
+            userSelect: 'none',
+          }}>
+            {sale.price !== undefined && (
+              <span style={{
+                color: sale.status === 'sold' ? 'rgba(255,255,255,0.4)' : GOLD,
+                fontSize: '19px',
+                textDecoration: sale.status === 'sold' ? 'line-through' : 'none',
+              }}>
+                {formatPrice(sale.price)}
+              </span>
+            )}
+            {sale.condition && (
+              <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: '14px' }}>
+                {sale.condition}
+              </span>
+            )}
+            {sale.status === 'sold' && (
+              <span style={{ color: '#c9776b', fontSize: '13px', letterSpacing: '0.24em' }}>
+                SOLD
+              </span>
+            )}
+            {sale.status === 'display' && (
+              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontStyle: 'italic' }}>
+                display only
+              </span>
+            )}
+          </div>
+        )}
+        {vendor && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: '16px',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              fontFamily: SERIF,
+              userSelect: 'none',
+              cursor: 'default',
+            }}
+          >
+            <span style={{
+              color: 'rgba(255,255,255,0.6)',
+              fontSize: '14px',
+              fontStyle: 'italic',
+              letterSpacing: '0.04em',
+            }}>
+              from <span style={{ color: 'rgba(255,255,255,0.92)' }}>{vendor.name}</span>
+            </span>
+            {vendor.href && (
+              <a
+                href={vendor.href}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  color: GOLD,
+                  fontSize: '11.5px',
+                  letterSpacing: '0.18em',
+                  textDecoration: 'none',
+                  borderBottom: '1px solid rgba(212,175,55,0.45)',
+                  paddingBottom: '1px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                VISIT VENDOR PAGE →
+              </a>
+            )}
+          </div>
+        )}
+        {(want || (onAddDetails && !caption && !details)) && (
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            {want && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  want.onToggle();
+                }}
+                className="inspect-pill"
+                style={{
+                  ...ghostPillStyle,
+                  ...(want.wanted
+                    ? {
+                        background: 'rgba(212,175,55,0.16)',
+                        color: GOLD,
+                        border: `1px solid ${GOLD}`,
+                      }
+                    : null),
+                }}
+              >
+                {want.wanted ? '♥ ON MY WANT LIST' : "♡ I'M INTERESTED"}
+              </button>
+            )}
+            {onAddDetails && !caption && !details && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddDetails();
+                }}
+                className="inspect-pill"
+                style={ghostPillStyle}
+              >
+                ✎ add details
+              </button>
+            )}
+          </div>
+        )}
+        {nav && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+              userSelect: 'none',
+              cursor: 'default',
+            }}
+          >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                nav.onPrev();
+              }}
+              aria-label="Previous card"
+              className="inspect-nav-btn inspect-nav-inline"
+              style={inlineNavStyle}
+            >
+              ‹
+            </button>
+            <span style={{
+              color: 'rgba(255,255,255,0.6)',
+              fontSize: '13px',
+              fontFamily: SERIF,
+              fontVariant: 'small-caps',
+              letterSpacing: '0.14em',
+            }}>
+              {nav.index + 1} of {nav.total}
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                nav.onNext();
+              }}
+              aria-label="Next card"
+              className="inspect-nav-btn inspect-nav-inline"
+              style={inlineNavStyle}
+            >
+              ›
+            </button>
+          </div>
+        )}
+        <div style={{
+          color: 'rgba(255,255,255,0.45)',
+          fontSize: '13px',
+          fontFamily: SERIF,
           letterSpacing: '0.08em',
           userSelect: 'none',
-          marginTop: caption ? '-6px' : 0,
+          textAlign: 'center',
         }}>
-          {sale.price !== undefined && (
-            <span style={{
-              color: sale.status === 'sold' ? 'rgba(255,255,255,0.4)' : '#d4af37',
-              fontSize: '19px',
-              textDecoration: sale.status === 'sold' ? 'line-through' : 'none',
-            }}>
-              {formatPrice(sale.price)}
-            </span>
-          )}
-          {sale.condition && (
-            <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: '14px' }}>
-              {sale.condition}
-            </span>
-          )}
-          {sale.status === 'sold' && (
-            <span style={{ color: '#c9776b', fontSize: '13px', letterSpacing: '0.24em' }}>
-              SOLD
-            </span>
-          )}
-          {sale.status === 'display' && (
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontStyle: 'italic' }}>
-              display only
-            </span>
-          )}
+          click anywhere to return to the room
         </div>
-      )}
-      {want && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            want.onToggle();
-          }}
-          style={{
-            background: want.wanted ? 'rgba(212,175,55,0.18)' : 'rgba(0,0,0,0.5)',
-            color: want.wanted ? '#d4af37' : 'rgba(255,255,255,0.75)',
-            border: `1px solid ${want.wanted ? '#d4af37' : 'rgba(255,255,255,0.3)'}`,
-            borderRadius: '20px',
-            padding: '8px 20px',
-            fontSize: '12.5px',
-            fontFamily: 'Georgia, serif',
-            letterSpacing: '0.14em',
-            cursor: 'pointer',
-          }}
-        >
-          {want.wanted ? '♥ ON MY WANT LIST' : "♡ I'M INTERESTED"}
-        </button>
-      )}
-      <div style={{
-        color: 'rgba(255,255,255,0.45)',
-        fontSize: '13px',
-        fontFamily: 'Georgia, serif',
-        letterSpacing: '0.08em',
-        userSelect: 'none',
-      }}>
-        click anywhere to return to the room
       </div>
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes scaleIn { from { transform: scale(0.85) } to { transform: scale(1) } }
+        .inspect-card-img { max-width: 90vw; }
+        .inspect-nav-side { display: none; }
+        .inspect-nav-inline { display: inline-block; }
+        @media (min-width: 641px) {
+          /* Keep a gutter for the side arrows so they never cover the card */
+          .inspect-card-img { max-width: min(90vw, calc(100vw - 176px)); }
+          .inspect-nav-side { display: block; }
+          .inspect-nav-inline { display: none; }
+        }
+        .inspect-nav-btn { transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
+        .inspect-nav-btn:hover {
+          color: #f4d97a;
+          border-color: rgba(212, 175, 55, 0.9);
+          background: rgba(28, 22, 14, 0.85);
+        }
+        .inspect-pill { transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
+        .inspect-pill:hover { border-color: rgba(212, 175, 55, 0.75); color: #e8e4dc; }
       `}</style>
     </div>
   );
 }
+
+// Gold-on-dark hairline circles, serif glyphs — vertically centered beside
+// the card (fixed) on wide viewports; the inline pair lives in the placard.
+const navBtnBase: CSSProperties = {
+  background: 'rgba(10,8,6,0.6)',
+  color: GOLD,
+  border: '1px solid rgba(212,175,55,0.45)',
+  borderRadius: '50%',
+  fontFamily: SERIF,
+  textAlign: 'center',
+  padding: 0,
+  cursor: 'pointer',
+  userSelect: 'none',
+};
+
+const sideNavStyle: CSSProperties = {
+  ...navBtnBase,
+  position: 'fixed',
+  top: '50%',
+  transform: 'translateY(-50%)',
+  width: '46px',
+  height: '46px',
+  fontSize: '26px',
+  lineHeight: '42px',
+  zIndex: 2,
+};
+
+const inlineNavStyle: CSSProperties = {
+  ...navBtnBase,
+  width: '36px',
+  height: '36px',
+  fontSize: '20px',
+  lineHeight: '32px',
+};
+
+/** Ghost pill (want heart / add details) — dark, hairline, serif small-caps. */
+const ghostPillStyle: CSSProperties = {
+  background: 'rgba(10,8,6,0.55)',
+  color: 'rgba(255,255,255,0.78)',
+  border: '1px solid rgba(255,255,255,0.28)',
+  borderRadius: '20px',
+  padding: '8px 20px',
+  fontSize: '12.5px',
+  fontFamily: SERIF,
+  letterSpacing: '0.14em',
+  cursor: 'pointer',
+};

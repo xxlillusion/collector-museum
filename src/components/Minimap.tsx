@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 
 // Minimap = two pieces sharing one marker ref, zero React state per frame:
@@ -26,6 +26,8 @@ export interface BoothMarker {
   u: number;
   v: number;
   vendorId: string;
+  /** Vendor display name — shown as a hover label over the dot. */
+  name?: string;
 }
 
 interface MinimapProps {
@@ -40,7 +42,9 @@ interface MinimapProps {
   starredVendorIds?: Set<string>;
 }
 
-/** Fixed top-right overlay; pointerEvents none so pointer-lock clicks pass. */
+/** Fixed top-right overlay; pointerEvents none so pointer-lock clicks pass
+ *  (booth dots and the enlarge toggle opt back in — hover/clicks only
+ *  physically land there while the cursor is free, exactly when useful). */
 export function Minimap({
   planUrl,
   mapping,
@@ -51,11 +55,20 @@ export function Minimap({
   starredVendorIds,
 }: MinimapProps) {
   const mapH = MAP_W * (mapping.imgH / mapping.imgW);
+  // Hovered booth dot → vendor-name label (index into boothMarkers).
+  const [hovered, setHovered] = useState<number | null>(null);
+  // ⤢ enlarge toggle: scale about the top-right corner so the tracker's
+  // in-container px math composes untouched. Clamped so the enlarged map
+  // never exceeds min(70vw, 70vh) on small viewports. Not persisted.
+  const [enlarged, setEnlarged] = useState(false);
+  const maxSide = 0.7 * Math.min(window.innerWidth, window.innerHeight);
+  const scale = enlarged ? Math.min(1.75, maxSide / Math.max(MAP_W, mapH)) : 1;
   const highlighted = (boothMarkers ?? []).filter((b) => b.vendorId === highlightVendorId);
   // Name label rides the topmost highlighted booth
   const labelAnchor = highlighted.length
     ? highlighted.reduce((a, b) => (b.v < a.v ? b : a))
     : null;
+  const hoveredMarker = hovered !== null ? (boothMarkers ?? [])[hovered] : undefined;
   return (
     <div
       style={{
@@ -70,6 +83,9 @@ export function Minimap({
         overflow: 'hidden',
         border: '1px solid rgba(255,255,255,0.25)',
         boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
+        transform: `scale(${scale})`,
+        transformOrigin: 'top right',
+        transition: 'transform 0.25s ease',
       }}
     >
       <img
@@ -83,10 +99,12 @@ export function Minimap({
       {(boothMarkers ?? []).map((b, i) => {
         const active = b.vendorId === highlightVendorId;
         const starredDot = !active && starredVendorIds?.has(b.vendorId);
-        const size = active ? 9 : starredDot ? 7 : 4;
+        const size = active ? 10 : starredDot ? 9 : 6;
         return (
           <div
             key={i}
+            onMouseEnter={() => setHovered(i)}
+            onMouseLeave={() => setHovered((cur) => (cur === i ? null : cur))}
             style={{
               position: 'absolute',
               left: b.u * MAP_W - size / 2,
@@ -101,10 +119,38 @@ export function Minimap({
                   ? '0 0 6px 1px rgba(255,215,94,0.75)'
                   : 'none',
               animation: active ? 'minimapPulse 1.2s ease-in-out infinite' : 'none',
+              pointerEvents: 'auto', // hover label; container stays none
+              cursor: 'default',
             }}
           />
         );
       })}
+      {hoveredMarker?.name && (
+        <div
+          style={{
+            position: 'absolute',
+            left: Math.min(Math.max(hoveredMarker.u * MAP_W, 34), MAP_W - 34),
+            top: Math.max(hoveredMarker.v * mapH - 22, 2),
+            transform: 'translateX(-50%)',
+            background: 'rgba(8,6,4,0.92)',
+            color: '#e8e4dc',
+            border: '1px solid rgba(212,175,55,0.4)',
+            fontSize: 10,
+            fontFamily: "Georgia, 'Times New Roman', serif",
+            letterSpacing: '0.06em',
+            padding: '2px 7px',
+            borderRadius: 4,
+            whiteSpace: 'nowrap',
+            maxWidth: MAP_W - 16,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        >
+          {hoveredMarker.name}
+        </div>
+      )}
       {labelAnchor && highlightName && (
         <div
           style={{
@@ -128,6 +174,31 @@ export function Minimap({
           {highlightName}
         </div>
       )}
+      <button
+        onClick={() => setEnlarged((e) => !e)}
+        aria-label={enlarged ? 'Shrink map' : 'Enlarge map'}
+        title={enlarged ? 'Shrink map' : 'Enlarge map'}
+        style={{
+          position: 'absolute',
+          top: 2,
+          right: 2,
+          pointerEvents: 'auto',
+          background: 'rgba(8,6,4,0.72)',
+          color: 'rgba(255,255,255,0.85)',
+          border: '1px solid rgba(255,255,255,0.25)',
+          borderRadius: 4,
+          width: 20,
+          height: 20,
+          fontSize: 12,
+          lineHeight: '18px',
+          textAlign: 'center',
+          padding: 0,
+          cursor: 'pointer',
+          zIndex: 3,
+        }}
+      >
+        {enlarged ? '⤡' : '⤢'}
+      </button>
       <style>{`@keyframes minimapPulse {
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.45); }
@@ -172,7 +243,11 @@ export function MinimapTracker({ mapping, markerRef }: MinimapTrackerProps) {
     // camera.rotation is YXZ (GalleryControls sets it), so .y is the yaw
     const yaw = camera.rotation.y;
     const prev = last.current;
+    // Skip the unchanged-pose bail when the marker div itself is fresh (the
+    // minimap remounts after a binder closes) — else it sits untransformed
+    // at the map's corner until the player moves.
     if (
+      el.style.transform !== '' &&
       Math.abs(u - prev.u) < 1e-4 &&
       Math.abs(v - prev.v) < 1e-4 &&
       Math.abs(yaw - prev.yaw) < 1e-3

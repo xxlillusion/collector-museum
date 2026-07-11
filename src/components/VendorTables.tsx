@@ -6,6 +6,7 @@ import {
   CLOTH_D,
   CLOTH_TOP_Y,
   CLOTH_ROUGHNESS,
+  CLOTH_ENVMAP_INTENSITY,
   DRAPE_H,
   getTableGeometries,
   getClothMaterial,
@@ -234,6 +235,7 @@ export default function VendorTables({ tables, bannerUrl, vendorBannerUrls, vend
       mats.set(key, new THREE.MeshStandardMaterial({
         map: tex,
         roughness: CLOTH_ROUGHNESS,
+        envMapIntensity: CLOTH_ENVMAP_INTENSITY,
         side: THREE.DoubleSide,
       }));
     }

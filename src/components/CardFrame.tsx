@@ -63,10 +63,11 @@ function FramedCard({ imageUrl, width, height, onClick }: FramedCardProps) {
         </mesh>
       ))}
 
-      {/* White passe-partout mat (recessed) */}
+      {/* Warm-white passe-partout mat (recessed) — #f2eee6 instead of near
+          white so spotlight pools don't blow it out at close range */}
       <mesh position={[0, 0, 0.012]}>
         <planeGeometry args={[innerW, innerH]} />
-        <meshStandardMaterial color="#f5f2ea" roughness={0.9} />
+        <meshStandardMaterial color="#f2eee6" roughness={0.9} />
       </mesh>
 
       {/* The artwork itself */}

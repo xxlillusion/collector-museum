@@ -8,6 +8,9 @@ interface HUDProps {
   binderPrompt: boolean;
   /** binder is open or animating — swaps hints, shows mobile controls */
   binderOpen: boolean;
+  /** an inspect overlay is mounted on top — suppress every hint pill
+   *  (control hints, binder prompt); the buttons stay */
+  overlayOpen?: boolean;
   /** top-right button label; defaults to the museum's card manager */
   uploadLabel?: string;
   /** Hall only: opens the vendor directory (button top-left, M shortcut). */
@@ -34,15 +37,18 @@ export default function HUD({
   onUpload,
   binderPrompt,
   binderOpen,
+  overlayOpen = false,
   uploadLabel = '⬆ Manage Cards',
   onDirectory,
 }: HUDProps) {
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10, fontFamily: 'sans-serif' }}>
-      {/* Controls prompt */}
-      {isTouchDevice ? (
+      {/* Controls prompt — no hints while an inspect overlay covers the scene.
+          Touch hint sits at the BOTTOM (above the joystick zone) so it never
+          collides with the top chrome (☰ Vendors / Floor Plan / minimap). */}
+      {!overlayOpen && (isTouchDevice ? (
         !binderOpen && (
-          <div style={{ ...pillStyle, top: '16px' }}>
+          <div style={{ ...pillStyle, bottom: '132px', maxWidth: 'calc(100vw - 24px)' }}>
             Joystick to move · Drag to look · Tap a card or the binder
           </div>
         )
@@ -55,10 +61,10 @@ export default function HUD({
           Click to explore &nbsp;·&nbsp; WASD to move &nbsp;·&nbsp; Mouse to look &nbsp;·&nbsp; Esc to unlock
           {onDirectory && <> &nbsp;·&nbsp; M for vendors</>}
         </div>
-      )}
+      ))}
 
       {/* Binder proximity prompt */}
-      {binderPrompt && (
+      {!overlayOpen && binderPrompt && (
         <div style={{
           position: 'absolute',
           top: '58%',

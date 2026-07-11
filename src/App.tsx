@@ -118,6 +118,9 @@ function MuseumApp({
   // Which collection hangs in the museum: null = the user's own cards,
   // otherwise a vendor id whose inventory goes on the walls.
   const [galleryVendorId, setGalleryVendorId] = useState<string | null>(null);
+  // "✎ add details" in the gallery overlay: jump home with this card's
+  // metadata editor open (HomeScreen consumes it once, then clears it).
+  const [autoEditCardId, setAutoEditCardId] = useState<string | null>(null);
   const galleryVendor = vendors.vendors.find((v) => v.id === galleryVendorId) ?? null;
   const galleryInventory = useVendorInventory(galleryVendor?.id ?? null);
 
@@ -213,6 +216,17 @@ function MuseumApp({
           sales={gallerySales}
           bannerUrl={bannerUrl}
           onManage={() => setView('home')}
+          // Own-cards walls only — vendor inventory has no card editor
+          onAddDetails={
+            galleryVendor
+              ? undefined
+              : (url) => {
+                  const card = cards.find((c) => c.imageUrl === url);
+                  if (!card) return;
+                  setAutoEditCardId(card.id);
+                  setView('home');
+                }
+          }
         />
       </Suspense>
     );
@@ -285,6 +299,8 @@ function MuseumApp({
       onAdd={addCard}
       onRemove={removeCard}
       onUpdateCard={updateCard}
+      autoEditCardId={autoEditCardId ?? undefined}
+      onAutoEditConsumed={() => setAutoEditCardId(null)}
       bannerUrl={bannerUrl}
       onSetBanner={setBanner}
       onRemoveBanner={removeBanner}

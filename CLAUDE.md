@@ -161,7 +161,9 @@ one panel per store).
   texture. Booths with inventory get **binders** (`VendorHallBinders.tsx`): 90 items per
   binder (10 faces × 9), binder *i* on booth table *i* (emission order), extras side by
   side on the last table, duplicated at each of the vendor's booths. Closed binders =
-  **2 instanced draws total** (merged leather shells + ring packs), zero textures. F (or
+  **2 instanced draws total** (merged leather shells + ring packs; since UX Wave B the
+  shared leather material carries two small canvas textures — embossed map + grain
+  roughness/bump from `binderShellAssets.ts` — constant cost, still 2 draws). F (or
   click/tap) opens: the instance collapses to scale 0 and the real `Binder` mounts in its
   place with the inventory slice (`lazySheetWindow=1` — textures only near the open
   spread), full flip/inspect/caption flow, then unmounts on close.
@@ -211,7 +213,8 @@ bypasses the editor: it loads the snapshot into the working slots and goes direc
   draw calls by table count (reflector renders the scene twice). Per-vendor front drapes
   are the sanctioned exception: one extra instanced draw per *unique vendor texture*
   (not per table).
-- Closed binders are exactly 2 instanced draws (shells + rings), zero textures. Only the
+- Closed binders are exactly 2 instanced draws (shells + rings; two small shared canvas
+  textures on the leather material since UX Wave B — constant cost). Only the
   one open binder mounts card textures, and only near its current spread
   (`lazySheetWindow=1`). Never mount per-table React binder components.
 
@@ -286,7 +289,9 @@ parallel streams, additive-only changes since — never reshape existing signatu
   look-drags on mobile don't open the inspect overlay.
 6. `**useTexture` doesn't set color space** — CardFrame sets `texture.colorSpace =
   SRGBColorSpace` manually; without it cards look washed out.
-7. **OneDrive path**: project lives under OneDrive Desktop; quote paths in shell commands.
+7. **Path**: the project moved OFF OneDrive to `C:\Users\jason\Desktop\playground\vendor-museum`
+   (2026-07-10, user un-synced OneDrive). The old OneDrive quirks — locked `.git/worktrees`
+   metadata, glacial recursive deletes — no longer apply.
 8. **drei `PointerLockControls` needs `domElement={gl.domElement}`**: without it, drei binds
   to `events.connected || gl.domElement`. Scene connects R3F events to the canvas's *parent
   div* (deferred `setTimeout` in `onCreated`), while `tryLock` locks the *canvas* — if PLC
@@ -656,10 +661,179 @@ parallel streams, additive-only changes since — never reshape existing signatu
   organizer dropdown = registered-only. Note: concurrent debounce flushes of caption +
   price + condition can race the read-modify-write in useVendorInventory (pre-existing,
   human typing never hits it — only same-tick synthetic writes).
-- Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
-  export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
-  the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup
-  (any static host).
+- **UX Wave A shipped** (2026-07-10, branch `ux-waves`; from the live UX review plan
+  `~/.claude/plans/your-role-you-re-delegated-brook.md` — scaffold + 2 worktree streams
+  merged conflict-free; per-stream verification 53/53 + 34/34 PASS, merged smoke green,
+  zero console errors): **cold-start/first-impressions wave.**
+  - Landing: two in-engine hero stills in museum-plaque framing (`src/assets/hero-*.webp`,
+    TODO re-capture on a real GPU — SwiftShader), "◈ WALK A DEMO SHOW →" CTA, sandbox
+    footnote promoted to a "TRY IT NOW →" tile, NBSP-bound arrows (no orphaned →).
+  - **Bundled demo show** at `/demo`: `lib/demoShow.ts` manifest (real detection meta
+    from floorplan_example.png — 50 rects @41.37 px/m; 4 fictional vendors on 6 booths;
+    16 fictional-creature WebP cards with prices/conditions incl. one sold + one display)
+    + `screens/demo/DemoShowScreen.tsx` mounting the lazy `VendorScene` exactly like
+    ShowDetail's walk (`fetchInventory` = bundled URL → Blob → `InventoryItemRecord`).
+    Account-free, DB-reset-proof, exercises the placard path. "SAMPLE EXHIBITION ·
+    FICTIONAL VENDORS" fixed placard; ShowDirectory's empty state links to it.
+  - Trust surface: `SiteFooter` (About/Privacy/Terms/Contact) mounted in PageShell +
+    LandingScreen + HomeScreen; real copy in `screens/static/StaticPages.tsx` (privacy
+    names Supabase vs IndexedDB/localStorage, "no analytics, no trackers"; contact =
+    mailto).
+  - Signed-in: role-aware `OnboardingChecklist` under the home masthead (steps derive
+    `done` live from cards/stores/profile — nothing stored but the ✕ dismissal,
+    localStorage `vendor-museum:onboarding:<uid>`; derivable steps render ✓/○,
+    signal-less steps render → CTAs; auto-hides when derivable steps all done); corner
+    chrome shows display name via `accountLabel()` (PageShell export: profile
+    displayName → `user_metadata.display_name` → email); /account gains "Walk my public
+    museum →" beside the public-page link.
+  - **Signup-time sandbox import (roadmap item 15 closed)**: SignupScreen checks
+    `readLocalSnapshot()` and lands data-carrying signups on `/account?import=1`
+    (AccountScreen scrolls to + gold-pulses the existing import panel, strips the param).
+    ⚠ Gotcha found live: a component ref can't carry the post-signup destination —
+    `DataProviderBoundary`'s `key={identity}` remount resets it; a module-scoped,
+    time-boxed (60s) flag survives the remount.
+  - `.claude/skills/verify/SKILL.md` refreshed (2026-07-10 discoveries): headless Edge
+    now DENIES pointer lock → addInitScript shim (fake `requestPointerLock` /
+    `pointerLockElement` + `pointerlockchange`); binder opens EXIT pointer lock → click
+    card pixels with the free cursor; vendor-inventory input is `input[type=file][multiple]`
+    in the panel (old id gone); minimap booth/star dots = small round DIV children of the
+    map img's parent (player marker = the translate+rotate child); scroll the editor svg
+    into view + re-read coords before rect clicks.
+  - Live test data from the review remains on prod for reuse (account
+    jason.a.dale2+uxtest0709@gmail.com, store e34bbc71, published "UX Test Show (safe to
+    delete)" e785d845 + two uxa2verify accounts) — see memory `project-uxtest-account`.
+- **UX Wave B shipped** (2026-07-10, branch `ux-waves`; scaffold with its own E2E gate +
+  2 worktree streams, merged conflict-free; per-stream gates 38/38 + 63/63 PASS, merged
+  /demo smoke green, zero console errors): **in-hall experience & wow-factor wave.**
+  - **Scaffold** (`bfd27ce`): InspectOverlay gained `nav {index,total,onPrev,onNext}` /
+    `vendor {name, href?}` / `onAddDetails?`; VendorHallBinders' `onInspect` now emits
+    the ordered binder slice as `InspectPayload {items, index, vendorId}`; Scene inspect
+    = `{list, index}` (wall order from frames, collection order from the binder;
+    wrap-around nav); HUD `overlayOpen` (hint pills hidden while the overlay is up —
+    both scenes also pass `frozen` while inspecting, since ArrowLeft/Right are strafe
+    keys); `HallAtmosphere` stub mounted by VendorScene; **`sceneTuning.ts`** holds every
+    lighting/exposure literal both scenes consume (extraction verified byte-identical);
+    `binderShellAssets.ts` owns the closed-shell geometry/material singletons;
+    App→HomeScreen `autoEditCardId` for the overlay's "✎ add details". ⚠ Museum
+    ambient/hemi still live in Room.tsx (deliberately untouched).
+  - **Stream B1 — hall atmosphere** (`040a871`): CARD SHOW header + pennant banners
+    (instanced, canvas textures), ENTRANCE doors + emissive sign at the south spawn,
+    ceiling truss web + hanging banners (kills the black void; warmer `#2d2723`
+    ceiling), aisle carpet runners, leather binder shells (embossed/stitched canvas
+    map + grain bump). Budget held exactly: 10 lights unchanged, +8 draw calls, binders
+    still 2 draws. **Tabletop "white ovals" root-caused: the board poked through the
+    cloth** (8 mm sag vs 6 mm clearance in `makeTopGeometry`) — sag capped at 4 mm; also
+    cloth roughness 0.92→0.97 + `envMapIntensity 0.35`. Museum close-range washout:
+    `MUSEUM_EXPOSURE` 1.15→1.08, wall-spot intensity 60→48, penumbra 0.85→0.95, mat
+    `#f2eee6`. ⚠ Real-GPU eyeball still owed (SwiftShader can't judge gloss).
+  - **Stream B2 — overlay/wayfinding/price** (`eb945d5`): **public-walk placard price
+    bug FIXED** (`publicShows.ts getShowForWalk` now selects + maps
+    price/status/condition; live-proven — anonymous walk shows the $75 placard);
+    museum-refined overlay (hairline-circle ‹ › side arrows — placard row <641px —
+    small-caps "n of N", italic "from VENDOR" + VISIT VENDOR PAGE → when the host
+    passes `linkVendors` (ShowDetail does; /demo doesn't), ✎/want ghost pills, bottom
+    clipping fixed via shrinkable-image flex column); minimap dots 6/9/10px + hover
+    name tooltips + ⤢ enlarge toggle (scale about top-right, tracker math composes;
+    also fixed a pre-existing bug: the marker div sat untransformed after binder close
+    until movement); touch hint pill moved to bottom:132 (clears joystick + top
+    chrome at 375px).
+  - Headless note for future runs: under SwiftShader, R3F's Canvas config effect can
+    overwrite the scenes' custom `events.compute` after mount (pre-existing race,
+    harmless on real GPUs) — re-install via the R3F store's `setEvents` before
+    scripted canvas clicks (also recorded in the verify skill).
+- **UX Wave C shipped** (2026-07-10, branch `ux-waves`; 2 worktree streams, merged
+  conflict-free; per-stream gates 65/65 + 36/36 PASS, zero console errors): **creator
+  polish & trust wave** — closes the 3-wave program from the live UX review
+  (`~/.claude/plans/your-role-you-re-delegated-brook.md`).
+  - **Stream C1** (`9fbeff1`): show-owner affordances (`getShowForWalk` exposes
+    `organizerId`; ShowDetail gives the owner "✎ EDIT THIS SHOW →" and swaps the apply
+    section for "Review booth applications →"), vendor-owner banner on /vendor/:id
+    ("This is your store — manage it in MY STORES →"), `hasCardMeta` filename gating on
+    BOTH public collector leak sites (CollectorPage grid caption + CollectorMuseum
+    inspect captions — matches App.tsx's own-museum rule), and **DELETE MY DATA**
+    (`lib/accountDeletion.ts` + AccountScreen panel: typed-DELETE confirm → RLS-scoped
+    FK-safe row purge → sign-out; login survives, full removal via /contact).
+    ⚠ **Storage finding (live-proven)**: only the `cards` bucket is client-deletable —
+    banners/inventory/plans have DELETE policies but NO storage.objects SELECT policy,
+    and the storage service silently skips objects it can't see (`remove()` → `data: []`,
+    no error — same service-quirk family as the upsert-403 gotcha). Purge deletes card
+    images, skips the rest ("become unreachable, periodically cleaned" copy). Future
+    one-line migration: owner-prefix SELECT on those buckets.
+  - **Stream C2** (`2528262`): edit-show interstitial reworded to organizer language
+    (the "replaces your local sandbox draft" plumbing leak; **deliberately NO
+    auto-snapshot** — remote `savePlanRecord` maps to `upsertCloudPlan` and would mint a
+    stray cloud show), PlanEditor mode toolbar moved out of the plan image into a
+    normal-flow row, "R×C · N tables" labels now hover/selected-only (vendor-name labels
+    stay always-on; dashed grid previews kept — faint and informative), PlanWorkbench
+    helper strip ("Drag boxes to fix detection · click a box to assign a vendor ·
+    rotate with the handle"), and `docs/og-previews-spike.md` — decision-ready per-route
+    OG design against the real deploy (self-controlled nginx in Docker behind Traefik:
+    bot-UA map → Supabase Edge Function `og-render` reading with the anon key so RLS
+    enforces visibility; static → dynamic og:image phases; needs the user to CONFIRM
+    docker-compose.deploy.yml is the live path). `nginx.conf` gained comment markers
+    only.
+- **UX Wave 2A shipped** (2026-07-10, branch `ux-waves-2`; 2 parallel worktree streams,
+  merged conflict-free; gates 10/10-unit + curl-matrix + 33/33 PASS, merged smoke green,
+  zero console errors): **reach & route planning.**
+  - **Per-route OG previews BUILT** (`ffaa5f1`, from the Wave-C spike):
+    `supabase/functions/og-render/` (pure `og.ts` — parsePath for all 5 public route
+    shapes incl. `/museum/*` mapping, buildOgHtml fully escaped; `index.ts` anon-key
+    PostgREST reads so RLS mirrors app visibility; not-found → generic card 200;
+    `Cache-Control: public, max-age=600`); `nginx.conf` bot-UA `map` (13 crawlers) +
+    `location ~ ^/(show|vendor|collector|museum)/` returning bots a 302 to the function
+    (redirect-over-proxy tradeoff documented) — validated with `nginx -t` in
+    nginx:alpine + a functional curl matrix; four 1200×630 museum-branded
+    `public/og-*.png` (~40 kB each, PNG-8). ⚠ NOT deployed: runbook in
+    `docs/og-previews-spike.md` (deploy function `--no-verify-jwt`, rebuild the
+    container, curl verification); the CONFIRM-deploy-path box still gates it.
+  - **Show-page booth markers + walk counters** (`f7913b7`): assigned-booth gold dots
+    overlaid on ShowDetail's plan preview (rect centers as % of imgW/H — rects already
+    carry vendorId in the walk meta), starred vendors glow 13px, hover/tap name labels
+    (tap sets, tap-elsewhere dismisses — a real touch bug found+fixed), legend line;
+    `migration 0007_visit_counts.sql` (RLS'd counter table, security-definer
+    `record_walk`, grants anon+authenticated, **also enables pg_graphql**) +
+    `lib/visitService.ts`. ⚠ Design constraint discovered: a pre-migration RPC 404
+    cannot be console-silenced in Chromium (same family as the storage-400 gotcha), so
+    visitService feature-detects readiness via ONE GraphQL probe (`/graphql/v1` answers
+    200 even with pg_graphql disabled), latches into localStorage, and only then issues
+    REST — pre-migration there is literally no visit_counts traffic and zero console
+    errors; applying 0007 lights the feature up with no rebuild. Day-deduped per
+    browser (`vendor-museum:walked:<kind>:<id>:<date>`); records on public show walks +
+    Vendor/CollectorMuseum mounts; never in /demo or sandbox. "◈ N walks" on ShowDetail,
+    "N museum walks" on Vendor/CollectorPage (hidden until count ≥ 1). Privacy page
+    updated honestly (plain anonymous tally, no identifiers).
+    **⚠ Apply 0007 to the live project to activate counters** (+ 2-min live check of
+    the GraphQL probe's default naming afterwards).
+- **UX Wave 2B shipped** (2026-07-10, branch `ux-waves-2`; 2 parallel worktree streams,
+  merged conflict-free; gates 47/47 + 23/23 PASS, merged smoke green, zero console
+  errors): **organizer power tools.**
+  - **PlanEditor zoom/pan/undo/multi-select** (`0b2e582`): cursor-centered wheel zoom
+    0.5×–6× + ⊖ ⊕ ⤢ toolbar (reset shows current %), pan = Space-drag or middle-drag
+    (clamped), all via one CSS transform on a stage wrapper holding img+svg together —
+    every pointer handler converts through `getBoundingClientRect` ratios so gestures
+    are zoom-correct. Undo/redo: 50-cap rects-snapshot history committed at gesture end
+    (no-op guard; vendor assign/unassign undoable via prop-identity detection;
+    calibration/start are rects-external → not undoable; Re-detect/Replace reset
+    history), Ctrl+Z / Ctrl+Y(+Shift+Z) + ↶ ↷, emits through the normal onChange so the
+    parent debounce stays the single write path. Multi-select: shift-click + marquee
+    (plain drag on empty space), primary = last-selected feeds the assign panel
+    unchanged, group move (shared clamped delta), `✕N`/Backspace group delete, Esc
+    clears. Drive-by fix: keyboard handlers skip editable targets (Backspace in the
+    vendor-name input used to delete the selected box). Touch pinch deliberately
+    skipped (single-pointer drag model).
+  - **Saved-plan export/import** (`1106ea4`, sandbox host only — deliberately, since
+    remote `savePlanRecord` → `upsertCloudPlan` would mint stray cloud shows):
+    `lib/planFile.ts` portable envelope `{format:'vendor-museum-plan', version:1, name,
+    showDate?, exportedAt, meta, planImage(dataURL)}` with strict validation +
+    human-readable errors; `useSavedPlans.exportPlan/importPlanFile` (fresh id,
+    `banners: []`, name deduped " (2)"…) + a module-level refresh bus so all mounted
+    hook instances see mutations (App's props-driven list stays live without touching
+    App.tsx); VendorSetupScreen per-row "⬇ Export" + "⬆ Import a plan file…" (SAVED
+    PLANS section now always renders so a fresh browser can import first).
+    `rects[].vendorId` rides the file; cross-registry imports render those unassigned
+    (documented behavior). Typical export ≈ 262 kB.
+- Candidate next steps (discussed, not built): booth labels on tables;
+  bundle code-splitting (~1.4MB); deploy setup (any static host).
 - Museum-side known gaps: east/west walls unused by card layout (overflow silently
   dropped); pre-downscale images in old IndexedDBs stay full-res until re-uploaded.
 

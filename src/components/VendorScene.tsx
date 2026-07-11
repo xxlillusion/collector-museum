@@ -7,14 +7,25 @@ import VendorRoom from './VendorRoom';
 import VendorTables from './VendorTables';
 import type { VendorDrapeInfo } from './VendorTables';
 import VendorHallBinders from './VendorHallBinders';
-import type { FetchInventory } from './VendorHallBinders';
+import type { FetchInventory, InspectPayload } from './VendorHallBinders';
+import HallAtmosphere from './HallAtmosphere';
 import GalleryControls, { isTouchDevice } from './GalleryControls';
 import type { Collider } from './GalleryControls';
 import MobileControls from './MobileControls';
 import HUD from './HUD';
 import InspectOverlay from './InspectOverlay';
-import type { InspectSale } from './InspectOverlay';
 import { ShadowRefresh, LoadingOverlay } from './sceneCommon';
+import {
+  HALL_EXPOSURE,
+  HALL_AISLE_SPOT,
+  HALL_SPOT_LENS_EMISSIVE,
+  HALL_CEILING_PANEL_EMISSIVE,
+  HALL_SHADOW_DIRECTIONAL,
+  HALL_ENV_TOP,
+  HALL_ENV_SIDE,
+  HALL_BLOOM,
+  HALL_VIGNETTE,
+} from './sceneTuning';
 import HallDirectory from './HallDirectory';
 import type { DirectoryVendor } from './HallDirectory';
 import { Minimap, MinimapTracker } from './Minimap';
@@ -39,6 +50,9 @@ interface VendorSceneProps {
    *  minimap; the directory shows/toggles the star. Absent in sandbox walks. */
   starredVendorIds?: Set<string>;
   onToggleStar?: (vendorId: string) => void;
+  /** Public show walks: the inspect overlay names the vendor and links to
+   *  /vendor/:id. Absent/false (sandbox — no public pages), no vendor line. */
+  linkVendors?: boolean;
   onBack: () => void;
   /** Top-right exit button label — public show walks say "Leave Show"
    *  instead of the editor's "Floor Plan". */
@@ -68,12 +82,12 @@ function AisleSpot({ x, z, height }: { x: number; z: number; height: number }) {
       <spotLight
         ref={lightRef}
         position={[x, height - 0.2, z]}
-        angle={0.95}
-        penumbra={1}
-        intensity={55}
-        decay={2}
-        distance={height * 2.6}
-        color="#ffe6bd"
+        angle={HALL_AISLE_SPOT.angle}
+        penumbra={HALL_AISLE_SPOT.penumbra}
+        intensity={HALL_AISLE_SPOT.intensity}
+        decay={HALL_AISLE_SPOT.decay}
+        distance={height * HALL_AISLE_SPOT.distanceFactor}
+        color={HALL_AISLE_SPOT.color}
       />
       <mesh position={[x, height - 0.16, z]}>
         <cylinderGeometry args={[0.07, 0.09, 0.28, 16]} />
@@ -84,7 +98,7 @@ function AisleSpot({ x, z, height }: { x: number; z: number; height: number }) {
         <meshStandardMaterial
           color="#fff3dd"
           emissive="#ffdfa8"
-          emissiveIntensity={6}
+          emissiveIntensity={HALL_SPOT_LENS_EMISSIVE}
           toneMapped={false}
         />
       </mesh>
@@ -118,7 +132,7 @@ function CeilingPanels({ width, depth, height }: { width: number; depth: number;
           <meshStandardMaterial
             color="#f5efe2"
             emissive="#f0e6cf"
-            emissiveIntensity={2.2}
+            emissiveIntensity={HALL_CEILING_PANEL_EMISSIVE}
             toneMapped={false}
           />
         </mesh>
@@ -168,17 +182,15 @@ function tableColliders(tables: TablePlacement[]): Collider[] {
   });
 }
 
-export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, starredVendorIds, onToggleStar, onBack, exitLabel }: VendorSceneProps) {
+export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, starredVendorIds, onToggleStar, linkVendors, onBack, exitLabel }: VendorSceneProps) {
   const [locked, setLocked] = useState(false);
   const [binderOpen, setBinderOpen] = useState(false);
   const [binderPrompt, setBinderPrompt] = useState(false);
-  const [inspect, setInspect] = useState<{
-    url: string;
-    caption?: string;
-    sale?: InspectSale;
-    itemId?: string;
-    wanted?: boolean;
-  } | null>(null);
+  // The open binder's full slice + current index (see InspectPayload) —
+  // ‹ › / arrows page `items` without another inventory read. The want
+  // heart is separate state, recomputed per shown item.
+  const [inspect, setInspect] = useState<InspectPayload | null>(null);
+  const [inspectWanted, setInspectWanted] = useState(false);
   // Vendor directory overlay — opening unlocks the pointer + freezes controls
   // (the binder-open pattern); selecting a vendor lights their booth dots.
   const [directoryOpen, setDirectoryOpen] = useState(false);
@@ -209,13 +221,14 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
   // Assigned booth centers in plan-image UV (dangling vendor ids skipped) +
   // the directory list derived from the same rects.
   const boothMarkers = useMemo<BoothMarker[]>(() => {
-    const known = new Set(vendors.map((v) => v.id));
+    const nameById = new Map(vendors.map((v) => [v.id, v.name]));
     return planMeta.rects
-      .filter((r) => r.vendorId && known.has(r.vendorId))
+      .filter((r) => r.vendorId && nameById.has(r.vendorId))
       .map((r) => ({
         u: (r.x + r.w / 2) / planMeta.imgW,
         v: (r.y + r.h / 2) / planMeta.imgH,
         vendorId: r.vendorId!,
+        name: nameById.get(r.vendorId!),
       }));
   }, [planMeta.rects, planMeta.imgW, planMeta.imgH, vendors]);
 
@@ -312,17 +325,37 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [binderOpen, inspect, directoryOpen]);
 
-  const handleInspect = (url: string, caption?: string, sale?: InspectSale, itemId?: string) => {
+  const handleInspect = (payload: InspectPayload) => {
     document.exitPointerLock?.();
-    setInspect({ url, caption, sale, itemId, wanted: itemId ? isWanted(itemId) : undefined });
+    setInspect(payload);
+    const item = payload.items[payload.index];
+    setInspectWanted(item?.itemId ? isWanted(item.itemId) : false);
   };
 
+  // ‹ › / arrow keys — wraps at both ends (matches the museum).
+  const navigateInspect = (dir: -1 | 1) => {
+    if (!inspect || inspect.items.length === 0) return;
+    const total = inspect.items.length;
+    const index = (inspect.index + dir + total) % total;
+    setInspect({ ...inspect, index });
+    const item = inspect.items[index];
+    setInspectWanted(item?.itemId ? isWanted(item.itemId) : false);
+  };
+
+  // The currently shown item + its vendor line (public walks link the name)
+  const inspectItem = inspect ? inspect.items[inspect.index] : null;
+  const inspectVendor = useMemo(() => {
+    if (!linkVendors || !inspect) return undefined;
+    const name = vendors.find((v) => v.id === inspect.vendorId)?.name;
+    return name ? { name, href: `/vendor/${inspect.vendorId}` } : undefined;
+  }, [linkVendors, inspect, vendors]);
+
   const handleToggleWant = () => {
-    if (!inspect?.itemId) return;
+    const itemId = inspectItem?.itemId;
+    if (!itemId) return;
     // Toggle OUTSIDE the state updater — updaters must stay pure (StrictMode
     // double-invokes them, which would flip the want right back off).
-    const wanted = toggleWant(userId, inspect.itemId);
-    setInspect((cur) => (cur ? { ...cur, wanted } : cur));
+    setInspectWanted(toggleWant(userId, itemId));
   };
 
   const handleCloseInspect = (relock: boolean) => {
@@ -351,7 +384,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
           antialias: true,
           powerPreference: 'high-performance',
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.15,
+          toneMappingExposure: HALL_EXPOSURE,
         }}
         style={{ width: '100vw', height: '100vh', background: '#0d0b0a' }}
         // A canvas click while the directory is up dismisses it (and relocks)
@@ -416,13 +449,19 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
             onInspect={handleInspect}
             onClosed={handleBinderClosed}
           />
+          <HallAtmosphere
+            width={hall.width}
+            depth={hall.depth}
+            height={hall.height}
+            tables={tables}
+          />
 
           {/* One shadow-casting light for the whole hall — skylight banks.
               Per-table shadow spots are a non-starter at this scale. */}
           <directionalLight
             position={[hall.width * 0.25, hall.height * 2.2, hall.depth * 0.2]}
-            intensity={1.1}
-            color="#fff4e0"
+            intensity={HALL_SHADOW_DIRECTIONAL.intensity}
+            color={HALL_SHADOW_DIRECTIONAL.color}
             castShadow
             shadow-mapSize={[2048, 2048]}
             shadow-radius={4}
@@ -443,31 +482,33 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
           {/* Local environment map (no network) — drives floor reflections */}
           <Environment resolution={64} frames={1}>
             <Lightformer
-              intensity={1.2}
+              intensity={HALL_ENV_TOP.intensity}
               rotation-x={Math.PI / 2}
               position={[0, 5, 0]}
               scale={[16, 10, 1]}
-              color="#fff2dc"
+              color={HALL_ENV_TOP.color}
             />
             <Lightformer
-              intensity={0.4}
+              intensity={HALL_ENV_SIDE.intensity}
               rotation-y={Math.PI / 2}
               position={[-10, 2, 0]}
               scale={[8, 3, 1]}
-              color="#e8dfd0"
+              color={HALL_ENV_SIDE.color}
             />
             <Lightformer
-              intensity={0.4}
+              intensity={HALL_ENV_SIDE.intensity}
               rotation-y={-Math.PI / 2}
               position={[10, 2, 0]}
               scale={[8, 3, 1]}
-              color="#e8dfd0"
+              color={HALL_ENV_SIDE.color}
             />
           </Environment>
 
+          {/* Frozen while the overlay is up too — its ←/→ page the inspect
+              list and must not strafe the player underneath. */}
           <GalleryControls
             onLockChange={setLocked}
-            frozen={binderOpen || directoryOpen}
+            frozen={binderOpen || directoryOpen || inspect !== null}
             bounds={{ halfW: hall.width / 2 - WALL_MARGIN, halfD: hall.depth / 2 - WALL_MARGIN }}
             colliders={colliders}
             initialPosition={spawn}
@@ -478,8 +519,8 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
 
         {!isTouchDevice && (
           <EffectComposer>
-            <Bloom mipmapBlur luminanceThreshold={1.2} intensity={0.35} />
-            <Vignette offset={0.18} darkness={0.55} />
+            <Bloom mipmapBlur luminanceThreshold={HALL_BLOOM.luminanceThreshold} intensity={HALL_BLOOM.intensity} />
+            <Vignette offset={HALL_VIGNETTE.offset} darkness={HALL_VIGNETTE.darkness} />
           </EffectComposer>
         )}
       </Canvas>
@@ -503,6 +544,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
         // the tap prompt whenever a binder is in front of the camera.
         binderPrompt={binderPrompt && (locked || isTouchDevice) && !binderOpen && !directoryOpen}
         binderOpen={binderOpen}
+        overlayOpen={inspect !== null}
         uploadLabel={exitLabel ?? '🗺 Floor Plan'}
         onDirectory={directoryOpen ? undefined : openDirectory}
       />
@@ -518,16 +560,23 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
       )}
       <MobileControls hidden={binderOpen || directoryOpen} />
 
-      {inspect && (
+      {inspect && inspectItem && (
         <InspectOverlay
-          imageUrl={inspect.url}
-          caption={inspect.caption}
-          sale={inspect.sale}
+          imageUrl={inspectItem.url}
+          caption={inspectItem.caption}
+          sale={inspectItem.sale}
           want={
-            inspect.itemId !== undefined
-              ? { wanted: inspect.wanted ?? false, onToggle: handleToggleWant }
+            inspectItem.itemId !== undefined
+              ? { wanted: inspectWanted, onToggle: handleToggleWant }
               : undefined
           }
+          nav={{
+            index: inspect.index,
+            total: inspect.items.length,
+            onPrev: () => navigateInspect(-1),
+            onNext: () => navigateInspect(1),
+          }}
+          vendor={inspectVendor}
           onClose={handleCloseInspect}
         />
       )}

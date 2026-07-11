@@ -1,9 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import PlanWorkbench, { secondaryButton } from './PlanWorkbench';
 import type { PlanWorkbenchHandle, PlanWorkbenchState } from './PlanWorkbench';
 import type { VendorPlanMeta } from '../lib/vendorPlan';
 import type { SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
+import { useSavedPlans } from '../lib/useSavedPlans';
 
 interface VendorSetupScreenProps {
   planUrl: string | null;
@@ -52,6 +54,50 @@ export default function VendorSetupScreen({
 
   const [savingName, setSavingName] = useState<string | null>(null); // null = closed
   const [savingDate, setSavingDate] = useState('');
+
+  // Export/import portable plan files. This screen mounts its own
+  // useSavedPlans instance for these two functions only — App's prop wiring
+  // is frozen, and the hook's module-level refresh bus keeps App's instance
+  // (which feeds the `savedPlans` prop rendered below) in sync after an
+  // import. Sandbox/guest-only host, so imports always hit the local
+  // provider (never `upsertCloudPlan` — see useSavedPlans.importPlanFile).
+  const { exportPlan, importPlanFile } = useSavedPlans();
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  const handleExport = useCallback(async (id: string) => {
+    try {
+      const result = await exportPlan(id);
+      if (!result) return;
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setImportMsg({ kind: 'err', text: 'Export failed — the plan could not be read.' });
+    }
+  }, [exportPlan]);
+
+  const handleImportChange = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-importing the same file
+    if (!file) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const result = await importPlanFile(file);
+      setImportMsg(result.ok
+        ? { kind: 'ok', text: `Imported “${result.name}”` }
+        : { kind: 'err', text: result.error });
+    } catch {
+      setImportMsg({ kind: 'err', text: 'Import failed — the file could not be read.' });
+    } finally {
+      setImporting(false);
+    }
+  }, [importPlanFile]);
 
   const handleSavePlan = useCallback(async () => {
     const name = savingName?.trim();
@@ -135,8 +181,9 @@ export default function VendorSetupScreen({
         )}
       />
 
-      {(savedPlans.length > 0 || (wb.hasMeta && !wb.detecting)) && (
-        <div style={{ width: '100%', maxWidth: '900px', marginTop: '36px' }}>
+      {/* Always rendered — the import affordance must be reachable even in a
+          fresh browser with no working plan and nothing saved yet. */}
+      <div style={{ width: '100%', maxWidth: '900px', marginTop: '36px' }}>
           <div style={{
             color: '#888',
             fontSize: '13px',
@@ -231,6 +278,13 @@ export default function VendorSetupScreen({
                 {p.showDate ? `show ${p.showDate} · ` : ''}{new Date(p.updatedAt).toLocaleDateString()}
               </span>
               <button
+                onClick={() => handleExport(p.id)}
+                title="Download this plan as a portable file"
+                style={{ ...secondaryButton, padding: '6px 14px', fontSize: '13px' }}
+              >
+                ⬇ Export
+              </button>
+              <button
                 onClick={() => {
                   if (!wb.hasMeta || window.confirm(`Load “${p.name}”? The current working plan will be replaced.`)) {
                     onLoadPlan(p.id);
@@ -253,8 +307,32 @@ export default function VendorSetupScreen({
           {savedPlans.length === 0 && (
             <div style={{ color: '#555', fontSize: '13px' }}>Nothing saved yet.</div>
           )}
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginTop: '14px' }}>
+            <button
+              onClick={() => importInputRef.current?.click()}
+              disabled={importing}
+              style={{ ...secondaryButton, padding: '10px 18px', fontSize: '13px' }}
+            >
+              {importing ? 'Importing…' : '⬆ Import a plan file…'}
+            </button>
+            {importMsg && (
+              <span style={{ fontSize: '13px', color: importMsg.kind === 'ok' ? GOLD : '#c66' }}>
+                {importMsg.text}
+              </span>
+            )}
+          </div>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".json,.vmplan.json,application/json"
+            style={{ display: 'none' }}
+            onChange={handleImportChange}
+          />
+          <div style={{ color: '#777', fontSize: '12px', fontStyle: 'italic', marginTop: '8px' }}>
+            Vendor assignments only carry over within the same registry.
+          </div>
         </div>
-      )}
 
       <button
         onClick={onBack}

@@ -7,6 +7,7 @@ import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import type { PublicCollectorProfile } from '../../lib/publicCollectors';
 import { cardDetailsLine, hasCardMeta } from '../../lib/cardMeta';
 import { orderForWalls, hiddenFromWalls } from '../../lib/wallOrder';
+import { fetchWalks } from '../../lib/visitService';
 import { formatLocation } from '../../lib/locations';
 import {
   GOLD, HAIRLINE, TEXT, MUTED, SERIF,
@@ -28,6 +29,8 @@ type LoadState =
 
 export default function CollectorPage({ profileId }: { profileId: string }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  // Anonymous walk counter (0007) — null on any failure hides the line.
+  const [walks, setWalks] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -36,6 +39,10 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
     getPublicCollectorProfile(profileId).then((profile) => {
       if (cancelled) return;
       setState(profile ? { status: 'ready', profile } : { status: 'notFound' });
+    });
+    setWalks(null);
+    fetchWalks('collector', profileId).then((n) => {
+      if (!cancelled) setWalks(n);
     });
     return () => {
       cancelled = true;
@@ -144,6 +151,11 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
             >
               WALK THE MUSEUM →
             </Link>
+            {walks !== null && walks >= 1 && (
+              <p style={{ ...noteStyle, fontSize: 12.5, margin: '-14px 0 26px' }}>
+                {walks} museum walk{walks === 1 ? '' : 's'}
+              </p>
+            )}
             <div
               style={{
                 display: 'grid',

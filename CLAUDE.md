@@ -772,10 +772,36 @@ parallel streams, additive-only changes since — never reshape existing signatu
     enforces visibility; static → dynamic og:image phases; needs the user to CONFIRM
     docker-compose.deploy.yml is the live path). `nginx.conf` gained comment markers
     only.
-- Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
-  export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
-  the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup
-  (any static host).
+- **UX Wave 2B shipped** (2026-07-10, branch `ux-waves-2`; 2 parallel worktree streams,
+  merged conflict-free; gates 47/47 + 23/23 PASS, merged smoke green, zero console
+  errors): **organizer power tools.**
+  - **PlanEditor zoom/pan/undo/multi-select** (`0b2e582`): cursor-centered wheel zoom
+    0.5×–6× + ⊖ ⊕ ⤢ toolbar (reset shows current %), pan = Space-drag or middle-drag
+    (clamped), all via one CSS transform on a stage wrapper holding img+svg together —
+    every pointer handler converts through `getBoundingClientRect` ratios so gestures
+    are zoom-correct. Undo/redo: 50-cap rects-snapshot history committed at gesture end
+    (no-op guard; vendor assign/unassign undoable via prop-identity detection;
+    calibration/start are rects-external → not undoable; Re-detect/Replace reset
+    history), Ctrl+Z / Ctrl+Y(+Shift+Z) + ↶ ↷, emits through the normal onChange so the
+    parent debounce stays the single write path. Multi-select: shift-click + marquee
+    (plain drag on empty space), primary = last-selected feeds the assign panel
+    unchanged, group move (shared clamped delta), `✕N`/Backspace group delete, Esc
+    clears. Drive-by fix: keyboard handlers skip editable targets (Backspace in the
+    vendor-name input used to delete the selected box). Touch pinch deliberately
+    skipped (single-pointer drag model).
+  - **Saved-plan export/import** (`1106ea4`, sandbox host only — deliberately, since
+    remote `savePlanRecord` → `upsertCloudPlan` would mint stray cloud shows):
+    `lib/planFile.ts` portable envelope `{format:'vendor-museum-plan', version:1, name,
+    showDate?, exportedAt, meta, planImage(dataURL)}` with strict validation +
+    human-readable errors; `useSavedPlans.exportPlan/importPlanFile` (fresh id,
+    `banners: []`, name deduped " (2)"…) + a module-level refresh bus so all mounted
+    hook instances see mutations (App's props-driven list stays live without touching
+    App.tsx); VendorSetupScreen per-row "⬇ Export" + "⬆ Import a plan file…" (SAVED
+    PLANS section now always renders so a fresh browser can import first).
+    `rects[].vendorId` rides the file; cross-registry imports render those unassigned
+    (documented behavior). Typical export ≈ 262 kB.
+- Candidate next steps (discussed, not built): booth labels on tables;
+  bundle code-splitting (~1.4MB); deploy setup (any static host).
 - Museum-side known gaps: east/west walls unused by card layout (overflow silently
   dropped); pre-downscale images in old IndexedDBs stay full-res until re-uploaded.
 

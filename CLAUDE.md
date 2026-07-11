@@ -772,6 +772,38 @@ parallel streams, additive-only changes since — never reshape existing signatu
     enforces visibility; static → dynamic og:image phases; needs the user to CONFIRM
     docker-compose.deploy.yml is the live path). `nginx.conf` gained comment markers
     only.
+- **UX Wave 2A shipped** (2026-07-10, branch `ux-waves-2`; 2 parallel worktree streams,
+  merged conflict-free; gates 10/10-unit + curl-matrix + 33/33 PASS, merged smoke green,
+  zero console errors): **reach & route planning.**
+  - **Per-route OG previews BUILT** (`ffaa5f1`, from the Wave-C spike):
+    `supabase/functions/og-render/` (pure `og.ts` — parsePath for all 5 public route
+    shapes incl. `/museum/*` mapping, buildOgHtml fully escaped; `index.ts` anon-key
+    PostgREST reads so RLS mirrors app visibility; not-found → generic card 200;
+    `Cache-Control: public, max-age=600`); `nginx.conf` bot-UA `map` (13 crawlers) +
+    `location ~ ^/(show|vendor|collector|museum)/` returning bots a 302 to the function
+    (redirect-over-proxy tradeoff documented) — validated with `nginx -t` in
+    nginx:alpine + a functional curl matrix; four 1200×630 museum-branded
+    `public/og-*.png` (~40 kB each, PNG-8). ⚠ NOT deployed: runbook in
+    `docs/og-previews-spike.md` (deploy function `--no-verify-jwt`, rebuild the
+    container, curl verification); the CONFIRM-deploy-path box still gates it.
+  - **Show-page booth markers + walk counters** (`f7913b7`): assigned-booth gold dots
+    overlaid on ShowDetail's plan preview (rect centers as % of imgW/H — rects already
+    carry vendorId in the walk meta), starred vendors glow 13px, hover/tap name labels
+    (tap sets, tap-elsewhere dismisses — a real touch bug found+fixed), legend line;
+    `migration 0007_visit_counts.sql` (RLS'd counter table, security-definer
+    `record_walk`, grants anon+authenticated, **also enables pg_graphql**) +
+    `lib/visitService.ts`. ⚠ Design constraint discovered: a pre-migration RPC 404
+    cannot be console-silenced in Chromium (same family as the storage-400 gotcha), so
+    visitService feature-detects readiness via ONE GraphQL probe (`/graphql/v1` answers
+    200 even with pg_graphql disabled), latches into localStorage, and only then issues
+    REST — pre-migration there is literally no visit_counts traffic and zero console
+    errors; applying 0007 lights the feature up with no rebuild. Day-deduped per
+    browser (`vendor-museum:walked:<kind>:<id>:<date>`); records on public show walks +
+    Vendor/CollectorMuseum mounts; never in /demo or sandbox. "◈ N walks" on ShowDetail,
+    "N museum walks" on Vendor/CollectorPage (hidden until count ≥ 1). Privacy page
+    updated honestly (plain anonymous tally, no identifiers).
+    **⚠ Apply 0007 to the live project to activate counters** (+ 2-min live check of
+    the GraphQL probe's default naming afterwards).
 - **UX Wave 2B shipped** (2026-07-10, branch `ux-waves-2`; 2 parallel worktree streams,
   merged conflict-free; gates 47/47 + 23/23 PASS, merged smoke green, zero console
   errors): **organizer power tools.**

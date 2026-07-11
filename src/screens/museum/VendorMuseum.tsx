@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import { useAuth } from '../../lib/auth';
 import { isWanted, toggleWant } from '../../lib/interestService';
+import { recordWalk } from '../../lib/visitService';
 import type { CardWithUrl } from '../../lib/useCards';
 import type { InspectSale } from '../../components/InspectOverlay';
 
@@ -149,6 +150,9 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
         });
         idByUrl.set(item.imageUrl, item.id);
       }
+      // Anonymous walk counter — the public vendor museum actually opens
+      // (never the sandbox/own museum). Fire-and-forget, day-deduped.
+      recordWalk('vendor', vendorId);
       setState({ status: 'ready', cards, captions, sales, idByUrl });
     })();
     return () => {

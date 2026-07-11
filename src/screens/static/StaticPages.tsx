@@ -93,7 +93,10 @@ export function PrivacyPage() {
         <h2 style={headingStyle}>WHAT ISN'T HERE</h2>
         <p style={bodyStyle}>
           No analytics, no trackers, no advertising pixels, no selling of
-          data — the site doesn't even know how many visitors it has.
+          data. The one thing counted is walks: public shows and museums keep
+          a plain tally that goes up by one when somebody walks through — a
+          number, nothing more. No identifiers, no cookies, nothing that
+          knows who you are or follows you around.
         </p>
         <p style={bodyStyle}>
           Want your account or images removed? Write to{' '}

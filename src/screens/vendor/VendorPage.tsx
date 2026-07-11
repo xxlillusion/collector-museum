@@ -4,6 +4,7 @@ import PageShell from '../PageShell';
 import ShareButton from '../../components/ShareButton';
 import { useAuth } from '../../lib/auth';
 import { isWanted, toggleWant } from '../../lib/interestService';
+import { fetchWalks } from '../../lib/visitService';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import type { PublicVendorProfile } from '../../lib/publicVendors';
@@ -58,6 +59,9 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
     setWantVersion((v) => v + 1);
   };
 
+  // Anonymous walk counter (0007) — null on any failure hides the line.
+  const [walks, setWalks] = useState<number | null>(null);
+
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let cancelled = false;
@@ -65,6 +69,10 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
     getPublicVendorProfile(vendorId).then((profile) => {
       if (cancelled) return;
       setState(profile ? { status: 'ready', profile } : { status: 'notFound' });
+    });
+    setWalks(null);
+    fetchWalks('vendor', vendorId).then((n) => {
+      if (!cancelled) setWalks(n);
     });
     return () => {
       cancelled = true;
@@ -256,6 +264,11 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
             >
               WALK THE MUSEUM →
             </Link>
+            {walks !== null && walks >= 1 && (
+              <p style={{ ...noteStyle, fontSize: 12.5, margin: '-14px 0 26px' }}>
+                {walks} museum walk{walks === 1 ? '' : 's'}
+              </p>
+            )}
             <div
               style={{
                 display: 'grid',

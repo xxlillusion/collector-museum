@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import { cardDetailsLine, hasCardMeta } from '../../lib/cardMeta';
 import { orderForWalls } from '../../lib/wallOrder';
+import { recordWalk } from '../../lib/visitService';
 import type { CardWithUrl } from '../../lib/useCards';
 
 // Walk a collector's public collection in the 3D museum
@@ -132,6 +133,9 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
         const line = cardDetailsLine(item.meta);
         if (line) details.set(item.imageUrl, line);
       }
+      // Anonymous walk counter — the public collector museum actually opens
+      // (never the sandbox/own museum). Fire-and-forget, day-deduped.
+      recordWalk('collector', profileId);
       setState({ status: 'ready', cards, wallCards: orderForWalls(cards), captions, details });
     })();
     return () => {

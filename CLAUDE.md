@@ -772,10 +772,68 @@ parallel streams, additive-only changes since — never reshape existing signatu
     enforces visibility; static → dynamic og:image phases; needs the user to CONFIRM
     docker-compose.deploy.yml is the live path). `nginx.conf` gained comment markers
     only.
-- Candidate next steps (discussed, not built): editor undo / zoom / multi-select;
-  export/import saved plans as files; booth labels on tables; walk-in entrance/doors on
-  the hall; bundle code-splitting (~1.4MB); card metadata in inspect view; deploy setup
-  (any static host).
+- **UX Wave 2A shipped** (2026-07-10, branch `ux-waves-2`; 2 parallel worktree streams,
+  merged conflict-free; gates 10/10-unit + curl-matrix + 33/33 PASS, merged smoke green,
+  zero console errors): **reach & route planning.**
+  - **Per-route OG previews BUILT** (`ffaa5f1`, from the Wave-C spike):
+    `supabase/functions/og-render/` (pure `og.ts` — parsePath for all 5 public route
+    shapes incl. `/museum/*` mapping, buildOgHtml fully escaped; `index.ts` anon-key
+    PostgREST reads so RLS mirrors app visibility; not-found → generic card 200;
+    `Cache-Control: public, max-age=600`); `nginx.conf` bot-UA `map` (13 crawlers) +
+    `location ~ ^/(show|vendor|collector|museum)/` returning bots a 302 to the function
+    (redirect-over-proxy tradeoff documented) — validated with `nginx -t` in
+    nginx:alpine + a functional curl matrix; four 1200×630 museum-branded
+    `public/og-*.png` (~40 kB each, PNG-8). ⚠ NOT deployed: runbook in
+    `docs/og-previews-spike.md` (deploy function `--no-verify-jwt`, rebuild the
+    container, curl verification); the CONFIRM-deploy-path box still gates it.
+  - **Show-page booth markers + walk counters** (`f7913b7`): assigned-booth gold dots
+    overlaid on ShowDetail's plan preview (rect centers as % of imgW/H — rects already
+    carry vendorId in the walk meta), starred vendors glow 13px, hover/tap name labels
+    (tap sets, tap-elsewhere dismisses — a real touch bug found+fixed), legend line;
+    `migration 0007_visit_counts.sql` (RLS'd counter table, security-definer
+    `record_walk`, grants anon+authenticated, **also enables pg_graphql**) +
+    `lib/visitService.ts`. ⚠ Design constraint discovered: a pre-migration RPC 404
+    cannot be console-silenced in Chromium (same family as the storage-400 gotcha), so
+    visitService feature-detects readiness via ONE GraphQL probe (`/graphql/v1` answers
+    200 even with pg_graphql disabled), latches into localStorage, and only then issues
+    REST — pre-migration there is literally no visit_counts traffic and zero console
+    errors; applying 0007 lights the feature up with no rebuild. Day-deduped per
+    browser (`vendor-museum:walked:<kind>:<id>:<date>`); records on public show walks +
+    Vendor/CollectorMuseum mounts; never in /demo or sandbox. "◈ N walks" on ShowDetail,
+    "N museum walks" on Vendor/CollectorPage (hidden until count ≥ 1). Privacy page
+    updated honestly (plain anonymous tally, no identifiers).
+    **⚠ Apply 0007 to the live project to activate counters** (+ 2-min live check of
+    the GraphQL probe's default naming afterwards).
+- **UX Wave 2B shipped** (2026-07-10, branch `ux-waves-2`; 2 parallel worktree streams,
+  merged conflict-free; gates 47/47 + 23/23 PASS, merged smoke green, zero console
+  errors): **organizer power tools.**
+  - **PlanEditor zoom/pan/undo/multi-select** (`0b2e582`): cursor-centered wheel zoom
+    0.5×–6× + ⊖ ⊕ ⤢ toolbar (reset shows current %), pan = Space-drag or middle-drag
+    (clamped), all via one CSS transform on a stage wrapper holding img+svg together —
+    every pointer handler converts through `getBoundingClientRect` ratios so gestures
+    are zoom-correct. Undo/redo: 50-cap rects-snapshot history committed at gesture end
+    (no-op guard; vendor assign/unassign undoable via prop-identity detection;
+    calibration/start are rects-external → not undoable; Re-detect/Replace reset
+    history), Ctrl+Z / Ctrl+Y(+Shift+Z) + ↶ ↷, emits through the normal onChange so the
+    parent debounce stays the single write path. Multi-select: shift-click + marquee
+    (plain drag on empty space), primary = last-selected feeds the assign panel
+    unchanged, group move (shared clamped delta), `✕N`/Backspace group delete, Esc
+    clears. Drive-by fix: keyboard handlers skip editable targets (Backspace in the
+    vendor-name input used to delete the selected box). Touch pinch deliberately
+    skipped (single-pointer drag model).
+  - **Saved-plan export/import** (`1106ea4`, sandbox host only — deliberately, since
+    remote `savePlanRecord` → `upsertCloudPlan` would mint stray cloud shows):
+    `lib/planFile.ts` portable envelope `{format:'vendor-museum-plan', version:1, name,
+    showDate?, exportedAt, meta, planImage(dataURL)}` with strict validation +
+    human-readable errors; `useSavedPlans.exportPlan/importPlanFile` (fresh id,
+    `banners: []`, name deduped " (2)"…) + a module-level refresh bus so all mounted
+    hook instances see mutations (App's props-driven list stays live without touching
+    App.tsx); VendorSetupScreen per-row "⬇ Export" + "⬆ Import a plan file…" (SAVED
+    PLANS section now always renders so a fresh browser can import first).
+    `rects[].vendorId` rides the file; cross-registry imports render those unassigned
+    (documented behavior). Typical export ≈ 262 kB.
+- Candidate next steps (discussed, not built): booth labels on tables;
+  bundle code-splitting (~1.4MB); deploy setup (any static host).
 - Museum-side known gaps: east/west walls unused by card layout (overflow silently
   dropped); pre-downscale images in old IndexedDBs stay full-res until re-uploaded.
 

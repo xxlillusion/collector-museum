@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { isTouchDevice } from './GalleryControls';
+import { useTheme, withAlpha } from './themeKit';
 
 interface HUDProps {
   locked: boolean;
@@ -17,21 +18,6 @@ interface HUDProps {
   onDirectory?: () => void;
 }
 
-const pillStyle: CSSProperties = {
-  position: 'absolute',
-  left: '50%',
-  transform: 'translateX(-50%)',
-  background: 'rgba(0,0,0,0.65)',
-  color: 'white',
-  padding: '8px 16px',
-  borderRadius: '8px',
-  fontSize: '13px',
-  maxWidth: '90vw',
-  boxSizing: 'border-box',
-  textAlign: 'center',
-  border: '1px solid rgba(255,255,255,0.2)',
-};
-
 export default function HUD({
   locked,
   onUpload,
@@ -41,6 +27,27 @@ export default function HUD({
   uploadLabel = '⬆ Manage Cards',
   onDirectory,
 }: HUDProps) {
+  const t = useTheme();
+  // 'refined' keeps the legacy literals below pixel-identical (the HUD was
+  // never museumKit-styled — plain black/white pills are its refined look).
+  const themed = t.id !== 'refined';
+  const pillStyle: CSSProperties = {
+    position: 'absolute',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: themed ? withAlpha(t.bg, 0.85) : 'rgba(0,0,0,0.65)',
+    color: themed ? t.text : 'white',
+    padding: '8px 16px',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontFamily: themed ? t.fontMono : undefined,
+    maxWidth: '90vw',
+    boxSizing: 'border-box',
+    textAlign: 'center',
+    border: themed
+      ? `${t.borderWidth}px solid ${t.border}`
+      : '1px solid rgba(255,255,255,0.2)',
+  };
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10, fontFamily: 'sans-serif' }}>
       {/* Controls prompt — no hints while an inspect overlay covers the scene.
@@ -53,11 +60,13 @@ export default function HUD({
           </div>
         )
       ) : binderOpen ? (
-        <div style={{ ...pillStyle, bottom: '40px', fontSize: '14px', padding: '10px 22px' }}>
+        // bottom 56 (was 40): the floating theme-switcher bar docks at bottom
+        // center (bottom 10, ~30px tall) — keep the hint pills clear of it.
+        <div style={{ ...pillStyle, bottom: '56px', fontSize: '14px', padding: '10px 22px' }}>
           ← → flip pages &nbsp;·&nbsp; Click a card to inspect &nbsp;·&nbsp; F or Esc to close
         </div>
       ) : !locked && (
-        <div style={{ ...pillStyle, bottom: '40px', fontSize: '15px', letterSpacing: '0.03em', padding: '10px 22px' }}>
+        <div style={{ ...pillStyle, bottom: '56px', fontSize: '15px', letterSpacing: '0.03em', padding: '10px 22px' }}>
           Click to explore &nbsp;·&nbsp; WASD to move &nbsp;·&nbsp; Mouse to look &nbsp;·&nbsp; Esc to unlock
           {onDirectory && <> &nbsp;·&nbsp; M for vendors</>}
         </div>
@@ -70,12 +79,15 @@ export default function HUD({
           top: '58%',
           left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(0,0,0,0.7)',
-          color: 'white',
+          background: themed ? withAlpha(t.bg, 0.85) : 'rgba(0,0,0,0.7)',
+          color: themed ? t.text : 'white',
           padding: '8px 18px',
           borderRadius: '8px',
           fontSize: '14px',
-          border: '1px solid rgba(255,255,255,0.25)',
+          fontFamily: themed ? t.fontMono : undefined,
+          border: themed
+            ? `${t.borderWidth}px solid ${t.border}`
+            : '1px solid rgba(255,255,255,0.25)',
           maxWidth: '90vw',
           boxSizing: 'border-box',
           textAlign: 'center',

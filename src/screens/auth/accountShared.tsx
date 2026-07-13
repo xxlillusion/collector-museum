@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
-import { TEXT, MUTED, ERROR } from '../../components/museumKit';
+import { useTheme } from '../../components/themeKit';
+import type { Theme } from '../../components/themeKit';
 
 // Small helpers shared by AccountScreen's tabs (profile sections and
 // MyStoresTab) — kept out of both files so neither imports the other.
@@ -11,12 +12,13 @@ export function errMsg(err: unknown): string {
 }
 
 export function StatusLine({ status, error }: { status: SaveStatus; error?: string | null }) {
+  const t = useTheme();
   return (
     <p
       style={{
         margin: '6px 0 0',
         fontSize: 12,
-        color: status === 'error' ? ERROR : MUTED,
+        color: status === 'error' ? t.error : t.muted,
         minHeight: 15,
       }}
     >
@@ -27,11 +29,11 @@ export function StatusLine({ status, error }: { status: SaveStatus; error?: stri
   );
 }
 
-export const checkLabelStyle: CSSProperties = {
+export const checkLabelStyle = (t: Theme): CSSProperties => ({
   display: 'flex',
   alignItems: 'baseline',
   gap: 12,
   fontSize: 15,
-  color: TEXT,
+  color: t.text,
   cursor: 'pointer',
-};
+});

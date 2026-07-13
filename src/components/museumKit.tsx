@@ -1,6 +1,13 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 /**
+ * ⚠ DEPRECATED (2026-07-12, theme beta): superseded by themeKit.tsx, which
+ * embeds these exact values as the 'refined' theme and adds the runtime-
+ * switchable 'night' / 'lobby' themes from the design review. Nothing imports
+ * this file anymore — new code uses `useTheme()` from themeKit. Kept only as
+ * the canonical record of the original constants while the beta runs; delete
+ * once a theme wins.
+ *
  * The "Museum Refined" design language, extracted from HomeScreen so every
  * DOM page (auth, shows, organizer, vendor directory, sandbox) shares one
  * aesthetic. Import from here — never re-declare these colors per screen.

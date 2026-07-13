@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ghostButtonStyle } from './museumKit';
+import { useTheme } from './themeKit';
 
 // Copy-link / native-share button for public pages (show, vendor, collector).
 // Touch devices get the native share sheet; desktop copies to the clipboard
@@ -18,6 +18,7 @@ export default function ShareButton({
   /** Defaults to the current page URL. */
   url?: string;
 }) {
+  const t = useTheme();
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | null>(null);
   useEffect(() => () => {
@@ -49,7 +50,7 @@ export default function ShareButton({
   return (
     <button
       onClick={handleShare}
-      style={{ ...ghostButtonStyle, padding: '8px 18px', fontSize: 11.5 }}
+      style={{ ...t.ghostButton, padding: '8px 18px', fontSize: 11.5 }}
     >
       {copied ? 'LINK COPIED ✓' : '⎘ SHARE'}
     </button>

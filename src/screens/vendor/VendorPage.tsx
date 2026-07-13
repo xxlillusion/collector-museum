@@ -10,25 +10,15 @@ import { getPublicVendorProfile } from '../../lib/publicVendors';
 import type { PublicVendorProfile } from '../../lib/publicVendors';
 import { formatLocation } from '../../lib/locations';
 import { formatPrice } from '../../lib/price';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF,
-  Section, primaryButtonStyle, noteStyle,
-} from '../../components/museumKit';
-
-const contactLinkStyle: React.CSSProperties = {
-  fontFamily: SERIF,
-  fontSize: 12.5,
-  letterSpacing: '0.14em',
-  color: GOLD,
-  textDecoration: 'none',
-};
+import { Section, useTheme, withAlpha } from '../../components/themeKit';
 
 // Public vendor profile page (/vendor/:id) — owned by the vendor-portal
 // workstream (Stream B). Anon-safe: reads via lib/publicVendors.ts (direct
 // Supabase queries, CDN image URLs), no auth or provider required.
 
 function Note({ children }: { children: string }) {
-  return <p style={{ ...noteStyle, fontSize: 16 }}>{children}</p>;
+  const t = useTheme();
+  return <p style={{ ...t.note, fontSize: 16 }}>{children}</p>;
 }
 
 function formatShowDate(iso: string): string {
@@ -50,6 +40,14 @@ type LoadState =
 export default function VendorPage({ vendorId }: { vendorId: string }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const { session } = useAuth();
+  const t = useTheme();
+  const contactLinkStyle: React.CSSProperties = {
+    fontFamily: t.fontMono,
+    fontSize: 12.5,
+    letterSpacing: '0.14em',
+    color: t.accent,
+    textDecoration: 'none',
+  };
   // Want-list hearts (local-first; cloud row when signed in). Version bump
   // just re-renders — isWanted() reads localStorage directly.
   const [, setWantVersion] = useState(0);
@@ -109,9 +107,9 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
           <Link
             href="/"
             style={{
-              color: GOLD,
+              color: t.accent,
               textDecoration: 'none',
-              fontFamily: SERIF,
+              fontFamily: t.fontMono,
               fontSize: 12.5,
               letterSpacing: '0.18em',
             }}
@@ -139,22 +137,22 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
       {isOwner && (
         <div
           style={{
-            border: `1px solid ${HAIRLINE}`,
+            border: `${t.borderWidth}px solid ${t.border}`,
             borderRadius: 2,
-            background: PANEL,
+            background: t.panel,
             padding: '9px 16px',
             margin: '-10px 0 26px',
             textAlign: 'center',
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             fontSize: 13,
-            color: MUTED,
+            color: t.muted,
           }}
         >
           This is your store —{' '}
           <Link
             href="/account?tab=stores"
             style={{
-              color: GOLD,
+              color: t.accent,
               textDecoration: 'none',
               letterSpacing: '0.12em',
             }}
@@ -168,9 +166,9 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
           {location && (
             <div
               style={{
-                fontFamily: SERIF,
+                fontFamily: t.fontMono,
                 fontSize: 14.5,
-                color: MUTED,
+                color: t.muted,
                 letterSpacing: '0.08em',
               }}
             >
@@ -178,7 +176,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
             </div>
           )}
           {areaServed && (
-            <div style={{ ...noteStyle, fontSize: 13.5, marginTop: 5 }}>
+            <div style={{ ...t.note, fontSize: 13.5, marginTop: 5 }}>
               Serves: {areaServed}
             </div>
           )}
@@ -226,10 +224,10 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
       {profile.bannerUrl && (
         <div
           style={{
-            border: `1px solid ${HAIRLINE}`,
+            border: `${t.borderWidth}px solid ${t.border}`,
             borderRadius: 2,
             padding: 8,
-            background: PANEL,
+            background: t.panel,
             marginBottom: 36,
           }}
         >
@@ -256,7 +254,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
             <Link
               href={`/museum/vendor/${profile.id}`}
               style={{
-                ...primaryButtonStyle,
+                ...t.primaryButton,
                 display: 'inline-block',
                 textDecoration: 'none',
                 marginBottom: 26,
@@ -265,7 +263,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
               WALK THE MUSEUM →
             </Link>
             {walks !== null && walks >= 1 && (
-              <p style={{ ...noteStyle, fontSize: 12.5, margin: '-14px 0 26px' }}>
+              <p style={{ ...t.note, fontSize: 12.5, margin: '-14px 0 26px' }}>
                 {walks} museum walk{walks === 1 ? '' : 's'}
               </p>
             )}
@@ -288,8 +286,8 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                       right: 8,
                       zIndex: 1,
                       background: 'rgba(0,0,0,0.65)',
-                      color: isWanted(item.id) ? GOLD : 'rgba(255,255,255,0.75)',
-                      border: `1px solid ${isWanted(item.id) ? GOLD : 'rgba(255,255,255,0.3)'}`,
+                      color: isWanted(item.id) ? t.accent : 'rgba(255,255,255,0.75)',
+                      border: `${t.borderWidth}px solid ${isWanted(item.id) ? t.accent : 'rgba(255,255,255,0.3)'}`,
                       borderRadius: '50%',
                       width: 30,
                       height: 30,
@@ -311,26 +309,26 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                       aspectRatio: String(item.aspect),
                       objectFit: 'cover',
                       display: 'block',
-                      borderRadius: 2,
-                      border: '3px solid #3a2f1e',
-                      outline: `1px solid ${HAIRLINE}`,
-                      outlineOffset: 3,
-                      boxSizing: 'border-box',
-                      background: '#0d0b0a',
+                      background: t.surface,
+                      ...t.cardFrame,
                     }}
                   />
                   {(item.caption || item.price !== undefined || item.status !== 'forSale') && (
                     <figcaption
                       style={{
                         marginTop: 10,
-                        fontFamily: SERIF,
+                        fontFamily: t.fontMono,
                         fontSize: 12.5,
                         lineHeight: 1.5,
-                        color: MUTED,
+                        color: t.muted,
                         textAlign: 'center',
                       }}
                     >
-                      {item.caption && <span style={{ fontStyle: 'italic' }}>{item.caption}</span>}
+                      {item.caption && (
+                        <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}>
+                          {item.caption}
+                        </span>
+                      )}
                       {(item.price !== undefined || item.condition || item.status !== 'forSale') && (
                         <span
                           style={{
@@ -342,7 +340,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                           {item.price !== undefined && (
                             <span
                               style={{
-                                color: item.status === 'sold' ? MUTED : GOLD,
+                                color: item.status === 'sold' ? t.muted : t.accent,
                                 textDecoration: item.status === 'sold' ? 'line-through' : 'none',
                               }}
                             >
@@ -353,14 +351,32 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                             <span>{item.price !== undefined ? ' · ' : ''}{item.condition}</span>
                           )}
                           {item.status === 'sold' && (
-                            <span style={{ color: '#b0685c', letterSpacing: '0.2em' }}>
-                              {item.price !== undefined || item.condition ? ' · ' : ''}SOLD
-                            </span>
+                            <>
+                              {(item.price !== undefined || item.condition) && (
+                                <span style={{ color: t.id === 'refined' ? '#b0685c' : t.muted, letterSpacing: '0.2em' }}> · </span>
+                              )}
+                              <span
+                                style={t.id === 'refined'
+                                  ? { color: '#b0685c', letterSpacing: '0.2em' }
+                                  : t.chip}
+                              >
+                                SOLD
+                              </span>
+                            </>
                           )}
                           {item.status === 'display' && (
-                            <span style={{ fontStyle: 'italic' }}>
-                              {item.price !== undefined || item.condition ? ' · ' : ''}Display only
-                            </span>
+                            <>
+                              {(item.price !== undefined || item.condition) && (
+                                <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}> · </span>
+                              )}
+                              <span
+                                style={t.id === 'refined'
+                                  ? { fontStyle: 'italic' }
+                                  : { ...t.chip, background: 'transparent', color: t.muted, border: `1px solid ${t.border}` }}
+                              >
+                                Display only
+                              </span>
+                            </>
                           )}
                         </span>
                       )}
@@ -388,16 +404,16 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                   alignItems: 'baseline',
                   gap: 16,
                   padding: '13px 10px',
-                  borderBottom: '1px solid rgba(212,175,55,0.12)',
+                  borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
                   textDecoration: 'none',
-                  color: TEXT,
+                  color: t.text,
                 }}
               >
                 <span
                   style={{
-                    fontFamily: SERIF,
+                    fontFamily: t.fontDisplay,
                     fontSize: 16,
-                    color: TEXT,
+                    color: t.text,
                     flex: 1,
                     minWidth: 0,
                     overflow: 'hidden',
@@ -407,15 +423,15 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                 >
                   {show.name}
                 </span>
-                <span style={{ ...noteStyle, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                <span style={{ ...t.note, fontSize: 12.5, whiteSpace: 'nowrap' }}>
                   {formatShowDate(show.date)}
                 </span>
                 <span
                   style={{
-                    fontFamily: SERIF,
+                    fontFamily: t.fontMono,
                     fontSize: 12,
                     letterSpacing: '0.16em',
-                    color: GOLD,
+                    color: t.accent,
                     whiteSpace: 'nowrap',
                   }}
                 >

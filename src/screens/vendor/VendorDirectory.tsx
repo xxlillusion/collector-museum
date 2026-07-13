@@ -7,9 +7,7 @@ import { listRegisteredVendors } from '../../lib/publicVendors';
 import type { RegisteredVendorSummary } from '../../lib/publicVendors';
 import { COUNTRIES, regionOptions, formatLocation } from '../../lib/locations';
 import { filterSelectStyle, filterLabelStyle } from '../shows/ShowDirectory';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF, noteStyle,
-} from '../../components/museumKit';
+import { useTheme } from '../../components/themeKit';
 
 // Public directory of registered vendors (/vendors) — owned by the public
 // browsing workstream (Stream C). Anon-safe: reads via lib/publicVendors.ts.
@@ -17,6 +15,7 @@ export default function VendorDirectory() {
   const [vendors, setVendors] = useState<RegisteredVendorSummary[] | null>(null);
   const [country, setCountry] = useState('');
   const [state, setState] = useState('');
+  const t = useTheme();
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -42,7 +41,7 @@ export default function VendorDirectory() {
   return (
     <PageShell title="Vendor Directory" eyebrow="REGISTERED VENDORS">
       {!isSupabaseConfigured && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>
+        <p style={{ ...t.note, fontSize: 16 }}>
           The vendor directory needs a configured backend — this deployment runs in
           guest-only mode.
         </p>
@@ -60,14 +59,14 @@ export default function VendorDirectory() {
         >
           <SearchBox width={280} />
           <div>
-            <span style={filterLabelStyle}>COUNTRY</span>
+            <span style={filterLabelStyle(t)}>COUNTRY</span>
             <select
               value={country}
               onChange={(e) => {
                 setCountry(e.target.value);
                 setState('');
               }}
-              style={filterSelectStyle}
+              style={filterSelectStyle(t)}
             >
               <option value="">All countries</option>
               {COUNTRIES.map((c) => (
@@ -79,11 +78,11 @@ export default function VendorDirectory() {
           </div>
           {regions.length > 0 && (
             <div>
-              <span style={filterLabelStyle}>{country === 'CA' ? 'PROVINCE' : 'STATE'}</span>
+              <span style={filterLabelStyle(t)}>{country === 'CA' ? 'PROVINCE' : 'STATE'}</span>
               <select
                 value={state}
                 onChange={(e) => setState(e.target.value)}
-                style={filterSelectStyle}
+                style={filterSelectStyle(t)}
               >
                 <option value="">All</option>
                 {regions.map((r) => (
@@ -98,11 +97,11 @@ export default function VendorDirectory() {
       )}
 
       {isSupabaseConfigured && vendors === null && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>Loading vendors…</p>
+        <p style={{ ...t.note, fontSize: 16 }}>Loading vendors…</p>
       )}
 
       {isSupabaseConfigured && vendors !== null && filtered.length === 0 && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>
+        <p style={{ ...t.note, fontSize: 16 }}>
           {filtering
             ? 'No vendors in this area yet — try widening the search.'
             : 'No registered vendors yet.'}
@@ -124,11 +123,11 @@ export default function VendorDirectory() {
                   gap: 20,
                   alignItems: 'center',
                   padding: '16px 18px',
-                  border: `1px solid ${HAIRLINE}`,
+                  border: `${t.borderWidth}px solid ${t.border}`,
                   borderRadius: 4,
-                  background: PANEL,
+                  background: t.panel,
                   textDecoration: 'none',
-                  color: TEXT,
+                  color: t.text,
                 }}
               >
                 <div
@@ -137,8 +136,8 @@ export default function VendorDirectory() {
                     height: 66,
                     flexShrink: 0,
                     borderRadius: 2,
-                    border: `1px solid ${HAIRLINE}`,
-                    background: '#0d0b0a',
+                    border: `${t.borderWidth}px solid ${t.border}`,
+                    background: t.surface,
                     overflow: 'hidden',
                     display: 'flex',
                     alignItems: 'center',
@@ -154,9 +153,9 @@ export default function VendorDirectory() {
                   ) : (
                     <span
                       style={{
-                        fontFamily: SERIF,
+                        fontFamily: t.fontDisplay,
                         fontSize: 24,
-                        color: GOLD,
+                        color: t.accent,
                         opacity: 0.55,
                       }}
                     >
@@ -167,35 +166,43 @@ export default function VendorDirectory() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div
                     style={{
-                      fontFamily: SERIF,
+                      fontFamily: t.fontDisplay,
                       fontSize: 18,
                       letterSpacing: '0.06em',
-                      color: TEXT,
+                      color: t.text,
                       marginBottom: 4,
                     }}
                   >
                     {v.name}
                   </div>
                   {location && (
-                    <div style={{ ...noteStyle, fontSize: 13.5, lineHeight: 1.55 }}>
+                    <div style={{ ...t.note, fontSize: 13.5, lineHeight: 1.55 }}>
                       {location}
                     </div>
                   )}
                   {areaServed && (
-                    <div style={{ ...noteStyle, fontSize: 13, lineHeight: 1.55 }}>
+                    <div style={{ ...t.note, fontSize: 13, lineHeight: 1.55 }}>
                       Serves: {areaServed}
                     </div>
                   )}
-                  <div style={{ fontSize: 11, letterSpacing: '0.14em', color: MUTED, marginTop: 6 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      letterSpacing: '0.14em',
+                      color: t.muted,
+                      marginTop: 6,
+                      fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+                    }}
+                  >
                     {v.inventoryCount} ITEM{v.inventoryCount === 1 ? '' : 'S'}
                   </div>
                 </div>
                 <span
                   style={{
-                    fontFamily: SERIF,
+                    fontFamily: t.fontMono,
                     fontSize: 12,
                     letterSpacing: '0.18em',
-                    color: GOLD,
+                    color: t.accent,
                     whiteSpace: 'nowrap',
                   }}
                 >

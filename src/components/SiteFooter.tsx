@@ -1,5 +1,5 @@
 import { Link } from 'wouter';
-import { HAIRLINE, MUTED, SERIF } from './museumKit';
+import { useTheme } from './themeKit';
 
 /**
  * Site-wide trust links (About · Privacy · Terms · Contact), mounted at the
@@ -7,22 +7,23 @@ import { HAIRLINE, MUTED, SERIF } from './museumKit';
  * screens/static.
  */
 export default function SiteFooter() {
+  const t = useTheme();
   return (
-    <footer style={{ marginTop: 64, paddingTop: 18, borderTop: `1px solid ${HAIRLINE}`, textAlign: 'center' }}>
+    <footer style={{ marginTop: 64, paddingTop: 18, borderTop: `1px solid ${t.border}`, textAlign: 'center' }}>
       <nav
         style={{
           display: 'flex',
           gap: 20,
           justifyContent: 'center',
           flexWrap: 'wrap',
-          fontFamily: SERIF,
+          fontFamily: t.fontMono,
           fontSize: 11,
           letterSpacing: '0.18em',
         }}
       >
         {([['ABOUT', '/about'], ['PRIVACY', '/privacy'], ['TERMS', '/terms'], ['CONTACT', '/contact']] as const).map(
           ([label, href]) => (
-            <Link key={href} href={href} style={{ color: MUTED, textDecoration: 'none' }}>
+            <Link key={href} href={href} style={{ color: t.muted, textDecoration: 'none' }}>
               {label}
             </Link>
           ),
@@ -30,12 +31,11 @@ export default function SiteFooter() {
       </nav>
       <p
         style={{
+          ...t.note,
           margin: '12px 0 0',
-          fontFamily: SERIF,
-          fontStyle: 'italic',
           fontSize: 10.5,
+          lineHeight: undefined,
           letterSpacing: '0.06em',
-          color: MUTED,
           opacity: 0.75,
         }}
       >

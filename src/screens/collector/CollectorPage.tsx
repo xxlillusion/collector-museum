@@ -9,17 +9,15 @@ import { cardDetailsLine, hasCardMeta } from '../../lib/cardMeta';
 import { orderForWalls, hiddenFromWalls } from '../../lib/wallOrder';
 import { fetchWalks } from '../../lib/visitService';
 import { formatLocation } from '../../lib/locations';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, SERIF,
-  Section, primaryButtonStyle, noteStyle,
-} from '../../components/museumKit';
+import { Section, useTheme } from '../../components/themeKit';
 
 // Public collector profile page (/collector/:id) — owned by the public
 // browsing workstream (Stream C). Anon-safe: reads via lib/publicCollectors.ts
 // (direct Supabase queries, CDN image URLs), no auth or provider required.
 
 function Note({ children }: { children: string }) {
-  return <p style={{ ...noteStyle, fontSize: 16 }}>{children}</p>;
+  const t = useTheme();
+  return <p style={{ ...t.note, fontSize: 16 }}>{children}</p>;
 }
 
 type LoadState =
@@ -28,6 +26,7 @@ type LoadState =
   | { status: 'ready'; profile: PublicCollectorProfile };
 
 export default function CollectorPage({ profileId }: { profileId: string }) {
+  const t = useTheme();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   // Anonymous walk counter (0007) — null on any failure hides the line.
   const [walks, setWalks] = useState<number | null>(null);
@@ -76,9 +75,9 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
           <Link
             href="/"
             style={{
-              color: GOLD,
+              color: t.accent,
               textDecoration: 'none',
-              fontFamily: SERIF,
+              fontFamily: t.fontMono,
               fontSize: 12.5,
               letterSpacing: '0.18em',
             }}
@@ -107,9 +106,9 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
           style={{
             margin: '-18px 0 26px',
             textAlign: 'center',
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             fontSize: 14.5,
-            color: MUTED,
+            color: t.muted,
             letterSpacing: '0.08em',
           }}
         >
@@ -120,10 +119,10 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
       {bio && (
         <p
           style={{
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             fontSize: 15.5,
             lineHeight: 1.8,
-            color: TEXT,
+            color: t.text,
             margin: '0 auto 36px',
             maxWidth: 640,
             textAlign: 'center',
@@ -143,7 +142,7 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
             <Link
               href={`/museum/collector/${profile.id}`}
               style={{
-                ...primaryButtonStyle,
+                ...t.primaryButton,
                 display: 'inline-block',
                 textDecoration: 'none',
                 marginBottom: 26,
@@ -152,7 +151,7 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
               WALK THE MUSEUM →
             </Link>
             {walks !== null && walks >= 1 && (
-              <p style={{ ...noteStyle, fontSize: 12.5, margin: '-14px 0 26px' }}>
+              <p style={{ ...t.note, fontSize: 12.5, margin: '-14px 0 26px' }}>
                 {walks} museum walk{walks === 1 ? '' : 's'}
               </p>
             )}
@@ -175,12 +174,8 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
                       aspectRatio: String(item.aspect),
                       objectFit: 'cover',
                       display: 'block',
-                      borderRadius: 2,
-                      border: '3px solid #3a2f1e',
-                      outline: `1px solid ${HAIRLINE}`,
-                      outlineOffset: 3,
-                      boxSizing: 'border-box',
-                      background: '#0d0b0a',
+                      background: t.surface,
+                      ...t.cardFrame,
                     }}
                   />
                   {/* Name only once the owner set placard metadata — same gate
@@ -190,15 +185,17 @@ export default function CollectorPage({ profileId }: { profileId: string }) {
                     <figcaption
                       style={{
                         marginTop: 10,
-                        fontFamily: SERIF,
+                        fontFamily: t.fontMono,
                         fontSize: 12.5,
                         lineHeight: 1.5,
-                        color: MUTED,
+                        color: t.muted,
                         textAlign: 'center',
                       }}
                     >
                       {item.name && hasCardMeta(item.meta) && (
-                        <span style={{ fontStyle: 'italic' }}>{item.name}</span>
+                        <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}>
+                          {item.name}
+                        </span>
                       )}
                       {cardDetailsLine(item.meta) && (
                         <span

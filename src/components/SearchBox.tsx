@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
-import { GOLD, HAIRLINE, MUTED, SERIF, inputStyle } from './museumKit';
+import { useTheme } from './themeKit';
 
 // Museum-styled search entry: submits to /search?q=… (the SearchScreen owns
 // the actual querying). Lives on the landing page and both directories.
@@ -16,6 +16,7 @@ export default function SearchBox({
 }) {
   const [, navigate] = useLocation();
   const [q, setQ] = useState(initialQuery);
+  const t = useTheme();
 
   const submit = () => {
     const trimmed = q.trim();
@@ -42,7 +43,7 @@ export default function SearchBox({
         onKeyDown={(e) => {
           if (e.key === 'Enter') submit();
         }}
-        style={{ ...inputStyle, flex: 1, minWidth: 0, fontFamily: SERIF }}
+        style={{ ...t.input, flex: 1, minWidth: 0 }}
       />
       <button
         onClick={submit}
@@ -50,9 +51,9 @@ export default function SearchBox({
         aria-label="Search"
         style={{
           background: 'transparent',
-          border: `1px solid ${HAIRLINE}`,
+          border: `${t.borderWidth}px solid ${t.border}`,
           borderRadius: 2,
-          color: q.trim() ? GOLD : MUTED,
+          color: q.trim() ? t.accent : t.muted,
           fontSize: 16,
           padding: '0 14px',
           cursor: 'pointer',

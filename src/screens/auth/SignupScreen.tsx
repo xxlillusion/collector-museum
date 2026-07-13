@@ -12,12 +12,9 @@ import {
   authErrorStyle,
   NotConfiguredNote,
 } from './LoginScreen';
-import {
-  GOLD, HAIRLINE, MUTED, TEXT, SERIF, PANEL,
-  panelStyle, noteStyle,
-} from '../../components/museumKit';
+import { useTheme, withAlpha } from '../../components/themeKit';
 
-/** Selectable museum panel — hairline border, gold highlight when chosen. */
+/** Selectable panel — themed border, accent highlight when chosen. */
 function TypeCard({
   selected,
   title,
@@ -29,6 +26,7 @@ function TypeCard({
   blurb: string;
   onSelect: () => void;
 }) {
+  const t = useTheme();
   return (
     <button
       type="button"
@@ -38,12 +36,12 @@ function TypeCard({
       style={{
         flex: 1,
         textAlign: 'left',
-        background: selected ? 'rgba(212,175,55,0.08)' : PANEL,
-        border: `1px solid ${selected ? GOLD : HAIRLINE}`,
+        background: selected ? withAlpha(t.accent, 0.08) : t.panel,
+        border: `${t.borderWidth}px solid ${selected ? t.accent : t.border}`,
         borderRadius: 2,
         padding: '14px 16px',
         cursor: 'pointer',
-        fontFamily: SERIF,
+        fontFamily: t.fontMono,
       }}
     >
       <span
@@ -51,7 +49,7 @@ function TypeCard({
           display: 'block',
           fontSize: 13,
           letterSpacing: '0.18em',
-          color: selected ? GOLD : TEXT,
+          color: selected ? t.accent : t.text,
           marginBottom: 6,
         }}
       >
@@ -62,8 +60,8 @@ function TypeCard({
           display: 'block',
           fontSize: 13,
           lineHeight: 1.55,
-          color: MUTED,
-          fontStyle: 'italic',
+          color: t.muted,
+          fontStyle: t.id === 'refined' ? 'italic' : 'normal',
         }}
       >
         {blurb}
@@ -91,6 +89,11 @@ function getPostSignupDest(): string {
 
 // Owned by the accounts workstream (Stream A).
 export default function SignupScreen() {
+  const t = useTheme();
+  const aLabel = authLabelStyle(t);
+  const aInput = authInputStyle(t);
+  const aButton = authButtonStyle(t);
+  const aError = authErrorStyle(t);
   const { configured, session, signUp } = useAuth();
   const [, navigate] = useLocation();
   const [displayName, setDisplayName] = useState('');
@@ -152,22 +155,29 @@ export default function SignupScreen() {
       ) : submitted && !session ? (
         // Email confirmation is on for this deployment: no session yet.
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <p style={{ fontSize: 17, lineHeight: 1.7, color: TEXT, fontFamily: SERIF }}>
+          <p
+            style={{
+              fontSize: 17,
+              lineHeight: 1.7,
+              color: t.text,
+              fontFamily: t.id === 'refined' ? t.fontDisplay : undefined,
+            }}
+          >
             Almost there — we sent a confirmation link to <strong>{email}</strong>. Follow it,
             then sign in.
           </p>
-          <p style={{ ...noteStyle, fontSize: 14 }}>
-            <Link href="/login" style={{ color: GOLD }}>
+          <p style={{ ...t.note, fontSize: 14 }}>
+            <Link href="/login" style={{ color: t.accent }}>
               Go to sign in →
             </Link>
           </p>
         </div>
       ) : (
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <div style={{ ...panelStyle, marginBottom: 0 }}>
+          <div style={{ ...t.panelStyle, marginBottom: 0 }}>
             <form onSubmit={onSubmit}>
               <div style={{ marginBottom: 18 }}>
-                <label htmlFor="signup-display-name" style={authLabelStyle}>
+                <label htmlFor="signup-display-name" style={aLabel}>
                   DISPLAY NAME
                 </label>
                 <input
@@ -178,11 +188,11 @@ export default function SignupScreen() {
                   placeholder="How you appear across the museum"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <div style={{ marginBottom: 18 }}>
-                <span style={authLabelStyle}>I AM A…</span>
+                <span style={aLabel}>I AM A…</span>
                 <div style={{ display: 'flex', gap: 12 }}>
                   <TypeCard
                     selected={accountType === 'collector'}
@@ -199,7 +209,7 @@ export default function SignupScreen() {
                 </div>
               </div>
               <div style={{ marginBottom: 18 }}>
-                <label htmlFor="signup-email" style={authLabelStyle}>
+                <label htmlFor="signup-email" style={aLabel}>
                   EMAIL
                 </label>
                 <input
@@ -209,11 +219,11 @@ export default function SignupScreen() {
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <div style={{ marginBottom: 24 }}>
-                <label htmlFor="signup-password" style={authLabelStyle}>
+                <label htmlFor="signup-password" style={aLabel}>
                   PASSWORD
                 </label>
                 <input
@@ -224,31 +234,30 @@ export default function SignupScreen() {
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <button
                 type="submit"
                 disabled={busy}
-                style={{ ...authButtonStyle, width: '100%', opacity: busy ? 0.6 : 1 }}
+                style={{ ...aButton, width: '100%', opacity: busy ? 0.6 : 1 }}
               >
                 {busy ? 'CREATING…' : 'CREATE ACCOUNT →'}
               </button>
-              {error && <p style={authErrorStyle}>{error}</p>}
+              {error && <p style={aError}>{error}</p>}
             </form>
           </div>
           <p
             style={{
+              ...t.note,
+              lineHeight: undefined,
               marginTop: 26,
               fontSize: 14,
-              color: MUTED,
-              fontFamily: SERIF,
-              fontStyle: 'italic',
               textAlign: 'center',
             }}
           >
             Already have an account?{' '}
-            <Link href="/login" style={{ color: GOLD }}>
+            <Link href="/login" style={{ color: t.accent }}>
               Sign in →
             </Link>
           </p>

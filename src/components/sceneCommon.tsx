@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { useProgress } from '@react-three/drei';
+import { useTheme } from './themeKit';
 
 // Helpers shared by Scene (museum) and VendorScene (convention hall).
 
@@ -25,9 +26,15 @@ export function ShadowRefresh({ trigger }: { trigger: unknown }) {
   return null;
 }
 
-/** DOM overlay shown while textures stream in (useProgress is a global store). */
+/** DOM overlay shown while textures stream in (useProgress is a global store).
+ *  Rendered OUTSIDE the Canvas by both scenes, so useTheme() is safe here —
+ *  ShadowRefresh above runs inside the Canvas and must stay theme-free. */
 export function LoadingOverlay({ label = 'LIGHTING THE GALLERY…' }: { label?: string }) {
   const { active, progress } = useProgress();
+  const t = useTheme();
+  // 'refined' keeps the legacy literals pixel-identical (accent already
+  // equals the old gold; bg/muted differ, so they branch).
+  const themed = t.id !== 'refined';
   if (!active) return null;
   return (
     <div style={{
@@ -37,15 +44,15 @@ export function LoadingOverlay({ label = 'LIGHTING THE GALLERY…' }: { label?: 
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      background: '#0d0b0a',
-      color: '#d4af37',
-      fontFamily: 'Georgia, serif',
+      background: themed ? t.bg : '#0d0b0a',
+      color: t.accent,
+      fontFamily: t.fontMono,
       letterSpacing: '0.1em',
       zIndex: 50,
       gap: '12px',
     }}>
       <div style={{ fontSize: '15px' }}>{label}</div>
-      <div style={{ fontSize: '12px', color: '#8a7a55' }}>{Math.round(progress)}%</div>
+      <div style={{ fontSize: '12px', color: themed ? t.muted : '#8a7a55' }}>{Math.round(progress)}%</div>
     </div>
   );
 }

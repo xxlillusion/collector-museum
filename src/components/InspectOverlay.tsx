@@ -2,11 +2,12 @@ import { useEffect } from 'react';
 import type { CSSProperties } from 'react';
 import type { InventoryStatus } from '../lib/db';
 import { formatPrice } from '../lib/price';
+import { useTheme, withAlpha } from './themeKit';
 
-// Museum-refined accents (matches museumKit's palette — kept as local consts
-// so the 3D chunk stays self-contained, same idiom as the rest of this file).
-const GOLD = '#d4af37';
-const SERIF = "Georgia, 'Times New Roman', serif";
+// Styling: under 'refined' every value below renders pixel-identical to the
+// pre-theme overlay — gold literals became t.accent (same hex) and the serif
+// became t.fontMono (refined's mono IS the serif); values that differ from
+// refined tokens branch on `themed` and keep the legacy literal.
 
 /** Sale metadata shown on the placard under an inventory item (0005). */
 export interface InspectSale {
@@ -38,6 +39,9 @@ interface InspectOverlayProps {
 }
 
 export default function InspectOverlay({ imageUrl, caption, details, sale, want, nav, vendor, onAddDetails, onClose }: InspectOverlayProps) {
+  const t = useTheme();
+  const themed = t.id !== 'refined';
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.code === 'Escape') onClose(false);
@@ -75,6 +79,57 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
 
   const showSale =
     sale && (sale.price !== undefined || sale.condition || (sale.status && sale.status !== 'forSale'));
+
+  // Accent-on-dark hairline circles — vertically centered beside the card
+  // (fixed) on wide viewports; the inline pair lives in the placard.
+  const navBtnBase: CSSProperties = {
+    background: 'rgba(10,8,6,0.6)',
+    color: t.accent,
+    border: themed
+      ? `${t.borderWidth}px solid ${t.border}`
+      : '1px solid rgba(212,175,55,0.45)',
+    borderRadius: '50%',
+    fontFamily: t.fontMono,
+    textAlign: 'center',
+    padding: 0,
+    cursor: 'pointer',
+    userSelect: 'none',
+  };
+
+  const sideNavStyle: CSSProperties = {
+    ...navBtnBase,
+    position: 'fixed',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    width: '46px',
+    height: '46px',
+    fontSize: '26px',
+    lineHeight: '42px',
+    zIndex: 2,
+  };
+
+  const inlineNavStyle: CSSProperties = {
+    ...navBtnBase,
+    width: '36px',
+    height: '36px',
+    fontSize: '20px',
+    lineHeight: '32px',
+  };
+
+  /** Ghost pill (want heart / add details) — dark, hairline, small-caps. */
+  const ghostPillStyle: CSSProperties = {
+    background: 'rgba(10,8,6,0.55)',
+    color: 'rgba(255,255,255,0.78)',
+    border: themed
+      ? `${t.borderWidth}px solid ${t.border}`
+      : '1px solid rgba(255,255,255,0.28)',
+    borderRadius: '20px',
+    padding: '8px 20px',
+    fontSize: '12.5px',
+    fontFamily: t.fontMono,
+    letterSpacing: '0.14em',
+    cursor: 'pointer',
+  };
 
   return (
     <div
@@ -162,7 +217,7 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           <div style={{
             color: 'rgba(255,255,255,0.85)',
             fontSize: '16px',
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             fontStyle: 'italic',
             letterSpacing: '0.04em',
             maxWidth: '80vw',
@@ -176,7 +231,7 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           <div style={{
             color: 'rgba(255,255,255,0.6)',
             fontSize: '13.5px',
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             letterSpacing: '0.06em',
             maxWidth: '80vw',
             textAlign: 'center',
@@ -190,13 +245,15 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
             display: 'flex',
             alignItems: 'baseline',
             gap: '14px',
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             letterSpacing: '0.08em',
             userSelect: 'none',
           }}>
             {sale.price !== undefined && (
               <span style={{
-                color: sale.status === 'sold' ? 'rgba(255,255,255,0.4)' : GOLD,
+                color: sale.status === 'sold'
+                  ? (themed ? t.muted : 'rgba(255,255,255,0.4)')
+                  : t.accent,
                 fontSize: '19px',
                 textDecoration: sale.status === 'sold' ? 'line-through' : 'none',
               }}>
@@ -209,7 +266,7 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
               </span>
             )}
             {sale.status === 'sold' && (
-              <span style={{ color: '#c9776b', fontSize: '13px', letterSpacing: '0.24em' }}>
+              <span style={{ color: themed ? t.accent : '#c9776b', fontSize: '13px', letterSpacing: '0.24em' }}>
                 SOLD
               </span>
             )}
@@ -229,7 +286,7 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
               gap: '16px',
               flexWrap: 'wrap',
               justifyContent: 'center',
-              fontFamily: SERIF,
+              fontFamily: t.fontMono,
               userSelect: 'none',
               cursor: 'default',
             }}
@@ -247,11 +304,11 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
                 href={vendor.href}
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  color: GOLD,
+                  color: t.accent,
                   fontSize: '11.5px',
                   letterSpacing: '0.18em',
                   textDecoration: 'none',
-                  borderBottom: '1px solid rgba(212,175,55,0.45)',
+                  borderBottom: `1px solid ${withAlpha(t.accent, 0.45)}`,
                   paddingBottom: '1px',
                   whiteSpace: 'nowrap',
                 }}
@@ -274,9 +331,9 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
                   ...ghostPillStyle,
                   ...(want.wanted
                     ? {
-                        background: 'rgba(212,175,55,0.16)',
-                        color: GOLD,
-                        border: `1px solid ${GOLD}`,
+                        background: withAlpha(t.accent, 0.16),
+                        color: t.accent,
+                        border: `${themed ? t.borderWidth : 1}px solid ${t.accent}`,
                       }
                     : null),
                 }}
@@ -323,7 +380,7 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
             <span style={{
               color: 'rgba(255,255,255,0.6)',
               fontSize: '13px',
-              fontFamily: SERIF,
+              fontFamily: t.fontMono,
               fontVariant: 'small-caps',
               letterSpacing: '0.14em',
             }}>
@@ -345,7 +402,7 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
         <div style={{
           color: 'rgba(255,255,255,0.45)',
           fontSize: '13px',
-          fontFamily: SERIF,
+          fontFamily: t.fontMono,
           letterSpacing: '0.08em',
           userSelect: 'none',
           textAlign: 'center',
@@ -368,60 +425,19 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
         }
         .inspect-nav-btn { transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
         .inspect-nav-btn:hover {
-          color: #f4d97a;
+          ${themed
+            ? `color: ${t.text};
+          border-color: ${t.accent};
+          background: ${withAlpha(t.bg, 0.85)};`
+            : `color: #f4d97a;
           border-color: rgba(212, 175, 55, 0.9);
-          background: rgba(28, 22, 14, 0.85);
+          background: rgba(28, 22, 14, 0.85);`}
         }
         .inspect-pill { transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
-        .inspect-pill:hover { border-color: rgba(212, 175, 55, 0.75); color: #e8e4dc; }
+        .inspect-pill:hover { ${themed
+          ? `border-color: ${withAlpha(t.accent, 0.75)}; color: ${t.text};`
+          : 'border-color: rgba(212, 175, 55, 0.75); color: #e8e4dc;'} }
       `}</style>
     </div>
   );
 }
-
-// Gold-on-dark hairline circles, serif glyphs — vertically centered beside
-// the card (fixed) on wide viewports; the inline pair lives in the placard.
-const navBtnBase: CSSProperties = {
-  background: 'rgba(10,8,6,0.6)',
-  color: GOLD,
-  border: '1px solid rgba(212,175,55,0.45)',
-  borderRadius: '50%',
-  fontFamily: SERIF,
-  textAlign: 'center',
-  padding: 0,
-  cursor: 'pointer',
-  userSelect: 'none',
-};
-
-const sideNavStyle: CSSProperties = {
-  ...navBtnBase,
-  position: 'fixed',
-  top: '50%',
-  transform: 'translateY(-50%)',
-  width: '46px',
-  height: '46px',
-  fontSize: '26px',
-  lineHeight: '42px',
-  zIndex: 2,
-};
-
-const inlineNavStyle: CSSProperties = {
-  ...navBtnBase,
-  width: '36px',
-  height: '36px',
-  fontSize: '20px',
-  lineHeight: '32px',
-};
-
-/** Ghost pill (want heart / add details) — dark, hairline, serif small-caps. */
-const ghostPillStyle: CSSProperties = {
-  background: 'rgba(10,8,6,0.55)',
-  color: 'rgba(255,255,255,0.78)',
-  border: '1px solid rgba(255,255,255,0.28)',
-  borderRadius: '20px',
-  padding: '8px 20px',
-  fontSize: '12.5px',
-  fontFamily: SERIF,
-  letterSpacing: '0.14em',
-  cursor: 'pointer',
-};

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { useTheme, withAlpha } from './themeKit';
 
 // Minimap = two pieces sharing one marker ref, zero React state per frame:
 // a DOM overlay (the plan image + marker div, HUD pattern, outside the
@@ -55,6 +56,12 @@ export function Minimap({
   starredVendorIds,
 }: MinimapProps) {
   const mapH = MAP_W * (mapping.imgH / mapping.imgW);
+  // Theme = colors/borders/filter ONLY — the tracker mechanism, coordinate
+  // math, enlarge logic and pointerEvents behavior are untouched. 'refined'
+  // keeps every legacy literal pixel-identical (boothDot '' → gold fallback).
+  const t = useTheme();
+  const themed = t.id !== 'refined';
+  const dotColor = t.boothDot || '#d4af37';
   // Hovered booth dot → vendor-name label (index into boothMarkers).
   const [hovered, setHovered] = useState<number | null>(null);
   // ⤢ enlarge toggle: scale about the top-right corner so the tracker's
@@ -81,7 +88,9 @@ export function Minimap({
         zIndex: 10,
         borderRadius: '6px',
         overflow: 'hidden',
-        border: '1px solid rgba(255,255,255,0.25)',
+        border: themed
+          ? `${t.borderWidth}px solid ${t.border}`
+          : '1px solid rgba(255,255,255,0.25)',
         boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
         transform: `scale(${scale})`,
         transformOrigin: 'top right',
@@ -92,7 +101,7 @@ export function Minimap({
         src={planUrl}
         alt="Minimap"
         draggable={false}
-        style={{ width: '100%', height: '100%', display: 'block', opacity: 0.75 }}
+        style={{ width: '100%', height: '100%', display: 'block', opacity: 0.75, filter: t.planFilter }}
       />
       {/* Assigned booth dots: highlighted (directory pick) pulses, starred
           (route planning) glows steadily, the rest are small gold points */}
@@ -112,11 +121,14 @@ export function Minimap({
               width: size,
               height: size,
               borderRadius: '50%',
-              background: active || starredDot ? '#ffd75e' : 'rgba(212,175,55,0.85)',
+              background: active || starredDot
+                ? (themed ? dotColor : '#ffd75e')
+                : (themed ? withAlpha(dotColor, 0.85) : 'rgba(212,175,55,0.85)'),
+              // Glow keeps its size ramp in every theme — only the color swaps.
               boxShadow: active
-                ? '0 0 8px 2px rgba(255,215,94,0.9)'
+                ? (themed ? `0 0 8px 2px ${withAlpha(dotColor, 0.9)}` : '0 0 8px 2px rgba(255,215,94,0.9)')
                 : starredDot
-                  ? '0 0 6px 1px rgba(255,215,94,0.75)'
+                  ? (themed ? `0 0 6px 1px ${withAlpha(dotColor, 0.75)}` : '0 0 6px 1px rgba(255,215,94,0.75)')
                   : 'none',
               animation: active ? 'minimapPulse 1.2s ease-in-out infinite' : 'none',
               pointerEvents: 'auto', // hover label; container stays none
@@ -133,10 +145,10 @@ export function Minimap({
             top: Math.max(hoveredMarker.v * mapH - 22, 2),
             transform: 'translateX(-50%)',
             background: 'rgba(8,6,4,0.92)',
-            color: '#e8e4dc',
-            border: '1px solid rgba(212,175,55,0.4)',
+            color: t.text,
+            border: `1px solid ${withAlpha(t.accent, 0.4)}`,
             fontSize: 10,
-            fontFamily: "Georgia, 'Times New Roman', serif",
+            fontFamily: t.fontMono,
             letterSpacing: '0.06em',
             padding: '2px 7px',
             borderRadius: 4,
@@ -159,9 +171,9 @@ export function Minimap({
             top: Math.max(labelAnchor.v * mapH - 20, 2),
             transform: 'translateX(-50%)',
             background: 'rgba(0,0,0,0.8)',
-            color: '#ffd75e',
+            color: themed ? dotColor : '#ffd75e',
             fontSize: 10,
-            fontFamily: "Georgia, 'Times New Roman', serif",
+            fontFamily: t.fontMono,
             letterSpacing: '0.06em',
             padding: '2px 7px',
             borderRadius: 4,

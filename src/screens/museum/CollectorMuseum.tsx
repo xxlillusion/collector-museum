@@ -6,6 +6,7 @@ import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import { cardDetailsLine, hasCardMeta } from '../../lib/cardMeta';
 import { orderForWalls } from '../../lib/wallOrder';
 import { recordWalk } from '../../lib/visitService';
+import { useTheme } from '../../components/themeKit';
 import type { CardWithUrl } from '../../lib/useCards';
 
 // Walk a collector's public collection in the 3D museum
@@ -14,8 +15,6 @@ import type { CardWithUrl } from '../../lib/useCards';
 // Scene stays lazy on purpose: this chunk must remain a few kB — the ~1 MB
 // three.js bundle loads only when the museum actually mounts.
 const Scene = lazy(() => import('../../components/Scene'));
-
-const GOLD = '#d4af37';
 
 type LoadState =
   | { status: 'loading' }
@@ -30,19 +29,22 @@ type LoadState =
       details: Map<string, string>;
     };
 
-/** Fullscreen interstitial shown while blobs download / Scene code loads. */
+/** Fullscreen interstitial shown while blobs download / Scene code loads.
+ *  'refined' keeps the legacy literals pixel-identical; other themes branch. */
 function MuseumLoading({ text }: { text: string }) {
+  const t = useTheme();
+  const themed = t.id !== 'refined';
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
-        background: '#0b0a08',
+        background: themed ? t.bg : '#0b0a08',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#b7ad98',
-        fontFamily: "Georgia, 'Times New Roman', serif",
+        color: themed ? t.muted : '#b7ad98',
+        fontFamily: t.fontMono,
         fontStyle: 'italic',
         fontSize: 18,
         letterSpacing: 1,
@@ -56,6 +58,8 @@ function MuseumLoading({ text }: { text: string }) {
 export default function CollectorMuseum({ profileId }: { profileId: string }) {
   const [, navigate] = useLocation();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const t = useTheme();
+  const themed = t.id !== 'refined';
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -150,13 +154,13 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
   if (state.status === 'unavailable') {
     return (
       <PageShell title="Collector Museum">
-        <p style={{ fontSize: 17, lineHeight: 1.7, color: '#b7ad98', fontStyle: 'italic' }}>
+        <p style={{ fontSize: 17, lineHeight: 1.7, color: themed ? t.muted : '#b7ad98', fontStyle: 'italic' }}>
           {state.note}
         </p>
         <p style={{ marginTop: 24 }}>
           <Link
             href={`/collector/${profileId}`}
-            style={{ color: GOLD, textDecoration: 'none', fontSize: 14, letterSpacing: 1 }}
+            style={{ color: t.accent, textDecoration: 'none', fontSize: 14, letterSpacing: 1 }}
           >
             ← Back to the collector profile
           </Link>

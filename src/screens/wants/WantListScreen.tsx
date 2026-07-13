@@ -6,9 +6,7 @@ import { getWantedItemIds, toggleWant } from '../../lib/interestService';
 import { fetchWantedItems } from '../../lib/publicWants';
 import type { WantedItem } from '../../lib/publicWants';
 import { formatPrice } from '../../lib/price';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, SERIF, noteStyle,
-} from '../../components/museumKit';
+import { useTheme } from '../../components/themeKit';
 
 // /wants — the visitor's want-list. Hearts live in localStorage
 // (lib/interestService.ts), so this page works fully signed-out and in the
@@ -16,10 +14,12 @@ import {
 // resolved anon-safely via lib/publicWants.ts and grouped by vendor.
 
 function Note({ children }: { children: string }) {
-  return <p style={{ ...noteStyle, fontSize: 16 }}>{children}</p>;
+  const t = useTheme();
+  return <p style={{ ...t.note, fontSize: 16 }}>{children}</p>;
 }
 
 export default function WantListScreen() {
+  const t = useTheme();
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<WantedItem[]>([]);
@@ -80,21 +80,21 @@ export default function WantListScreen() {
                 alignItems: 'baseline',
                 gap: 12,
                 textDecoration: 'none',
-                fontFamily: SERIF,
+                fontFamily: t.fontDisplay,
                 fontSize: 17,
                 letterSpacing: '0.1em',
-                color: TEXT,
+                color: t.text,
               }}
             >
               {group.name}
-              <span style={{ fontSize: 11, letterSpacing: '0.18em', color: GOLD, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 11, letterSpacing: '0.18em', color: t.accent, whiteSpace: 'nowrap', fontFamily: t.fontMono }}>
                 VISIT →
               </span>
             </Link>
             <div
               style={{
                 height: 1,
-                background: `linear-gradient(90deg, ${HAIRLINE}, transparent)`,
+                background: `linear-gradient(90deg, ${t.border}, transparent)`,
                 margin: '10px 0 18px',
               }}
             />
@@ -121,8 +121,8 @@ export default function WantListScreen() {
                       right: 8,
                       zIndex: 1,
                       background: 'rgba(0,0,0,0.65)',
-                      color: GOLD,
-                      border: `1px solid ${GOLD}`,
+                      color: t.accent,
+                      border: `${t.borderWidth}px solid ${t.accent}`,
                       borderRadius: '50%',
                       width: 30,
                       height: 30,
@@ -144,26 +144,26 @@ export default function WantListScreen() {
                       aspectRatio: String(item.aspect),
                       objectFit: 'cover',
                       display: 'block',
-                      borderRadius: 2,
-                      border: '3px solid #3a2f1e',
-                      outline: `1px solid ${HAIRLINE}`,
-                      outlineOffset: 3,
-                      boxSizing: 'border-box',
-                      background: '#0d0b0a',
+                      background: t.surface,
+                      ...t.cardFrame,
                     }}
                   />
                   {(item.caption || item.price !== undefined || item.condition || item.status !== 'forSale') && (
                     <figcaption
                       style={{
                         marginTop: 10,
-                        fontFamily: SERIF,
+                        fontFamily: t.fontMono,
                         fontSize: 12.5,
                         lineHeight: 1.5,
-                        color: MUTED,
+                        color: t.muted,
                         textAlign: 'center',
                       }}
                     >
-                      {item.caption && <span style={{ fontStyle: 'italic' }}>{item.caption}</span>}
+                      {item.caption && (
+                        <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}>
+                          {item.caption}
+                        </span>
+                      )}
                       {(item.price !== undefined || item.condition || item.status !== 'forSale') && (
                         <span
                           style={{
@@ -175,7 +175,7 @@ export default function WantListScreen() {
                           {item.price !== undefined && (
                             <span
                               style={{
-                                color: item.status === 'sold' ? MUTED : GOLD,
+                                color: item.status === 'sold' ? t.muted : t.accent,
                                 textDecoration: item.status === 'sold' ? 'line-through' : 'none',
                               }}
                             >
@@ -186,14 +186,32 @@ export default function WantListScreen() {
                             <span>{item.price !== undefined ? ' · ' : ''}{item.condition}</span>
                           )}
                           {item.status === 'sold' && (
-                            <span style={{ color: '#b0685c', letterSpacing: '0.2em' }}>
-                              {item.price !== undefined || item.condition ? ' · ' : ''}SOLD
-                            </span>
+                            <>
+                              {(item.price !== undefined || item.condition) && (
+                                <span style={{ color: t.id === 'refined' ? '#b0685c' : t.muted, letterSpacing: '0.2em' }}> · </span>
+                              )}
+                              <span
+                                style={t.id === 'refined'
+                                  ? { color: '#b0685c', letterSpacing: '0.2em' }
+                                  : t.chip}
+                              >
+                                SOLD
+                              </span>
+                            </>
                           )}
                           {item.status === 'display' && (
-                            <span style={{ fontStyle: 'italic' }}>
-                              {item.price !== undefined || item.condition ? ' · ' : ''}Display only
-                            </span>
+                            <>
+                              {(item.price !== undefined || item.condition) && (
+                                <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}> · </span>
+                              )}
+                              <span
+                                style={t.id === 'refined'
+                                  ? { fontStyle: 'italic' }
+                                  : { ...t.chip, background: 'transparent', color: t.muted, border: `1px solid ${t.border}` }}
+                              >
+                                Display only
+                              </span>
+                            </>
                           )}
                         </span>
                       )}
@@ -206,7 +224,7 @@ export default function WantListScreen() {
         ))}
 
       {!loading && missing > 0 && (
-        <p style={{ ...noteStyle, fontSize: 13.5, marginTop: items.length > 0 ? 6 : 0 }}>
+        <p style={{ ...t.note, fontSize: 13.5, marginTop: items.length > 0 ? 6 : 0 }}>
           {missing === 1
             ? "1 marked item isn't listed anymore (or was hearted in the local sandbox)."
             : `${missing} marked items aren't listed anymore (or were hearted in the local sandbox).`}

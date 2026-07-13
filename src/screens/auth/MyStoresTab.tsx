@@ -20,17 +20,8 @@ import { useSavedPlans } from '../../lib/useSavedPlans';
 import VendorManagementPanel from '../../components/VendorManagementPanel';
 import { errMsg, StatusLine, checkLabelStyle } from './accountShared';
 import type { SaveStatus } from './accountShared';
-import {
-  GOLD,
-  HAIRLINE,
-  MUTED,
-  SERIF,
-  panelStyle,
-  panelTitleStyle,
-  ghostButtonStyle,
-  noteStyle,
-  errorTextStyle,
-} from '../../components/museumKit';
+import { useTheme, withAlpha } from '../../components/themeKit';
+import type { Theme } from '../../components/themeKit';
 import { authLabelStyle, authInputStyle, authErrorStyle } from './LoginScreen';
 
 // MY STORES tab of /account: everything a vendor account manages lives here —
@@ -41,13 +32,13 @@ import { authLabelStyle, authInputStyle, authErrorStyle } from './LoginScreen';
 // auto-claimed as stores up to the cap; the rest are listed as claimable.
 
 /** Inner bordered card for one store inside the MY STORES panel. */
-const storeCardStyle: CSSProperties = {
-  border: `1px solid ${HAIRLINE}`,
+const storeCardStyle = (t: Theme): CSSProperties => ({
+  border: `${t.borderWidth}px solid ${t.border}`,
   borderRadius: 4,
   background: 'rgba(0,0,0,0.18)',
   padding: '18px 20px',
   marginBottom: 18,
-};
+});
 
 /**
  * Booth QR modal: a printable code linking to the store's public page —
@@ -170,6 +161,9 @@ function StorePanel({
   flagshipBusy: boolean;
   onMakeFlagship: (storeId: string) => void;
 }) {
+  const t = useTheme();
+  const aLabel = authLabelStyle(t);
+  const aInput = authInputStyle(t);
   const [rec, setRec] = useState<MyStoreRecord>(store);
   const [nameDraft, setNameDraft] = useState(store.name);
   const [areaDraft, setAreaDraft] = useState(store.areaServed);
@@ -209,7 +203,7 @@ function StorePanel({
   const id = store.id;
 
   return (
-    <div style={{ ...storeCardStyle, marginBottom: 0 }}>
+    <div style={{ ...storeCardStyle(t), marginBottom: 0 }}>
       <div
         style={{
           display: 'flex',
@@ -221,10 +215,17 @@ function StorePanel({
       >
         {store.isFlagship ? (
           <span>
-            <span style={{ color: GOLD, fontSize: 12, letterSpacing: '0.18em' }}>
+            <span
+              style={{
+                color: t.accent,
+                fontSize: 12,
+                letterSpacing: '0.18em',
+                fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+              }}
+            >
               ★ FLAGSHIP
             </span>
-            <span style={{ marginLeft: 10, fontSize: 12, color: MUTED, fontStyle: 'italic' }}>
+            <span style={{ marginLeft: 10, fontSize: 12, color: t.muted, fontStyle: 'italic' }}>
               your default store
             </span>
           </span>
@@ -233,7 +234,7 @@ function StorePanel({
             onClick={() => onMakeFlagship(id)}
             disabled={flagshipBusy}
             style={{
-              ...ghostButtonStyle,
+              ...t.ghostButton,
               padding: '6px 14px',
               fontSize: 11,
               opacity: flagshipBusy ? 0.6 : 1,
@@ -246,11 +247,11 @@ function StorePanel({
           <button
             onClick={() => setQrOpen(true)}
             title="Printable QR linking to your public page — for your physical booth table"
-            style={{ ...ghostButtonStyle, padding: '6px 14px', fontSize: 11 }}
+            style={{ ...t.ghostButton, padding: '6px 14px', fontSize: 11 }}
           >
             ▦ BOOTH QR
           </button>
-          <Link href={`/vendor/${id}`} style={{ color: GOLD, fontSize: 13 }}>
+          <Link href={`/vendor/${id}`} style={{ color: t.accent, fontSize: 13 }}>
             View public page →
           </Link>
         </span>
@@ -258,7 +259,7 @@ function StorePanel({
       {qrOpen && <StoreQrModal store={rec} onClose={() => setQrOpen(false)} />}
       <div style={{ maxWidth: 420 }}>
         <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-name`} style={authLabelStyle}>
+          <label htmlFor={`store-${id}-name`} style={aLabel}>
             STORE NAME
           </label>
           <input
@@ -274,18 +275,18 @@ function StorePanel({
               }
               if (trimmed !== rec.name) void save({ name: trimmed });
             }}
-            style={authInputStyle}
+            style={aInput}
           />
         </div>
         <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-country`} style={authLabelStyle}>
+          <label htmlFor={`store-${id}-country`} style={aLabel}>
             COUNTRY
           </label>
           <select
             id={`store-${id}-country`}
             value={rec.country ?? ''}
             onChange={(e) => onCountryChange(e.target.value)}
-            style={authInputStyle}
+            style={aInput}
           >
             <option value="">—</option>
             {COUNTRIES.map((c) => (
@@ -297,14 +298,14 @@ function StorePanel({
         </div>
         {regions.length > 0 && (
           <div style={{ marginBottom: 18 }}>
-            <label htmlFor={`store-${id}-state`} style={authLabelStyle}>
+            <label htmlFor={`store-${id}-state`} style={aLabel}>
               {rec.country === 'CA' ? 'PROVINCE' : 'STATE'}
             </label>
             <select
               id={`store-${id}-state`}
               value={rec.state ?? ''}
               onChange={(e) => void save({ state: e.target.value || null })}
-              style={authInputStyle}
+              style={aInput}
             >
               <option value="">—</option>
               {regions.map((r) => (
@@ -316,7 +317,7 @@ function StorePanel({
           </div>
         )}
         <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-area`} style={authLabelStyle}>
+          <label htmlFor={`store-${id}-area`} style={aLabel}>
             AREA SERVED
           </label>
           <input
@@ -329,11 +330,11 @@ function StorePanel({
               const trimmed = areaDraft.trim();
               if (trimmed !== rec.areaServed) void save({ areaServed: trimmed });
             }}
-            style={authInputStyle}
+            style={aInput}
           />
         </div>
         <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-website`} style={authLabelStyle}>
+          <label htmlFor={`store-${id}-website`} style={aLabel}>
             WEBSITE
           </label>
           <input
@@ -346,11 +347,11 @@ function StorePanel({
               const trimmed = websiteDraft.trim();
               if (trimmed !== rec.website) void save({ website: trimmed });
             }}
-            style={authInputStyle}
+            style={aInput}
           />
         </div>
         <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-email`} style={authLabelStyle}>
+          <label htmlFor={`store-${id}-email`} style={aLabel}>
             PUBLIC CONTACT EMAIL
           </label>
           <input
@@ -363,11 +364,11 @@ function StorePanel({
               const trimmed = emailDraft.trim();
               if (trimmed !== rec.contactEmail) void save({ contactEmail: trimmed });
             }}
-            style={authInputStyle}
+            style={aInput}
           />
         </div>
         <div style={{ marginBottom: 18 }}>
-          <label htmlFor={`store-${id}-instagram`} style={authLabelStyle}>
+          <label htmlFor={`store-${id}-instagram`} style={aLabel}>
             INSTAGRAM
           </label>
           <input
@@ -381,15 +382,15 @@ function StorePanel({
               if (trimmed !== instagramDraft) setInstagramDraft(trimmed);
               if (trimmed !== rec.instagram) void save({ instagram: trimmed });
             }}
-            style={authInputStyle}
+            style={aInput}
           />
         </div>
-        <label style={checkLabelStyle}>
+        <label style={checkLabelStyle(t)}>
           <input
             type="checkbox"
             checked={rec.inventoryPublic}
             onChange={(e) => void save({ inventoryPublic: e.target.checked })}
-            style={{ accentColor: GOLD }}
+            style={{ accentColor: t.accent }}
           />
           <span>Show my inventory publicly</span>
         </label>
@@ -407,6 +408,9 @@ export default function MyStoresTab({
   /** The claims/creates flipped the account to 'vendor' — mirror it in the parent. */
   onBecameVendor: () => void;
 }) {
+  const t = useTheme();
+  const aInput = authInputStyle(t);
+  const aError = authErrorStyle(t);
   const [stores, setStores] = useState<MyStoreRecord[] | null>(null); // null = loading
   const [unclaimed, setUnclaimed] = useState<UnclaimedVendor[]>([]);
   const [storesLoadError, setStoresLoadError] = useState<string | null>(null);
@@ -560,13 +564,13 @@ export default function MyStoresTab({
         onKeyDown={(e) => {
           if (e.key === 'Enter') void openStore();
         }}
-        style={{ ...authInputStyle, flex: 1 }}
+        style={{ ...aInput, flex: 1 }}
       />
       <button
         onClick={() => void openStore()}
         disabled={creatingStore || !newStoreName.trim()}
         style={{
-          ...ghostButtonStyle,
+          ...t.ghostButton,
           whiteSpace: 'nowrap',
           opacity: creatingStore || !newStoreName.trim() ? 0.6 : 1,
         }}
@@ -582,33 +586,33 @@ export default function MyStoresTab({
 
   return (
     <>
-      <section style={panelStyle}>
-        <h2 style={panelTitleStyle}>MY STORES</h2>
+      <section style={t.panelStyle}>
+        <h2 style={t.panelTitle}>MY STORES</h2>
         {storesLoadError ? (
-          <p style={{ ...authErrorStyle, margin: 0 }}>{storesLoadError}</p>
+          <p style={{ ...aError, margin: 0 }}>{storesLoadError}</p>
         ) : stores === null ? (
-          <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading stores…</p>
+          <p style={{ margin: 0, fontSize: 14, color: t.muted }}>Loading stores…</p>
         ) : stores.length === 0 ? (
           <>
-            <p style={{ ...noteStyle, margin: '0 0 16px' }}>
+            <p style={{ ...t.note, margin: '0 0 16px' }}>
               Sell cards? Open a store — it lists you in the vendor directory and lets
               organizers assign you to show booths.
             </p>
             {openStoreForm}
-            {createError && <p style={authErrorStyle}>{createError}</p>}
+            {createError && <p style={aError}>{createError}</p>}
           </>
         ) : (
           <>
             {stores.map((s) => {
               const summary = vendors.vendors.find((v) => v.id === s.id) ?? null;
               return (
-                <div key={s.id} style={{ ...storeCardStyle, padding: 0, background: 'transparent', border: 'none' }}>
+                <div key={s.id} style={{ ...storeCardStyle(t), padding: 0, background: 'transparent', border: 'none' }}>
                   <StorePanel
                     store={s}
                     flagshipBusy={flagshipBusy}
                     onMakeFlagship={(id) => void makeFlagship(id)}
                   />
-                  <div style={{ border: `1px solid ${HAIRLINE}`, borderTop: 'none', borderRadius: '0 0 4px 4px', background: 'rgba(0,0,0,0.18)', padding: '18px 20px' }}>
+                  <div style={{ border: `${t.borderWidth}px solid ${t.border}`, borderTop: 'none', borderRadius: '0 0 4px 4px', background: 'rgba(0,0,0,0.18)', padding: '18px 20px' }}>
                     {summary ? (
                       <VendorManagementPanel
                         vendor={summary}
@@ -620,7 +624,7 @@ export default function MyStoresTab({
                         onInventoryChanged={() => void vendors.reload()}
                       />
                     ) : (
-                      <p style={{ margin: 0, fontSize: 14, color: MUTED }}>
+                      <p style={{ margin: 0, fontSize: 14, color: t.muted }}>
                         {vendors.loading ? 'Loading inventory…' : 'Inventory unavailable — reload the page.'}
                       </p>
                     )}
@@ -628,13 +632,13 @@ export default function MyStoresTab({
                       <button
                         onClick={() => void unregister(s)}
                         title="Keep the vendor page + inventory but free this store slot"
-                        style={{ ...ghostButtonStyle, padding: '7px 14px', fontSize: 11 }}
+                        style={{ ...t.ghostButton, padding: '7px 14px', fontSize: 11 }}
                       >
                         UNREGISTER STORE
                       </button>
                       <button
                         onClick={() => void deleteStore(s)}
-                        style={{ ...ghostButtonStyle, padding: '7px 14px', fontSize: 11, color: '#c66', borderColor: 'rgba(204,102,102,0.4)' }}
+                        style={{ ...t.ghostButton, padding: '7px 14px', fontSize: 11, color: '#c66', borderColor: 'rgba(204,102,102,0.4)' }}
                       >
                         DELETE STORE &amp; INVENTORY
                       </button>
@@ -643,15 +647,15 @@ export default function MyStoresTab({
                 </div>
               );
             })}
-            {flagshipError && <p style={errorTextStyle}>{flagshipError}</p>}
-            {storeActionError && <p style={errorTextStyle}>{storeActionError}</p>}
+            {flagshipError && <p style={t.errorText}>{flagshipError}</p>}
+            {storeActionError && <p style={t.errorText}>{storeActionError}</p>}
             {canOpenStore ? (
               <div style={{ marginTop: 4 }}>
                 {openStoreForm}
-                {createError && <p style={authErrorStyle}>{createError}</p>}
+                {createError && <p style={aError}>{createError}</p>}
               </div>
             ) : (
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: MUTED, fontStyle: 'italic' }}>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: t.muted, fontStyle: 'italic' }}>
                 Store limit reached ({STORE_LIMIT} per account).
               </p>
             )}
@@ -660,9 +664,9 @@ export default function MyStoresTab({
       </section>
 
       {unclaimed.length > 0 && (
-        <section style={panelStyle}>
-          <h2 style={panelTitleStyle}>UNCLAIMED VENDOR PAGES</h2>
-          <p style={{ ...noteStyle, margin: '0 0 14px' }}>
+        <section style={t.panelStyle}>
+          <h2 style={t.panelTitle}>UNCLAIMED VENDOR PAGES</h2>
+          <p style={{ ...t.note, margin: '0 0 14px' }}>
             Vendors you created outside My Stores. Claim one to register it as a store
             {atCap ? ' — store limit reached, free a slot first.' : '.'}
           </p>
@@ -674,21 +678,21 @@ export default function MyStoresTab({
                 alignItems: 'center',
                 gap: 14,
                 padding: '10px 4px',
-                borderBottom: '1px solid rgba(212,175,55,0.12)',
+                borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
                 fontSize: 14,
               }}
             >
-              <span style={{ fontFamily: SERIF, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span style={{ fontFamily: t.fontDisplay, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {v.name}
               </span>
-              <span style={{ color: MUTED, fontSize: 12, whiteSpace: 'nowrap' }}>
+              <span style={{ color: t.muted, fontSize: 12, whiteSpace: 'nowrap' }}>
                 {new Date(v.createdAt).toLocaleDateString()}
               </span>
               <button
                 onClick={() => void claim(v.id)}
                 disabled={atCap || claimBusyId !== null}
                 style={{
-                  ...ghostButtonStyle,
+                  ...t.ghostButton,
                   padding: '6px 14px',
                   fontSize: 11,
                   opacity: atCap || claimBusyId !== null ? 0.5 : 1,
@@ -699,7 +703,7 @@ export default function MyStoresTab({
               </button>
             </div>
           ))}
-          {claimError && <p style={errorTextStyle}>{claimError}</p>}
+          {claimError && <p style={t.errorText}>{claimError}</p>}
         </section>
       )}
     </>

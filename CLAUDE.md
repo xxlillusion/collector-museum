@@ -832,6 +832,34 @@ parallel streams, additive-only changes since — never reshape existing signatu
     PLANS section now always renders so a fresh browser can import first).
     `rects[].vendorId` rides the file; cross-registry imports render those unassigned
     (documented behavior). Typical export ≈ 262 kB.
+- **Design-review theme beta shipped** (2026-07-12, working tree — not yet committed):
+  the two Claude-Design themes are live and runtime-switchable. `src/components/
+  themeKit.tsx` = museumKit generalized (`ThemeProvider`/`useTheme()`; themes
+  `refined` — museumKit values verbatim, the default/control — plus `night` "Show
+  Floor · Night" and `lobby` "Charcoal Lobby"; token sheets in
+  `Vendor_museum_design_review/handoff/THEMES.md`). Provider wraps everything in
+  main.tsx (context still never crosses the Canvas roots); beta fonts (Barlow
+  Condensed/Archivo/DM Serif Display/IBM Plex Mono) load from Google Fonts in
+  index.html. Switchers: `FloatingThemeBar.tsx` (bottom-center pill on every page,
+  collapsible ◐ chip, hides under pointer lock, zIndex 90 — below InspectOverlay
+  100) + `ThemeSwitch` panel on Account→Profile. ALL 30 museumKit consumers migrated
+  to `useTheme()` (museumKit.tsx deprecated, zero imports remain); shared style
+  exports that themes now vary became functions of `t` (ShowDirectory filter styles,
+  auth styles, VendorManagementPanel/PlanWorkbench recipes). 3D DOM overlays (HUD,
+  Minimap, InspectOverlay placard, HallDirectory, LoadingOverlay) theme via
+  `t.id !== 'refined'` branches so **refined stays pixel-identical** (live-verified:
+  computed styles match legacy exactly); exceptions applied to all themes: HUD
+  desktop hint pills moved bottom 40→56 and the /demo placard moved bottom-right,
+  both to clear the floating bar. `t.planFilter` applies to the minimap + ShowDetail
+  preview ONLY — never the 2D plan editor (detection needs true colors). Handoff-kit
+  fix: the Theme interface declared `label` twice (display name vs field-label
+  recipe) — display name renamed `name`. Verified headless (Playwright + Browser
+  pane): 3 themes × landing/shows/sandbox-home/demo-hall, refined-control computed
+  styles exact, night marquee/glow/2px borders + red minimap dots + inverted plan,
+  lobby DM-Serif/oxblood + sepia plan + themed hall directory, localStorage
+  persistence, `tsc -b` green, zero console errors. Theme choice is per-browser
+  (`vendor-museum:theme`); promoting a winner = keep its token block, delete the
+  other two + the bar (or move choice to `profiles` to roam).
 - Candidate next steps (discussed, not built): booth labels on tables;
   bundle code-splitting (~1.4MB); deploy setup (any static host).
 - Museum-side known gaps: east/west walls unused by card layout (overflow silently

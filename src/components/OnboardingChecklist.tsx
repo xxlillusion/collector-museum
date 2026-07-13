@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useLocation } from 'wouter';
-import {
-  GOLD, PANEL, HAIRLINE, TEXT, MUTED, SERIF,
-} from './museumKit';
+import { useTheme, withAlpha } from './themeKit';
 import {
   buildOnboardingSteps,
   isOnboardingDismissed,
@@ -37,6 +35,7 @@ export default function OnboardingChecklist({
   onEnterGallery,
 }: OnboardingChecklistProps) {
   const [, navigate] = useLocation();
+  const t = useTheme();
   const [dismissed, setDismissed] = useState(() => isOnboardingDismissed(userId));
 
   const steps = useMemo(
@@ -76,18 +75,25 @@ export default function OnboardingChecklist({
       style={{
         maxWidth: 620,
         margin: '0 auto 48px',
-        border: `1px solid ${HAIRLINE}`,
+        border: `${t.borderWidth}px solid ${t.border}`,
         borderRadius: 4,
-        background: PANEL,
+        background: t.panel,
         padding: '16px 20px 8px',
         textAlign: 'left',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-        <span style={{ fontFamily: SERIF, fontSize: 12, letterSpacing: '0.22em', color: GOLD }}>
+        <span style={{ fontFamily: t.fontMono, fontSize: 12, letterSpacing: '0.22em', color: t.accent }}>
           GETTING STARTED
         </span>
-        <span style={{ fontSize: 10.5, letterSpacing: '0.14em', color: MUTED }}>
+        <span
+          style={{
+            fontSize: 10.5,
+            letterSpacing: '0.14em',
+            color: t.muted,
+            fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+          }}
+        >
           {doneCount} OF {derivable.length} COMPLETE
         </span>
         <button
@@ -97,8 +103,8 @@ export default function OnboardingChecklist({
           style={{
             marginLeft: 'auto',
             background: 'transparent',
-            color: MUTED,
-            border: `1px solid ${HAIRLINE}`,
+            color: t.muted,
+            border: `${t.borderWidth}px solid ${t.border}`,
             borderRadius: '50%',
             width: 22,
             height: 22,
@@ -113,10 +119,7 @@ export default function OnboardingChecklist({
           ✕
         </button>
       </div>
-      <p style={{
-        margin: '6px 0 10px', fontFamily: SERIF, fontStyle: 'italic',
-        fontSize: 12.5, lineHeight: 1.5, color: MUTED,
-      }}>
+      <p style={{ ...t.note, margin: '6px 0 10px', fontSize: 12.5, lineHeight: 1.5 }}>
         A few first steps to make this museum yours.
       </p>
       <div>
@@ -133,10 +136,10 @@ export default function OnboardingChecklist({
               textAlign: 'left',
               background: 'transparent',
               border: 'none',
-              borderTop: '1px solid rgba(212,175,55,0.10)',
+              borderTop: `1px solid ${withAlpha(t.accent, 0.10)}`,
               padding: '9px 4px',
               cursor: 'pointer',
-              fontFamily: SERIF,
+              fontFamily: t.fontMono,
             }}
           >
             <span
@@ -146,7 +149,7 @@ export default function OnboardingChecklist({
                 width: 16,
                 textAlign: 'center',
                 fontSize: 12,
-                color: step.done ? GOLD : step.derivable ? MUTED : GOLD,
+                color: step.done ? t.ok : step.derivable ? t.muted : t.accent,
               }}
             >
               {step.derivable ? (step.done ? '✓' : '○') : '→'}
@@ -155,11 +158,11 @@ export default function OnboardingChecklist({
               <span style={{
                 fontSize: 13.5,
                 letterSpacing: '0.04em',
-                color: step.done ? MUTED : TEXT,
+                color: step.done ? t.muted : t.text,
               }}>
                 {step.label}
               </span>
-              <span style={{ fontSize: 11.5, fontStyle: 'italic', color: MUTED }}>
+              <span style={{ ...t.note, fontSize: 11.5, lineHeight: undefined }}>
                 {' '}— {step.hint}
               </span>
             </span>

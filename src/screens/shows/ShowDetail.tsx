@@ -17,11 +17,7 @@ import {
 import type { BoothApplication } from '../../lib/applicationService';
 import { formatShowDate } from './ShowDirectory';
 import { formatLocation } from '../../lib/locations';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF,
-  Section, primaryButtonStyle, primaryButtonDisabledStyle, ghostButtonStyle,
-  inputStyle, noteStyle, errorTextStyle,
-} from '../../components/museumKit';
+import { Section, useTheme, withAlpha } from '../../components/themeKit';
 
 // Lazy so /show/:id stays a light DOM page — the three.js hall chunk loads
 // only when Walk is pressed.
@@ -31,16 +27,16 @@ const VendorScene = lazy(() => import('../../components/VendorScene'));
 // banner — vendors' own banners arrive via the vendors prop.
 const EMPTY_BANNERS = new Map<string, string>();
 
-const backLinkStyle: CSSProperties = {
-  color: GOLD,
-  textDecoration: 'none',
-  fontFamily: SERIF,
-  fontSize: 12.5,
-  letterSpacing: '0.18em',
-};
-
 // Owned by the shows workstream (Stream C).
 export default function ShowDetail({ showId }: { showId: string }) {
+  const t = useTheme();
+  const backLinkStyle: CSSProperties = {
+    color: t.accent,
+    textDecoration: 'none',
+    fontFamily: t.fontMono,
+    fontSize: 12.5,
+    letterSpacing: '0.18em',
+  };
   // undefined = loading, null = not found / unavailable
   const [show, setShow] = useState<ShowWalkData | null | undefined>(undefined);
   const [walking, setWalking] = useState(false);
@@ -197,11 +193,11 @@ export default function ShowDetail({ showId }: { showId: string }) {
 
   return (
     <PageShell title={show?.name ?? 'Show'} eyebrow="PUBLIC EXHIBITION">
-      {show === undefined && <p style={{ ...noteStyle, fontSize: 16 }}>Loading show…</p>}
+      {show === undefined && <p style={{ ...t.note, fontSize: 16 }}>Loading show…</p>}
 
       {show === null && (
         <>
-          <p style={{ ...noteStyle, fontSize: 16 }}>
+          <p style={{ ...t.note, fontSize: 16 }}>
             {isSupabaseConfigured
               ? "This show isn't published (or doesn't exist)."
               : 'The shows directory needs a configured backend — this deployment runs in guest-only mode.'}
@@ -218,9 +214,9 @@ export default function ShowDetail({ showId }: { showId: string }) {
         <>
           <div
             style={{
-              border: `1px solid ${HAIRLINE}`,
+              border: `${t.borderWidth}px solid ${t.border}`,
               borderRadius: 4,
-              background: PANEL,
+              background: t.panel,
               padding: '20px 26px',
               marginBottom: 28,
               textAlign: 'center',
@@ -229,13 +225,9 @@ export default function ShowDetail({ showId }: { showId: string }) {
             {canWalk && (
               <div
                 style={{
+                  ...t.chip,
                   display: 'inline-block',
-                  fontFamily: SERIF,
-                  fontSize: 10,
                   letterSpacing: '0.22em',
-                  color: GOLD,
-                  border: `1px solid ${HAIRLINE}`,
-                  borderRadius: 2,
                   padding: '3px 10px',
                   marginBottom: 12,
                 }}
@@ -247,11 +239,11 @@ export default function ShowDetail({ showId }: { showId: string }) {
               <div
                 style={{
                   display: 'inline-block',
-                  fontFamily: SERIF,
+                  fontFamily: t.fontMono,
                   fontSize: 12,
                   fontVariant: 'small-caps',
                   letterSpacing: '0.14em',
-                  color: MUTED,
+                  color: t.muted,
                   padding: '3px 6px',
                   marginBottom: 12,
                   marginLeft: canWalk ? 8 : 0,
@@ -260,11 +252,11 @@ export default function ShowDetail({ showId }: { showId: string }) {
                 ◈ {walks} {walks === 1 ? 'walk' : 'walks'}
               </div>
             )}
-            <div style={{ fontFamily: SERIF, fontSize: 17, letterSpacing: '0.05em', color: TEXT }}>
+            <div style={{ fontFamily: t.fontDisplay, fontSize: 17, letterSpacing: '0.05em', color: t.text }}>
               {formatShowDate(show.showDate) ?? 'Date to be announced'}
             </div>
             {(show.venueName || formatLocation(show)) && (
-              <div style={{ ...noteStyle, fontSize: 14, marginTop: 7 }}>
+              <div style={{ ...t.note, fontSize: 14, marginTop: 7 }}>
                 {[show.venueName, formatLocation(show)].filter(Boolean).join(' · ')}
               </div>
             )}
@@ -274,14 +266,14 @@ export default function ShowDetail({ showId }: { showId: string }) {
                   href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(show.address)}`}
                   target="_blank"
                   rel="noreferrer"
-                  style={{ ...noteStyle, fontSize: 13.5, color: GOLD, textDecoration: 'none' }}
+                  style={{ ...t.note, fontSize: 13.5, color: t.accent, textDecoration: 'none' }}
                 >
                   {show.address} ↗
                 </a>
               </div>
             )}
             {(show.hours || show.admission) && (
-              <div style={{ ...noteStyle, fontSize: 13.5, marginTop: 7 }}>
+              <div style={{ ...t.note, fontSize: 13.5, marginTop: 7 }}>
                 {[show.hours, show.admission].filter(Boolean).join(' · ')}
               </div>
             )}
@@ -292,10 +284,10 @@ export default function ShowDetail({ showId }: { showId: string }) {
                   target="_blank"
                   rel="noreferrer"
                   style={{
-                    fontFamily: SERIF,
+                    fontFamily: t.fontMono,
                     fontSize: 12,
                     letterSpacing: '0.18em',
-                    color: GOLD,
+                    color: t.accent,
                     textDecoration: 'none',
                   }}
                 >
@@ -310,7 +302,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
               onClick={handleWalk}
               disabled={!canWalk}
               style={{
-                ...(canWalk ? primaryButtonStyle : primaryButtonDisabledStyle),
+                ...(canWalk ? t.primaryButton : t.primaryButtonDisabled),
                 padding: '14px 44px',
                 fontSize: 14,
               }}
@@ -322,10 +314,10 @@ export default function ShowDetail({ showId }: { showId: string }) {
                 <Link
                   href={`/organizer/show/${showId}/edit`}
                   style={{
-                    fontFamily: SERIF,
+                    fontFamily: t.fontMono,
                     fontSize: 12.5,
                     letterSpacing: '0.18em',
-                    color: GOLD,
+                    color: t.accent,
                     textDecoration: 'none',
                   }}
                 >
@@ -335,7 +327,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
             )}
           </div>
           {!canWalk && (
-            <p style={{ ...noteStyle, fontSize: 14, margin: '0 0 26px', textAlign: 'center' }}>
+            <p style={{ ...t.note, fontSize: 14, margin: '0 0 26px', textAlign: 'center' }}>
               This show has no walkable floor plan yet — the organizer hasn't uploaded one.
             </p>
           )}
@@ -343,10 +335,10 @@ export default function ShowDetail({ showId }: { showId: string }) {
           {show.planUrl && (
             <div
               style={{
-                border: `1px solid ${HAIRLINE}`,
+                border: `${t.borderWidth}px solid ${t.border}`,
                 borderRadius: 2,
                 padding: 8,
-                background: PANEL,
+                background: t.panel,
                 marginBottom: 38,
               }}
             >
@@ -362,11 +354,13 @@ export default function ShowDetail({ showId }: { showId: string }) {
                 <img
                   src={show.planUrl}
                   alt={`${show.name} floor plan`}
-                  style={{ width: '100%', display: 'block' }}
+                  style={{ width: '100%', display: 'block', filter: t.planFilter }}
                 />
                 {boothMarkers.map((m, i) => {
                   const isStarred = starred.has(m.vendorId);
                   const size = isStarred ? 13 : 9;
+                  // '' = keep today's gold dots (refined); night/lobby recolor.
+                  const dot = t.boothDot;
                   return (
                     <div
                       key={i}
@@ -387,11 +381,11 @@ export default function ShowDetail({ showId }: { showId: string }) {
                         height: size,
                         transform: 'translate(-50%, -50%)',
                         borderRadius: '50%',
-                        // Same family as the in-hall minimap dots: gold points,
-                        // starred vendors bigger + steady glow.
-                        background: isStarred ? '#ffd75e' : 'rgba(212,175,55,0.85)',
+                        // Same family as the in-hall minimap dots: theme dot
+                        // color, starred vendors bigger + steady glow.
+                        background: dot || (isStarred ? '#ffd75e' : 'rgba(212,175,55,0.85)'),
                         boxShadow: isStarred
-                          ? '0 0 8px 2px rgba(255,215,94,0.75)'
+                          ? `0 0 8px 2px ${dot ? withAlpha(dot, 0.75) : 'rgba(255,215,94,0.75)'}`
                           : '0 0 3px rgba(0,0,0,0.6)',
                         cursor: 'default',
                       }}
@@ -411,9 +405,9 @@ export default function ShowDetail({ showId }: { showId: string }) {
                           ? 'translate(-50%, 14px)'
                           : 'translate(-50%, calc(-100% - 14px))',
                       background: 'rgba(8,6,4,0.92)',
-                      color: TEXT,
-                      border: '1px solid rgba(212,175,55,0.4)',
-                      fontFamily: SERIF,
+                      color: t.text,
+                      border: `1px solid ${withAlpha(t.accent, 0.4)}`,
+                      fontFamily: t.fontMono,
                       fontSize: 12,
                       letterSpacing: '0.06em',
                       padding: '3px 9px',
@@ -433,13 +427,13 @@ export default function ShowDetail({ showId }: { showId: string }) {
               {boothMarkers.length > 0 && (
                 <p
                   style={{
-                    ...noteStyle,
+                    ...t.note,
                     fontSize: 12,
                     margin: '8px 2px 2px',
                     textAlign: 'center',
                   }}
                 >
-                  <span style={{ color: GOLD, fontStyle: 'normal' }}>●</span> assigned booths
+                  <span style={{ color: t.boothDot || t.accent, fontStyle: 'normal' }}>●</span> assigned booths
                   · glowing = vendors you starred
                 </p>
               )}
@@ -448,11 +442,11 @@ export default function ShowDetail({ showId }: { showId: string }) {
 
           <Section title="ATTENDING VENDORS">
             {show.vendors.length === 0 ? (
-              <p style={{ ...noteStyle, fontSize: 14.5 }}>No vendors assigned to booths yet.</p>
+              <p style={{ ...t.note, fontSize: 14.5 }}>No vendors assigned to booths yet.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {canWalk && (
-                  <p style={{ ...noteStyle, fontSize: 12.5, margin: '0 0 10px' }}>
+                  <p style={{ ...t.note, fontSize: 12.5, margin: '0 0 10px' }}>
                     ★ Star the vendors you want to visit — their booths glow on the map
                     when you walk the show.
                   </p>
@@ -467,9 +461,9 @@ export default function ShowDetail({ showId }: { showId: string }) {
                       alignItems: 'baseline',
                       gap: 16,
                       padding: '13px 10px',
-                      borderBottom: '1px solid rgba(212,175,55,0.12)',
+                      borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
                       textDecoration: 'none',
-                      color: TEXT,
+                      color: t.text,
                     }}
                   >
                     <button
@@ -486,16 +480,16 @@ export default function ShowDetail({ showId }: { showId: string }) {
                         fontSize: 17,
                         lineHeight: 1,
                         padding: '0 2px',
-                        color: starred.has(v.id) ? GOLD : 'rgba(212,175,55,0.35)',
+                        color: starred.has(v.id) ? t.accent : withAlpha(t.accent, 0.35),
                       }}
                     >
                       {starred.has(v.id) ? '★' : '☆'}
                     </button>
                     <span
                       style={{
-                        fontFamily: SERIF,
+                        fontFamily: t.fontDisplay,
                         fontSize: 16,
-                        color: TEXT,
+                        color: t.text,
                         flex: 1,
                         minWidth: 0,
                         overflow: 'hidden',
@@ -505,17 +499,17 @@ export default function ShowDetail({ showId }: { showId: string }) {
                     >
                       {v.name}
                     </span>
-                    <span style={{ ...noteStyle, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                    <span style={{ ...t.note, fontSize: 12.5, whiteSpace: 'nowrap' }}>
                       {v.inventoryCount > 0
                         ? `${v.inventoryCount} item${v.inventoryCount === 1 ? '' : 's'}`
                         : ''}
                     </span>
                     <span
                       style={{
-                        fontFamily: SERIF,
+                        fontFamily: t.fontMono,
                         fontSize: 12,
                         letterSpacing: '0.16em',
-                        color: GOLD,
+                        color: t.accent,
                         whiteSpace: 'nowrap',
                       }}
                     >
@@ -529,7 +523,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
 
           {isOwner && (
             <Section title="EXHIBIT AT THIS SHOW">
-              <p style={{ ...noteStyle, fontSize: 14.5, margin: 0 }}>
+              <p style={{ ...t.note, fontSize: 14.5, margin: 0 }}>
                 This is your show — vendors apply to you, so there&rsquo;s nothing to
                 apply for here.
               </p>
@@ -537,10 +531,10 @@ export default function ShowDetail({ showId }: { showId: string }) {
                 <Link
                   href={`/organizer/show/${showId}/edit`}
                   style={{
-                    fontFamily: SERIF,
+                    fontFamily: t.fontMono,
                     fontSize: 12.5,
                     letterSpacing: '0.18em',
-                    color: GOLD,
+                    color: t.accent,
                     textDecoration: 'none',
                   }}
                 >
@@ -563,19 +557,19 @@ export default function ShowDetail({ showId }: { showId: string }) {
                         gap: 14,
                         flexWrap: 'wrap',
                         padding: '10px 8px',
-                        borderBottom: '1px solid rgba(212,175,55,0.12)',
+                        borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
                       }}
                     >
-                      <span style={{ fontFamily: SERIF, fontSize: 15, color: TEXT, flex: 1, minWidth: 120 }}>
+                      <span style={{ fontFamily: t.fontDisplay, fontSize: 15, color: t.text, flex: 1, minWidth: 120 }}>
                         {app.vendorName}
                       </span>
                       <span
                         style={{
                           fontSize: 10.5,
                           letterSpacing: '0.18em',
-                          fontFamily: SERIF,
-                          color: app.status === 'approved' ? GOLD : app.status === 'declined' ? '#b0685c' : MUTED,
-                          border: `1px solid ${app.status === 'approved' ? GOLD : HAIRLINE}`,
+                          fontFamily: t.fontMono,
+                          color: app.status === 'approved' ? t.accent : app.status === 'declined' ? '#b0685c' : t.muted,
+                          border: `${t.borderWidth}px solid ${app.status === 'approved' ? t.accent : t.border}`,
                           borderRadius: 2,
                           padding: '3px 9px',
                         }}
@@ -585,7 +579,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
                       {app.status === 'pending' && (
                         <button
                           onClick={() => handleWithdraw(app.id)}
-                          style={{ ...ghostButtonStyle, padding: '5px 12px', fontSize: 11 }}
+                          style={{ ...t.ghostButton, padding: '5px 12px', fontSize: 11 }}
                         >
                           WITHDRAW
                         </button>
@@ -600,7 +594,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
                     <select
                       value={applyStoreId}
                       onChange={(e) => setApplyStoreId(e.target.value)}
-                      style={{ ...inputStyle, width: 200 }}
+                      style={{ ...t.input, width: 200 }}
                     >
                       {myStores
                         .filter((s) => !myApps.some((a) => a.vendorId === s.id))
@@ -609,7 +603,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
                         ))}
                     </select>
                   ) : (
-                    <span style={{ fontFamily: SERIF, fontSize: 14.5, color: TEXT, alignSelf: 'center' }}>
+                    <span style={{ fontFamily: t.fontDisplay, fontSize: 14.5, color: t.text, alignSelf: 'center' }}>
                       {myStores.find((s) => !myApps.some((a) => a.vendorId === s.id))?.name}
                     </span>
                   )}
@@ -618,19 +612,19 @@ export default function ShowDetail({ showId }: { showId: string }) {
                     placeholder="Message to the organizer (optional)"
                     value={applyMessage}
                     onChange={(e) => setApplyMessage(e.target.value)}
-                    style={{ ...inputStyle, flex: 1, minWidth: 220 }}
+                    style={{ ...t.input, flex: 1, minWidth: 220 }}
                   />
                   <button
                     onClick={handleApply}
                     disabled={applyBusy || !applyStoreId}
-                    style={applyBusy ? primaryButtonDisabledStyle : primaryButtonStyle}
+                    style={applyBusy ? t.primaryButtonDisabled : t.primaryButton}
                   >
                     {applyBusy ? 'APPLYING…' : 'APPLY FOR A BOOTH →'}
                   </button>
                 </div>
               )}
-              {applyError && <p style={{ ...errorTextStyle, marginTop: 12 }}>{applyError}</p>}
-              <p style={{ ...noteStyle, fontSize: 12, marginTop: 12 }}>
+              {applyError && <p style={{ ...t.errorText, marginTop: 12 }}>{applyError}</p>}
+              <p style={{ ...t.note, fontSize: 12, marginTop: 12 }}>
                 The organizer reviews applications and assigns booths — approval appears here
                 and your store shows up on the floor plan once placed.
               </p>

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
-import type { ChangeEvent } from 'react';
+import type { ChangeEvent, CSSProperties } from 'react';
 import PlanWorkbench, { secondaryButton } from './PlanWorkbench';
+import { useTheme, withAlpha } from './themeKit';
 import type { PlanWorkbenchHandle, PlanWorkbenchState } from './PlanWorkbench';
 import type { VendorPlanMeta } from '../lib/vendorPlan';
 import type { SavedPlanRecord } from '../lib/db';
@@ -25,8 +26,6 @@ interface VendorSetupScreenProps {
   onBack: () => void;
 }
 
-const GOLD = '#d4af37';
-
 export default function VendorSetupScreen({
   planUrl,
   planMeta,
@@ -43,6 +42,7 @@ export default function VendorSetupScreen({
   onGenerate,
   onBack,
 }: VendorSetupScreenProps) {
+  const t = useTheme();
   const workbenchRef = useRef<PlanWorkbenchHandle>(null);
   // Mirrors the workbench's editing state so the surrounding chrome (save /
   // publish buttons) can gate on it; hasMeta seeds from the restored plan.
@@ -109,23 +109,45 @@ export default function VendorSetupScreen({
     setSavingDate('');
   }, [savingName, savingDate, onSavePlan]);
 
+  // Screen chrome styles — under 'refined' these reproduce the pre-theme gold
+  // palette exactly; other themes swap in their tokens.
+  const isR = t.id === 'refined';
+  const secondaryBtn = secondaryButton(t);
+  const danger = isR ? '#c66' : t.error;
+  const setupInput: CSSProperties = {
+    background: t.surface,
+    color: t.text,
+    border: isR ? '1px solid #555' : `${t.borderWidth}px solid ${t.border}`,
+    borderRadius: '6px',
+    padding: '10px 12px',
+    fontSize: '14px',
+    fontFamily: isR ? 'Georgia, serif' : t.fontBody,
+  };
+  const primaryAction = (enabled: boolean): CSSProperties => enabled
+    ? (isR
+        ? { background: t.accent, color: t.accentContrast, border: 'none', borderRadius: '6px', padding: '10px 20px', fontSize: '14px', cursor: 'pointer', fontFamily: 'Georgia, serif' }
+        : { ...t.primaryButton, padding: '10px 20px', fontSize: '14px' })
+    : (isR
+        ? { background: '#333', color: '#666', border: 'none', borderRadius: '6px', padding: '10px 20px', fontSize: '14px', cursor: 'not-allowed', fontFamily: 'Georgia, serif' }
+        : { ...t.primaryButtonDisabled, padding: '10px 20px', fontSize: '14px' });
+
   return (
     <div style={{
       height: '100vh',
       overflowY: 'auto',
       boxSizing: 'border-box',
-      background: '#1a1614',
-      color: '#e8e4dc',
-      fontFamily: 'Georgia, serif',
+      background: isR ? '#1a1614' : t.pageBg,
+      color: t.text,
+      fontFamily: isR ? 'Georgia, serif' : t.fontBody,
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       padding: '40px 24px',
     }}>
-      <h1 style={{ fontSize: '2rem', letterSpacing: '0.12em', marginBottom: '4px', color: GOLD }}>
+      <h1 style={{ fontSize: '2rem', letterSpacing: t.id === 'night' ? '0.05em' : '0.12em', marginBottom: '4px', color: t.accent, fontFamily: isR ? undefined : t.fontDisplay, fontWeight: isR ? undefined : t.displayWeight }}>
         CONVENTION VIEW
       </h1>
-      <p style={{ color: '#888', marginBottom: '20px', fontSize: '14px', letterSpacing: '0.08em' }}>
+      <p style={{ color: isR ? '#888' : t.muted, marginBottom: '20px', fontSize: '14px', letterSpacing: '0.08em', fontFamily: isR ? undefined : t.fontMono }}>
         WALK A CARD SHOW FROM ITS FLOOR PLAN
       </p>
 
@@ -135,14 +157,14 @@ export default function VendorSetupScreen({
         width: '100%',
         maxWidth: '900px',
         boxSizing: 'border-box',
-        border: '1px solid rgba(212,175,55,0.35)',
+        border: `${t.borderWidth}px solid ${withAlpha(t.accent, 0.35)}`,
         borderRadius: '8px',
-        background: 'rgba(212,175,55,0.05)',
+        background: withAlpha(t.accent, 0.05),
         padding: '10px 16px',
         marginBottom: '28px',
         fontSize: '13px',
         lineHeight: 1.6,
-        color: '#b7ad98',
+        color: isR ? '#b7ad98' : t.muted,
         textAlign: 'center',
       }}>
         Shows built here are local to this browser — you can walk them, but they can't be
@@ -164,17 +186,24 @@ export default function VendorSetupScreen({
           <button
             onClick={onGenerate}
             disabled={totalTables === 0}
-            style={{
-              background: totalTables > 0 ? GOLD : '#333',
-              color: totalTables > 0 ? '#1a1614' : '#666',
-              border: 'none',
-              padding: '14px 40px',
-              fontSize: '16px',
-              letterSpacing: '0.1em',
-              borderRadius: '8px',
-              cursor: totalTables > 0 ? 'pointer' : 'not-allowed',
-              fontFamily: 'Georgia, serif',
-            }}
+            style={isR
+              ? {
+                  background: totalTables > 0 ? t.accent : '#333',
+                  color: totalTables > 0 ? t.accentContrast : '#666',
+                  border: 'none',
+                  padding: '14px 40px',
+                  fontSize: '16px',
+                  letterSpacing: '0.1em',
+                  borderRadius: '8px',
+                  cursor: totalTables > 0 ? 'pointer' : 'not-allowed',
+                  fontFamily: 'Georgia, serif',
+                }
+              : {
+                  ...(totalTables > 0 ? t.primaryButton : t.primaryButtonDisabled),
+                  padding: '14px 40px',
+                  fontSize: '16px',
+                  letterSpacing: '0.1em',
+                }}
           >
             GENERATE →
           </button>
@@ -185,17 +214,18 @@ export default function VendorSetupScreen({
           fresh browser with no working plan and nothing saved yet. */}
       <div style={{ width: '100%', maxWidth: '900px', marginTop: '36px' }}>
           <div style={{
-            color: '#888',
+            color: isR ? '#888' : t.muted,
             fontSize: '13px',
             letterSpacing: '0.12em',
             marginBottom: '12px',
+            fontFamily: isR ? undefined : t.fontMono,
           }}>
             SAVED PLANS
           </div>
 
           {wb.hasMeta && !wb.detecting && (
             savingName === null ? (
-              <button onClick={() => setSavingName('')} style={{ ...secondaryButton, marginBottom: '12px' }}>
+              <button onClick={() => setSavingName('')} style={{ ...secondaryBtn, marginBottom: '12px' }}>
                 💾 Save this plan…
               </button>
             ) : (
@@ -208,13 +238,7 @@ export default function VendorSetupScreen({
                   onChange={(e) => setSavingName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleSavePlan(); }}
                   style={{
-                    background: '#0d0b0a',
-                    color: '#e8e4dc',
-                    border: '1px solid #555',
-                    borderRadius: '6px',
-                    padding: '10px 12px',
-                    fontSize: '14px',
-                    fontFamily: 'Georgia, serif',
+                    ...setupInput,
                     width: '220px',
                   }}
                 />
@@ -224,33 +248,20 @@ export default function VendorSetupScreen({
                   value={savingDate}
                   onChange={(e) => setSavingDate(e.target.value)}
                   style={{
-                    background: '#0d0b0a',
-                    color: savingDate ? '#e8e4dc' : '#777',
-                    border: '1px solid #555',
-                    borderRadius: '6px',
+                    ...setupInput,
+                    color: savingDate ? t.text : (isR ? '#777' : t.muted),
                     padding: '9px 12px',
-                    fontSize: '14px',
-                    fontFamily: 'Georgia, serif',
                     colorScheme: 'dark',
                   }}
                 />
                 <button
                   onClick={handleSavePlan}
                   disabled={!savingName.trim()}
-                  style={{
-                    background: savingName.trim() ? GOLD : '#333',
-                    color: savingName.trim() ? '#1a1614' : '#666',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '10px 20px',
-                    fontSize: '14px',
-                    cursor: savingName.trim() ? 'pointer' : 'not-allowed',
-                    fontFamily: 'Georgia, serif',
-                  }}
+                  style={primaryAction(!!savingName.trim())}
                 >
                   Save
                 </button>
-                <button onClick={() => { setSavingName(null); setSavingDate(''); }} style={{ ...secondaryButton, padding: '10px 14px', fontSize: '13px' }}>
+                <button onClick={() => { setSavingName(null); setSavingDate(''); }} style={{ ...secondaryBtn, padding: '10px 14px', fontSize: '13px' }}>
                   Cancel
                 </button>
               </div>
@@ -265,7 +276,7 @@ export default function VendorSetupScreen({
                 alignItems: 'center',
                 gap: '12px',
                 padding: '10px 14px',
-                border: '1px solid #3a3a3a',
+                border: isR ? '1px solid #3a3a3a' : `${t.borderWidth}px solid ${t.border}`,
                 borderRadius: '8px',
                 marginBottom: '8px',
                 fontSize: '14px',
@@ -274,13 +285,13 @@ export default function VendorSetupScreen({
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {p.name}
               </span>
-              <span style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>
+              <span style={{ color: isR ? '#666' : t.muted, fontSize: '12px', whiteSpace: 'nowrap', fontFamily: isR ? undefined : t.fontMono }}>
                 {p.showDate ? `show ${p.showDate} · ` : ''}{new Date(p.updatedAt).toLocaleDateString()}
               </span>
               <button
                 onClick={() => handleExport(p.id)}
                 title="Download this plan as a portable file"
-                style={{ ...secondaryButton, padding: '6px 14px', fontSize: '13px' }}
+                style={{ ...secondaryBtn, padding: '6px 14px', fontSize: '13px' }}
               >
                 ⬇ Export
               </button>
@@ -290,7 +301,7 @@ export default function VendorSetupScreen({
                     onLoadPlan(p.id);
                   }
                 }}
-                style={{ ...secondaryButton, padding: '6px 14px', fontSize: '13px' }}
+                style={{ ...secondaryBtn, padding: '6px 14px', fontSize: '13px' }}
               >
                 Load
               </button>
@@ -298,26 +309,26 @@ export default function VendorSetupScreen({
                 onClick={() => {
                   if (window.confirm(`Delete the saved plan “${p.name}”?`)) onDeletePlan(p.id);
                 }}
-                style={{ ...secondaryButton, padding: '6px 10px', fontSize: '13px', color: '#c66' }}
+                style={{ ...secondaryBtn, padding: '6px 10px', fontSize: '13px', color: danger }}
               >
                 ✕
               </button>
             </div>
           ))}
           {savedPlans.length === 0 && (
-            <div style={{ color: '#555', fontSize: '13px' }}>Nothing saved yet.</div>
+            <div style={{ color: isR ? '#555' : t.muted, fontSize: '13px' }}>Nothing saved yet.</div>
           )}
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginTop: '14px' }}>
             <button
               onClick={() => importInputRef.current?.click()}
               disabled={importing}
-              style={{ ...secondaryButton, padding: '10px 18px', fontSize: '13px' }}
+              style={{ ...secondaryBtn, padding: '10px 18px', fontSize: '13px' }}
             >
               {importing ? 'Importing…' : '⬆ Import a plan file…'}
             </button>
             {importMsg && (
-              <span style={{ fontSize: '13px', color: importMsg.kind === 'ok' ? GOLD : '#c66' }}>
+              <span style={{ fontSize: '13px', color: importMsg.kind === 'ok' ? t.accent : danger }}>
                 {importMsg.text}
               </span>
             )}
@@ -329,7 +340,10 @@ export default function VendorSetupScreen({
             style={{ display: 'none' }}
             onChange={handleImportChange}
           />
-          <div style={{ color: '#777', fontSize: '12px', fontStyle: 'italic', marginTop: '8px' }}>
+          <div style={isR
+            ? { color: '#777', fontSize: '12px', fontStyle: 'italic', marginTop: '8px' }
+            : { ...t.note, fontSize: 12, marginTop: '8px' }}
+          >
             Vendor assignments only carry over within the same registry.
           </div>
         </div>
@@ -337,10 +351,10 @@ export default function VendorSetupScreen({
       <button
         onClick={onBack}
         style={{
-          ...secondaryButton,
+          ...secondaryBtn,
           marginTop: '40px',
           border: 'none',
-          color: '#888',
+          color: isR ? '#888' : t.muted,
         }}
       >
         ← Back to the museum

@@ -10,10 +10,7 @@ import type { VendorSummary } from '../lib/useVendors';
 import { accountLabel } from '../screens/PageShell';
 import OnboardingChecklist from './OnboardingChecklist';
 import SiteFooter from './SiteFooter';
-import {
-  GOLD, BG, PANEL, HAIRLINE, TEXT, MUTED, SERIF, SANS,
-  Ornament, QuickAction, Section, museumHoverCss, ghostButtonStyle,
-} from './museumKit';
+import { Ornament, QuickAction, Section, useTheme, withAlpha } from './themeKit';
 
 // Home screen — the "Museum Refined" design (graduated from the 2026-07 UI
 // Lab beta): upload cards, manage the banner, and enter either 3D experience.
@@ -53,35 +50,6 @@ interface HomeScreenProps {
   showOrganizer?: boolean;
 }
 
-/** Compact control chip on curate-mode tiles — same idiom as the ✎/✕
- *  corner buttons, laid out as a row under the tile. */
-const curateBtnStyle: React.CSSProperties = {
-  background: 'rgba(0,0,0,0.75)',
-  color: TEXT,
-  border: `1px solid ${HAIRLINE}`,
-  borderRadius: '3px',
-  minWidth: '24px',
-  height: '22px',
-  cursor: 'pointer',
-  fontSize: '11px',
-  lineHeight: '20px',
-  textAlign: 'center',
-  padding: '0 5px',
-};
-
-const cardFieldStyle: React.CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  background: '#171310',
-  border: `1px solid ${HAIRLINE}`,
-  borderRadius: '3px',
-  color: TEXT,
-  padding: '6px 8px',
-  fontSize: '11.5px',
-  fontFamily: SERIF,
-  marginTop: '5px',
-};
-
 /** The editor's text fields — CardPatch minus the curation flags (those are
  *  boolean/number and belong to the curate-the-walls controls, not inputs). */
 type CardTextKey = 'name' | 'setName' | 'cardNumber' | 'year' | 'grade' | 'notes';
@@ -94,6 +62,19 @@ function CardDetailsEditor({
   card: CardWithUrl;
   onSave: (id: string, patch: CardPatch) => void;
 }) {
+  const t = useTheme();
+  const cardFieldStyle: React.CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    background: t.bg,
+    border: `${t.borderWidth}px solid ${t.border}`,
+    borderRadius: '3px',
+    color: t.text,
+    padding: '6px 8px',
+    fontSize: '11.5px',
+    fontFamily: t.input.fontFamily,
+    marginTop: '5px',
+  };
   const [draft, setDraft] = useState<Record<CardTextKey, string>>({
     name: card.name,
     setName: card.setName ?? '',
@@ -161,6 +142,8 @@ export default function HomeScreen({
   showOrganizer = false,
 }: HomeScreenProps) {
   const [, navigate] = useLocation();
+  const t = useTheme();
+  const night = t.id === 'night';
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [walkingId, setWalkingId] = useState<string | null>(null);
@@ -263,22 +246,38 @@ export default function HomeScreen({
   const galleryVendor = showableVendors.find((v) => v.id === galleryVendorId) ?? null;
   const canEnter = galleryVendor ? galleryVendor.inventoryCount > 0 : cards.length > 0;
 
+  /** Compact control chip on curate-mode tiles — same idiom as the ✎/✕
+   *  corner buttons, laid out as a row under the tile. */
+  const curateBtnStyle: React.CSSProperties = {
+    background: 'rgba(0,0,0,0.75)',
+    color: t.text,
+    border: `${t.borderWidth}px solid ${t.border}`,
+    borderRadius: '3px',
+    minWidth: '24px',
+    height: '22px',
+    cursor: 'pointer',
+    fontSize: '11px',
+    lineHeight: '20px',
+    textAlign: 'center',
+    padding: '0 5px',
+  };
+
   return (
-    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: BG, color: TEXT, fontFamily: SANS, position: 'relative' }}>
+    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: t.bg, color: t.text, fontFamily: t.fontBody, position: 'relative' }}>
       {/* Sandbox: back to the main site. Otherwise: auth corner (hidden when
           accounts aren't configured). */}
       {sandbox ? (
-        <div style={{ position: 'absolute', top: 18, left: 22, fontFamily: SERIF, fontSize: 12, letterSpacing: '0.12em' }}>
-          <Link href="/" style={{ color: GOLD, textDecoration: 'none' }}>
+        <div style={{ position: 'absolute', top: 18, left: 22, fontFamily: t.fontMono, fontSize: 12, letterSpacing: '0.12em' }}>
+          <Link href="/" style={{ color: t.accent, textDecoration: 'none' }}>
             ← VENDOR MUSEUM
           </Link>
         </div>
       ) : authConfigured && (
-        <div style={{ position: 'absolute', top: 18, right: 22, fontFamily: SERIF, fontSize: 12, letterSpacing: '0.12em' }}>
+        <div style={{ position: 'absolute', top: 18, right: 22, fontFamily: t.fontMono, fontSize: 12, letterSpacing: '0.12em' }}>
           <Link
             href={session ? '/account' : '/login'}
             style={{
-              color: GOLD, textDecoration: 'none', border: `1px solid ${HAIRLINE}`,
+              color: t.accent, textDecoration: 'none', border: `${t.borderWidth}px solid ${t.border}`,
               borderRadius: '999px', padding: '8px 18px',
               display: 'inline-block', maxWidth: 'min(44vw, 260px)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -289,34 +288,39 @@ export default function HomeScreen({
           </Link>
         </div>
       )}
-      <style>{museumHoverCss}</style>
+      <style>{t.hoverCss}</style>
       <div style={{ maxWidth: '860px', margin: '0 auto', padding: '64px 28px 80px' }}>
         {/* Masthead */}
         <header style={{ textAlign: 'center', marginBottom: '56px' }}>
-          <div style={{ fontSize: '11px', letterSpacing: '0.4em', color: MUTED, marginBottom: '14px' }}>
+          <div style={{ fontSize: '11px', letterSpacing: '0.4em', color: t.muted, marginBottom: '14px', fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
             {sandbox ? 'LOCAL SANDBOX · THIS BROWSER ONLY' : 'EST. 2026 · PRIVATE COLLECTION'}
           </div>
-          <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: '44px', fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
+          <h1 style={{
+            margin: 0, fontFamily: t.fontDisplay, fontSize: night ? '52px' : '44px',
+            fontWeight: t.displayWeight, letterSpacing: night ? '0.05em' : '0.18em',
+            color: t.accent, textTransform: t.displayTransform,
+          }}>
             VENDOR MUSEUM
           </h1>
           <div style={{ margin: '18px 0' }}>
             <Ornament />
           </div>
-          <p style={{ margin: 0, fontSize: '13.5px', color: MUTED, letterSpacing: '0.12em' }}>
+          <p style={{ margin: 0, fontSize: '13.5px', color: t.muted, letterSpacing: '0.12em', fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
             {loading ? 'OPENING THE ARCHIVES…' : countsLine}
           </p>
           {sandbox && (
             <div style={{
+              ...t.note,
               margin: '22px auto 0', maxWidth: 560,
-              border: `1px solid ${HAIRLINE}`, borderRadius: '4px',
-              background: 'rgba(212,175,55,0.05)', padding: '10px 18px',
-              fontSize: '12.5px', lineHeight: 1.6, color: MUTED, fontFamily: SERIF, fontStyle: 'italic',
+              border: `${t.borderWidth}px solid ${t.border}`, borderRadius: '4px',
+              background: withAlpha(t.accent, 0.05), padding: '10px 18px',
+              fontSize: '12.5px', lineHeight: 1.6,
             }}>
               Everything on this page lives in this browser — no account required.
               Collections and shows built here can't be shared or published
               {authConfigured && (
                 <>
-                  {' '}(<Link href="/signup" style={{ color: GOLD }}>create an account</Link> to
+                  {' '}(<Link href="/signup" style={{ color: t.accent }}>create an account</Link> to
                   take them online — everything built here can be imported into
                   your account right after you sign up)
                 </>
@@ -325,16 +329,16 @@ export default function HomeScreen({
           )}
           {showableVendors.length > 0 && (
             <div style={{ marginTop: '28px' }}>
-              <span style={{ fontSize: '11px', letterSpacing: '0.14em', color: MUTED, marginRight: '10px' }}>
+              <span style={{ fontSize: '11px', letterSpacing: '0.14em', color: t.muted, marginRight: '10px', fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
                 ON THE WALLS
               </span>
               <select
                 value={galleryVendor?.id ?? ''}
                 onChange={(e) => onSelectGalleryVendor(e.target.value || null)}
                 style={{
-                  background: '#0d0b0a', color: TEXT, border: `1px solid ${HAIRLINE}`,
+                  background: t.surface, color: t.text, border: `${t.borderWidth}px solid ${t.border}`,
                   borderRadius: '2px', padding: '8px 12px', fontSize: '13px',
-                  fontFamily: SERIF, letterSpacing: '0.04em', cursor: 'pointer',
+                  fontFamily: t.input.fontFamily, letterSpacing: '0.04em', cursor: 'pointer',
                 }}
               >
                 <option value="">My Collection · {cards.length} {cards.length === 1 ? 'work' : 'works'}</option>
@@ -350,18 +354,16 @@ export default function HomeScreen({
             onClick={onEnter}
             disabled={!canEnter}
             style={{
+              ...(canEnter ? t.primaryButton : t.primaryButtonDisabled),
               marginTop: showableVendors.length > 0 ? '16px' : '30px',
-              background: canEnter ? GOLD : '#332b1e',
-              color: canEnter ? '#1a1614' : '#7a6c50',
-              border: 'none', padding: '15px 46px',
-              fontSize: '14px', letterSpacing: '0.16em', fontFamily: SERIF,
-              cursor: canEnter ? 'pointer' : 'not-allowed', borderRadius: '2px',
+              padding: '15px 46px',
+              fontSize: '14px',
             }}
           >
             ENTER THE GALLERY →
           </button>
           {!canEnter && !loading && (
-            <p style={{ margin: '10px 0 0', fontSize: '11.5px', color: MUTED, fontStyle: 'italic', fontFamily: SERIF }}>
+            <p style={{ ...t.note, margin: '10px 0 0', fontSize: '11.5px', lineHeight: undefined }}>
               Submit at least one work to open the gallery
             </p>
           )}
@@ -433,16 +435,16 @@ export default function HomeScreen({
             onDrop={onDrop}
             onClick={() => document.getElementById('home-file-input')?.click()}
             style={{
-              border: `1px dashed ${dragging ? GOLD : HAIRLINE}`,
+              border: `${t.borderWidth}px dashed ${dragging ? t.accent : t.border}`,
               borderRadius: '4px', padding: '32px', textAlign: 'center', cursor: 'pointer',
-              background: dragging ? 'rgba(212,175,55,0.08)' : PANEL,
+              background: dragging ? withAlpha(t.accent, 0.08) : t.panel,
               transition: 'all 0.2s',
             }}
           >
-            <div style={{ fontFamily: SERIF, fontSize: '15px', letterSpacing: '0.04em' }}>
+            <div style={{ fontFamily: t.fontDisplay, fontSize: '15px', letterSpacing: '0.04em' }}>
               {uploading ? 'Cataloguing new works…' : 'Submit new works to the collection'}
             </div>
-            <div style={{ fontSize: '12px', color: MUTED, marginTop: '8px', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: '12px', color: t.muted, marginTop: '8px', letterSpacing: '0.06em' }}>
               Drop images here, or click to browse — PNG, JPG, WebP
             </div>
             <input
@@ -458,7 +460,7 @@ export default function HomeScreen({
 
         <Section numeral="II." title="THE COLLECTION">
           {!loading && cards.length === 0 && (
-            <p style={{ margin: 0, fontFamily: SERIF, fontStyle: 'italic', fontSize: '13.5px', color: MUTED }}>
+            <p style={{ ...t.note, margin: 0, fontSize: '13.5px', lineHeight: undefined }}>
               The walls are bare — submit your first work above.
             </p>
           )}
@@ -468,17 +470,17 @@ export default function HomeScreen({
               gap: '14px', flexWrap: 'wrap', margin: '-6px 0 18px',
             }}>
               {curating ? (
-                <span style={{ fontFamily: SERIF, fontStyle: 'italic', fontSize: '12px', color: MUTED }}>
+                <span style={{ ...t.note, fontSize: '12px', lineHeight: undefined }}>
                   ★ featured works hang first · ‹ › set the order · hidden works stay in the binder
                 </span>
               ) : <span />}
               <button
                 onClick={() => setCurating((c) => !c)}
                 style={{
-                  ...ghostButtonStyle,
+                  ...t.ghostButton,
                   padding: '8px 18px',
                   fontSize: '11px',
-                  ...(curating ? { border: `1px solid ${GOLD}` } : {}),
+                  ...(curating ? { border: `${t.borderWidth}px solid ${t.accent}` } : {}),
                 }}
               >
                 {curating ? 'DONE CURATING' : 'CURATE THE WALLS'}
@@ -499,9 +501,7 @@ export default function HomeScreen({
                   alt={card.name}
                   style={{
                     width: '100%', aspectRatio: '2.5/3.5', objectFit: 'cover', display: 'block',
-                    borderRadius: '2px', border: '3px solid #3a2f1e',
-                    outline: `1px solid ${HAIRLINE}`, outlineOffset: '3px',
-                    boxSizing: 'border-box',
+                    ...t.cardFrame,
                     opacity: hidden ? 0.45 : 1,
                   }}
                 />
@@ -512,7 +512,7 @@ export default function HomeScreen({
                       title="Remove from collection"
                       style={{
                         position: 'absolute', top: '6px', right: '6px',
-                        background: 'rgba(0,0,0,0.75)', color: TEXT, border: `1px solid ${HAIRLINE}`,
+                        background: 'rgba(0,0,0,0.75)', color: t.text, border: `${t.borderWidth}px solid ${t.border}`,
                         borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
                         fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
                       }}
@@ -525,8 +525,8 @@ export default function HomeScreen({
                       style={{
                         position: 'absolute', top: '6px', left: '6px',
                         background: 'rgba(0,0,0,0.75)',
-                        color: editingCardId === card.id ? GOLD : TEXT,
-                        border: `1px solid ${editingCardId === card.id ? GOLD : HAIRLINE}`,
+                        color: editingCardId === card.id ? t.accent : t.text,
+                        border: `${t.borderWidth}px solid ${editingCardId === card.id ? t.accent : t.border}`,
                         borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
                         fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
                       }}
@@ -538,9 +538,10 @@ export default function HomeScreen({
                 {curating && hidden && (
                   <span style={{
                     position: 'absolute', top: '6px', left: '6px',
-                    background: 'rgba(0,0,0,0.8)', color: MUTED, border: `1px solid ${HAIRLINE}`,
+                    background: 'rgba(0,0,0,0.8)', color: t.muted, border: `${t.borderWidth}px solid ${t.border}`,
                     borderRadius: '3px', padding: '2px 6px',
                     fontSize: '9px', letterSpacing: '0.12em',
+                    fontFamily: t.id === 'refined' ? undefined : t.fontMono,
                   }}>
                     OFF THE WALLS
                   </span>
@@ -555,8 +556,8 @@ export default function HomeScreen({
                       title={card.featured ? 'Un-feature' : 'Feature — hangs first on the walls'}
                       style={{
                         ...curateBtnStyle,
-                        color: card.featured ? GOLD : TEXT,
-                        border: `1px solid ${card.featured ? GOLD : HAIRLINE}`,
+                        color: card.featured ? t.accent : t.text,
+                        border: `${t.borderWidth}px solid ${card.featured ? t.accent : t.border}`,
                       }}
                     >
                       {card.featured ? '★' : '☆'}
@@ -599,8 +600,9 @@ export default function HomeScreen({
                   </div>
                 )}
                 <figcaption style={{
-                  marginTop: curating ? '8px' : '10px', textAlign: 'center', fontFamily: SERIF, fontSize: '11.5px',
-                  fontStyle: 'italic', color: MUTED,
+                  ...t.note,
+                  marginTop: curating ? '8px' : '10px', textAlign: 'center',
+                  fontSize: '11.5px', lineHeight: undefined,
                 }}>
                   <span style={{
                     display: 'block',
@@ -629,7 +631,7 @@ export default function HomeScreen({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '0 40px' }}>
           <Section numeral="III." title="EXHIBITIONS">
             {planSummaries.length === 0 && (
-              <p style={{ margin: '0 0 14px', fontFamily: SERIF, fontStyle: 'italic', fontSize: '13px', color: MUTED }}>
+              <p style={{ ...t.note, margin: '0 0 14px', fontSize: '13px', lineHeight: undefined }}>
                 No saved floor plans yet.
               </p>
             )}
@@ -640,16 +642,16 @@ export default function HomeScreen({
                 onClick={() => { if (!walkingId) handleWalk(p.id); }}
                 style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '13px 10px', borderBottom: '1px solid rgba(212,175,55,0.12)',
+                  padding: '13px 10px', borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
                   cursor: walkingId ? 'wait' : 'pointer',
                   opacity: walkingId && walkingId !== p.id ? 0.5 : 1,
                 }}
               >
                 <div>
-                  <div style={{ fontFamily: SERIF, fontSize: '14px' }}>{p.name}</div>
-                  <div style={{ fontSize: '11.5px', color: MUTED, marginTop: '2px' }}>{p.detail}</div>
+                  <div style={{ fontFamily: t.fontDisplay, fontSize: '14px' }}>{p.name}</div>
+                  <div style={{ fontSize: '11.5px', color: t.muted, marginTop: '2px' }}>{p.detail}</div>
                 </div>
-                <span style={{ color: GOLD, fontSize: '13px', whiteSpace: 'nowrap' }}>
+                <span style={{ color: t.accent, fontSize: '13px', whiteSpace: 'nowrap' }}>
                   {walkingId === p.id ? 'Opening…' : 'Walk →'}
                 </span>
               </div>
@@ -657,21 +659,21 @@ export default function HomeScreen({
             <div
               className="museum-row"
               onClick={onVendor}
-              style={{ padding: '13px 10px', cursor: 'pointer', fontSize: '12.5px', color: MUTED, letterSpacing: '0.06em' }}
+              style={{ padding: '13px 10px', cursor: 'pointer', fontSize: '12.5px', color: t.muted, letterSpacing: '0.06em' }}
             >
               + Upload or edit a floor plan
             </div>
           </Section>
 
           <Section numeral="IV." title="TABLECLOTH BANNER">
-            <div style={{ fontSize: '11.5px', color: MUTED, marginBottom: '12px', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: '11.5px', color: t.muted, marginBottom: '12px', letterSpacing: '0.06em' }}>
               Displayed on the front of your vendor table — plain cloth if empty.
             </div>
             <div
               onClick={() => document.getElementById('home-banner-input')?.click()}
               style={{
-                position: 'relative', borderRadius: '2px', border: `1px ${bannerUrl ? 'solid' : 'dashed'} ${HAIRLINE}`,
-                background: PANEL, cursor: 'pointer', padding: bannerUrl ? '8px' : '26px',
+                position: 'relative', borderRadius: '2px', border: `${t.borderWidth}px ${bannerUrl ? 'solid' : 'dashed'} ${t.border}`,
+                background: t.panel, cursor: 'pointer', padding: bannerUrl ? '8px' : '26px',
                 textAlign: 'center', transition: 'all 0.2s',
               }}
             >
@@ -687,7 +689,7 @@ export default function HomeScreen({
                     title="Remove banner"
                     style={{
                       position: 'absolute', top: '6px', right: '6px',
-                      background: 'rgba(0,0,0,0.75)', color: TEXT, border: `1px solid ${HAIRLINE}`,
+                      background: 'rgba(0,0,0,0.75)', color: t.text, border: `${t.borderWidth}px solid ${t.border}`,
                       borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
                       fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
                     }}
@@ -697,8 +699,8 @@ export default function HomeScreen({
                 </>
               ) : (
                 <>
-                  <div style={{ fontFamily: SERIF, fontSize: '13.5px' }}>Add a banner image</div>
-                  <div style={{ fontSize: '11.5px', color: MUTED, marginTop: '6px' }}>Click to browse</div>
+                  <div style={{ fontFamily: t.fontDisplay, fontSize: '13.5px' }}>Add a banner image</div>
+                  <div style={{ fontSize: '11.5px', color: t.muted, marginTop: '6px' }}>Click to browse</div>
                 </>
               )}
               <input
@@ -720,15 +722,15 @@ export default function HomeScreen({
           <div style={{ marginBottom: '14px' }}>
             <Ornament width={40} />
           </div>
-          <p style={{ margin: 0, fontSize: '11px', letterSpacing: '0.2em', color: MUTED }}>
+          <p style={{ margin: 0, fontSize: '11px', letterSpacing: '0.2em', color: t.muted, fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
             {sandbox || !authConfigured
               ? 'EVERYTHING LIVES IN YOUR BROWSER · NO ACCOUNT REQUIRED'
               : 'SYNCED TO YOUR ACCOUNT'}
           </p>
           {!sandbox && authConfigured && (
-            <p style={{ margin: '12px 0 0', fontSize: '12px', fontFamily: SERIF, fontStyle: 'italic', color: MUTED }}>
+            <p style={{ ...t.note, margin: '12px 0 0', fontSize: '12px', lineHeight: undefined }}>
               Prefer to keep things offline?{' '}
-              <Link href="/sandbox" style={{ color: GOLD }}>
+              <Link href="/sandbox" style={{ color: t.accent }}>
                 Open the local sandbox →
               </Link>
             </p>

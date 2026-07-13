@@ -1,9 +1,14 @@
 import type { CSSProperties } from 'react';
+import { useTheme, withAlpha } from './themeKit';
 
 // In-hall vendor directory (DOM overlay, VendorScene owns open state).
 // Opening unlocks the pointer and freezes controls — the binder-open pattern.
 // Selecting a vendor highlights their booth(s) on the minimap, which stays
 // visible top-right while the panel is up.
+//
+// Styling: 'refined' keeps the legacy literals pixel-identical — gold/serif
+// values that already equal refined tokens read the token directly; the rest
+// branch on `themed`.
 
 export interface DirectoryVendor {
   id: string;
@@ -22,23 +27,6 @@ interface HallDirectoryProps {
   onClose: () => void;
 }
 
-const GOLD = '#d4af37';
-const SERIF = "Georgia, 'Times New Roman', serif";
-
-const rowStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: 12,
-  width: '100%',
-  textAlign: 'left',
-  background: 'transparent',
-  border: 'none',
-  borderBottom: '1px solid rgba(212,175,55,0.14)',
-  padding: '11px 10px',
-  cursor: 'pointer',
-  color: 'rgba(255,255,255,0.88)',
-};
-
 export default function HallDirectory({
   vendors,
   highlightId,
@@ -47,6 +35,23 @@ export default function HallDirectory({
   onToggleStar,
   onClose,
 }: HallDirectoryProps) {
+  const t = useTheme();
+  const themed = t.id !== 'refined';
+  const rowStyle: CSSProperties = {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 12,
+    width: '100%',
+    textAlign: 'left',
+    background: 'transparent',
+    border: 'none',
+    borderBottom: themed
+      ? `1px solid ${withAlpha(t.text, 0.14)}`
+      : '1px solid rgba(212,175,55,0.14)',
+    padding: '11px 10px',
+    cursor: 'pointer',
+    color: themed ? t.text : 'rgba(255,255,255,0.88)',
+  };
   return (
     <div
       style={{
@@ -57,8 +62,10 @@ export default function HallDirectory({
         maxHeight: 'calc(100vh - 140px)',
         display: 'flex',
         flexDirection: 'column',
-        background: 'rgba(10,8,6,0.88)',
-        border: '1px solid rgba(212,175,55,0.35)',
+        background: themed ? withAlpha(t.bg, 0.88) : 'rgba(10,8,6,0.88)',
+        border: themed
+          ? `${t.borderWidth}px solid ${t.border}`
+          : '1px solid rgba(212,175,55,0.35)',
         borderRadius: 8,
         backdropFilter: 'blur(6px)',
         zIndex: 20,
@@ -73,15 +80,15 @@ export default function HallDirectory({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '14px 16px 12px',
-          borderBottom: '1px solid rgba(212,175,55,0.3)',
+          borderBottom: themed ? `1px solid ${t.border}` : '1px solid rgba(212,175,55,0.3)',
         }}
       >
         <span
           style={{
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             fontSize: 13,
             letterSpacing: '0.22em',
-            color: GOLD,
+            color: t.accent,
           }}
         >
           VENDORS AT THIS SHOW
@@ -92,7 +99,7 @@ export default function HallDirectory({
           style={{
             background: 'transparent',
             border: 'none',
-            color: 'rgba(255,255,255,0.7)',
+            color: themed ? t.muted : 'rgba(255,255,255,0.7)',
             fontSize: 15,
             cursor: 'pointer',
             padding: '2px 4px',
@@ -107,10 +114,10 @@ export default function HallDirectory({
         {vendors.length === 0 ? (
           <p
             style={{
-              fontFamily: SERIF,
+              fontFamily: t.fontMono,
               fontStyle: 'italic',
               fontSize: 13.5,
-              color: 'rgba(255,255,255,0.55)',
+              color: themed ? t.muted : 'rgba(255,255,255,0.55)',
               padding: '12px 10px',
               margin: 0,
             }}
@@ -133,8 +140,8 @@ export default function HallDirectory({
                 style={{
                   ...rowStyle,
                   alignItems: 'center',
-                  background: active ? 'rgba(212,175,55,0.14)' : 'transparent',
-                  borderLeft: active ? `2px solid ${GOLD}` : '2px solid transparent',
+                  background: active ? withAlpha(t.accent, 0.14) : 'transparent',
+                  borderLeft: active ? `2px solid ${t.accent}` : '2px solid transparent',
                 }}
               >
                 {onToggleStar && (
@@ -151,7 +158,7 @@ export default function HallDirectory({
                       fontSize: 15,
                       lineHeight: 1,
                       padding: 0,
-                      color: starredRow ? GOLD : 'rgba(212,175,55,0.35)',
+                      color: starredRow ? t.accent : withAlpha(t.accent, 0.35),
                     }}
                   >
                     {starredRow ? '★' : '☆'}
@@ -159,14 +166,14 @@ export default function HallDirectory({
                 )}
                 <span
                   style={{
-                    fontFamily: SERIF,
+                    fontFamily: t.fontMono,
                     fontSize: 14.5,
                     flex: 1,
                     minWidth: 0,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    color: active ? GOLD : 'rgba(255,255,255,0.88)',
+                    color: active ? t.accent : (themed ? t.text : 'rgba(255,255,255,0.88)'),
                   }}
                 >
                   {v.name}
@@ -174,9 +181,9 @@ export default function HallDirectory({
                 <span
                   style={{
                     fontSize: 11,
-                    color: 'rgba(255,255,255,0.5)',
+                    color: themed ? t.muted : 'rgba(255,255,255,0.5)',
                     whiteSpace: 'nowrap',
-                    fontFamily: 'sans-serif',
+                    fontFamily: themed ? t.fontMono : 'sans-serif',
                   }}
                 >
                   {v.boothCount} {v.boothCount === 1 ? 'booth' : 'booths'}
@@ -191,10 +198,10 @@ export default function HallDirectory({
       <div
         style={{
           padding: '9px 16px 11px',
-          borderTop: '1px solid rgba(212,175,55,0.2)',
+          borderTop: themed ? `1px solid ${t.border}` : '1px solid rgba(212,175,55,0.2)',
           fontSize: 11,
-          color: 'rgba(255,255,255,0.45)',
-          fontFamily: 'sans-serif',
+          color: themed ? t.muted : 'rgba(255,255,255,0.45)',
+          fontFamily: themed ? t.fontMono : 'sans-serif',
           letterSpacing: '0.04em',
         }}
       >

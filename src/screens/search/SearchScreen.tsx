@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Link, useSearch } from 'wouter';
 import PageShell from '../PageShell';
 import SearchBox from '../../components/SearchBox';
@@ -10,96 +11,104 @@ import type { RegisteredVendorSummary } from '../../lib/publicVendors';
 import { formatShowDate } from '../shows/ShowDirectory';
 import { formatLocation } from '../../lib/locations';
 import { formatPrice } from '../../lib/price';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF, Section, noteStyle,
-} from '../../components/museumKit';
+import { Section, useTheme } from '../../components/themeKit';
+import type { Theme } from '../../components/themeKit';
 
 // /search?q=… — cross-entity search results (roadmap item 14): published
 // shows by name, registered vendors by name, public inventory by caption.
 
-const rowStyle = {
+const rowStyle = (t: Theme): CSSProperties => ({
   display: 'flex',
   gap: 16,
   alignItems: 'center',
   padding: '14px 16px',
-  border: `1px solid ${HAIRLINE}`,
+  border: `${t.borderWidth}px solid ${t.border}`,
   borderRadius: 4,
-  background: PANEL,
+  background: t.panel,
   textDecoration: 'none',
-  color: TEXT,
-} as const;
+  color: t.text,
+});
 
-const arrowStyle = {
-  fontFamily: SERIF,
+const arrowStyle = (t: Theme): CSSProperties => ({
+  fontFamily: t.fontMono,
   fontSize: 12,
   letterSpacing: '0.18em',
-  color: GOLD,
+  color: t.accent,
   whiteSpace: 'nowrap',
-} as const;
+});
+
+/** Small-caps meta rows previously inherited the page sans — keep that under
+ *  'refined', go mono elsewhere. */
+const metaFont = (t: Theme): string | undefined =>
+  t.id === 'refined' ? undefined : t.fontMono;
 
 function TruncatedNote({ limit }: { limit: number }) {
+  const t = useTheme();
   return (
-    <p style={{ ...noteStyle, fontSize: 13, marginTop: 10 }}>
+    <p style={{ ...t.note, fontSize: 13, marginTop: 10 }}>
       Showing the first {limit} — refine your search.
     </p>
   );
 }
 
 function ShowRow({ show }: { show: PublicShowSummary }) {
+  const t = useTheme();
   const location = formatLocation(show);
   return (
-    <Link href={`/show/${show.id}`} className="museum-row" style={rowStyle}>
+    <Link href={`/show/${show.id}`} className="museum-row" style={rowStyle(t)}>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontFamily: SERIF, fontSize: 18, letterSpacing: '0.06em', marginBottom: 4 }}>
+        <div style={{ fontFamily: t.fontDisplay, fontSize: 18, letterSpacing: '0.06em', marginBottom: 4 }}>
           {show.name}
         </div>
-        <div style={{ ...noteStyle, fontSize: 13.5, lineHeight: 1.55 }}>
+        <div style={{ ...t.note, fontSize: 13.5, lineHeight: 1.55 }}>
           {formatShowDate(show.showDate) ?? 'Date to be announced'}
           {location ? ` · ${location}` : ''}
         </div>
-        <div style={{ fontSize: 11, letterSpacing: '0.14em', color: MUTED, marginTop: 5 }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.14em', color: t.muted, marginTop: 5, fontFamily: metaFont(t) }}>
           {show.boothCount} BOOTH{show.boothCount === 1 ? '' : 'S'} ·{' '}
           {show.vendorCount} VENDOR{show.vendorCount === 1 ? '' : 'S'}
         </div>
       </div>
-      <span style={arrowStyle}>VIEW →</span>
+      <span style={arrowStyle(t)}>VIEW →</span>
     </Link>
   );
 }
 
 function VendorRow({ vendor }: { vendor: RegisteredVendorSummary }) {
+  const t = useTheme();
   const location = formatLocation({ country: vendor.country, state: vendor.state });
   return (
-    <Link href={`/vendor/${vendor.id}`} className="museum-row" style={rowStyle}>
+    <Link href={`/vendor/${vendor.id}`} className="museum-row" style={rowStyle(t)}>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontFamily: SERIF, fontSize: 18, letterSpacing: '0.06em', marginBottom: 4 }}>
+        <div style={{ fontFamily: t.fontDisplay, fontSize: 18, letterSpacing: '0.06em', marginBottom: 4 }}>
           {vendor.name}
         </div>
         {location && (
-          <div style={{ ...noteStyle, fontSize: 13.5, lineHeight: 1.55 }}>{location}</div>
+          <div style={{ ...t.note, fontSize: 13.5, lineHeight: 1.55 }}>{location}</div>
         )}
-        <div style={{ fontSize: 11, letterSpacing: '0.14em', color: MUTED, marginTop: 5 }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.14em', color: t.muted, marginTop: 5, fontFamily: metaFont(t) }}>
           {vendor.inventoryCount} ITEM{vendor.inventoryCount === 1 ? '' : 'S'}
         </div>
       </div>
-      <span style={arrowStyle}>VISIT →</span>
+      <span style={arrowStyle(t)}>VISIT →</span>
     </Link>
   );
 }
 
 function CardRow({ item }: { item: SearchInventoryItem }) {
+  const t = useTheme();
   const sold = item.status === 'sold';
   const condition = item.condition.trim();
   return (
-    <Link href={`/vendor/${item.vendorId}`} className="museum-row" style={rowStyle}>
+    <Link href={`/vendor/${item.vendorId}`} className="museum-row" style={rowStyle(t)}>
       <div
         style={{
           width: 44,
           aspectRatio: `${item.aspect > 0 ? item.aspect : 0.714}`,
           flexShrink: 0,
           borderRadius: 2,
-          border: `1px solid ${HAIRLINE}`,
-          background: '#0d0b0a',
+          border: `${t.borderWidth}px solid ${t.border}`,
+          background: t.surface,
           overflow: 'hidden',
         }}
       >
@@ -110,14 +119,14 @@ function CardRow({ item }: { item: SearchInventoryItem }) {
         />
       </div>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontFamily: SERIF, fontSize: 16, letterSpacing: '0.04em', marginBottom: 3 }}>
+        <div style={{ fontFamily: t.fontDisplay, fontSize: 16, letterSpacing: '0.04em', marginBottom: 3 }}>
           {item.caption || 'Untitled'}
         </div>
-        <div style={{ fontSize: 12, color: MUTED, letterSpacing: '0.04em' }}>
+        <div style={{ fontSize: 12, color: t.muted, letterSpacing: '0.04em', fontFamily: metaFont(t) }}>
           {item.price !== undefined && (
             <span
               style={{
-                color: sold ? MUTED : GOLD,
+                color: sold ? t.muted : t.accent,
                 textDecoration: sold ? 'line-through' : 'none',
                 marginRight: 8,
               }}
@@ -127,29 +136,34 @@ function CardRow({ item }: { item: SearchInventoryItem }) {
           )}
           {sold && (
             <span
-              style={{
-                fontSize: 10,
-                letterSpacing: '0.2em',
-                color: MUTED,
-                border: `1px solid ${HAIRLINE}`,
-                borderRadius: 2,
-                padding: '1px 6px',
-                marginRight: 8,
-              }}
+              style={t.id === 'refined'
+                ? {
+                    fontSize: 10,
+                    letterSpacing: '0.2em',
+                    color: t.muted,
+                    border: `1px solid ${t.border}`,
+                    borderRadius: 2,
+                    padding: '1px 6px',
+                    marginRight: 8,
+                  }
+                : { ...t.chip, marginRight: 8 }}
             >
               SOLD
             </span>
           )}
           {condition && <span style={{ marginRight: 8 }}>{condition}</span>}
-          <span style={{ fontStyle: 'italic', fontFamily: SERIF }}>{item.vendorName}</span>
+          <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal', fontFamily: t.fontMono }}>
+            {item.vendorName}
+          </span>
         </div>
       </div>
-      <span style={arrowStyle}>VISIT →</span>
+      <span style={arrowStyle(t)}>VISIT →</span>
     </Link>
   );
 }
 
 export default function SearchScreen() {
+  const t = useTheme();
   // Reactive ?q=… — wouter ^3.10 exports useSearch (the query string sans '?').
   const searchString = useSearch();
   const q = (new URLSearchParams(searchString).get('q') ?? '').trim();
@@ -193,23 +207,23 @@ export default function SearchScreen() {
       </div>
 
       {!isSupabaseConfigured && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>
+        <p style={{ ...t.note, fontSize: 16 }}>
           Search needs a configured backend — this deployment runs in guest-only mode.
         </p>
       )}
 
       {isSupabaseConfigured && !longEnough && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>
+        <p style={{ ...t.note, fontSize: 16 }}>
           Type at least {SEARCH_MIN_CHARS} characters to search shows, vendors and cards.
         </p>
       )}
 
       {isSupabaseConfigured && longEnough && loading && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>Searching the catalogue…</p>
+        <p style={{ ...t.note, fontSize: 16 }}>Searching the catalogue…</p>
       )}
 
       {isSupabaseConfigured && empty && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>
+        <p style={{ ...t.note, fontSize: 16 }}>
           Nothing in the catalogue matches “{q}”.
         </p>
       )}

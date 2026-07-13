@@ -3,20 +3,8 @@ import type { InventoryStatus } from '../lib/db';
 import { parseBulkLines } from '../lib/bulkInventory';
 import type { BulkRow } from '../lib/bulkInventory';
 import { formatPrice } from '../lib/price';
-import {
-  GOLD,
-  HAIRLINE,
-  MUTED,
-  SERIF,
-  panelStyle,
-  panelTitleStyle,
-  ghostButtonStyle,
-  primaryButtonStyle,
-  primaryButtonDisabledStyle,
-  inputStyle,
-  noteStyle,
-  errorTextStyle,
-} from './museumKit';
+import { useTheme, withAlpha } from './themeKit';
+import type { Theme } from './themeKit';
 
 // Bulk inventory tooling for the Vendor Registry — vendors have hundreds of
 // cards and per-item typing is the ceiling. Two tools: PASTE & MATCH (one
@@ -55,44 +43,48 @@ const STATUS_LABEL: Record<InventoryStatus, string> = {
 /** Em-dash = "this field stays untouched". */
 const UNTOUCHED = '—';
 
-const smallGhostStyle: React.CSSProperties = {
-  ...ghostButtonStyle,
+// Themed style recipes — functions of the active theme (identical to the old
+// museumKit-derived objects under 'refined').
+
+const smallGhostStyle = (t: Theme): React.CSSProperties => ({
+  ...t.ghostButton,
   padding: '8px 14px',
   fontSize: 12,
   letterSpacing: '0.08em',
-};
+});
 
-const smallPrimaryStyle: React.CSSProperties = {
-  ...primaryButtonStyle,
+const smallPrimaryStyle = (t: Theme): React.CSSProperties => ({
+  ...t.primaryButton,
   padding: '9px 18px',
   fontSize: 12,
   letterSpacing: '0.1em',
-};
+});
 
-const smallPrimaryDisabledStyle: React.CSSProperties = {
-  ...primaryButtonDisabledStyle,
+const smallPrimaryDisabledStyle = (t: Theme): React.CSSProperties => ({
+  ...t.primaryButtonDisabled,
   padding: '9px 18px',
   fontSize: 12,
   letterSpacing: '0.1em',
-};
+});
 
-const thStyle: React.CSSProperties = {
+const thStyle = (t: Theme): React.CSSProperties => ({
   textAlign: 'left',
   padding: '6px 8px',
   fontSize: 10.5,
   fontWeight: 400,
   letterSpacing: '0.14em',
-  color: MUTED,
-  borderBottom: `1px solid ${HAIRLINE}`,
+  color: t.muted,
+  borderBottom: `1px solid ${t.border}`,
   whiteSpace: 'nowrap',
-};
+  fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+});
 
-const tdStyle: React.CSSProperties = {
+const tdStyle = (t: Theme): React.CSSProperties => ({
   padding: '6px 8px',
   fontSize: 12.5,
-  borderBottom: '1px solid rgba(212,175,55,0.12)',
+  borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
   verticalAlign: 'middle',
-};
+});
 
 /** Only defined fields make it into the patch — blanks leave values alone. */
 function rowToPatch(row: BulkRow): BulkPatch {
@@ -105,6 +97,12 @@ function rowToPatch(row: BulkRow): BulkPatch {
 }
 
 export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: BulkInventoryPanelProps) {
+  const t = useTheme();
+  const smallGhost = smallGhostStyle(t);
+  const smallPrimary = smallPrimaryStyle(t);
+  const smallPrimaryDisabled = smallPrimaryDisabledStyle(t);
+  const th = thStyle(t);
+  const td = tdStyle(t);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [progress, setProgress] = useState<string | null>(null);
@@ -167,7 +165,7 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
   if (!open) {
     return (
       <div style={{ marginBottom: '18px' }}>
-        <button onClick={() => setOpen(true)} style={smallGhostStyle}>
+        <button onClick={() => setOpen(true)} style={smallGhost}>
           ▤ BULK TOOLS
         </button>
       </div>
@@ -175,22 +173,22 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
   }
 
   return (
-    <div style={{ ...panelStyle, padding: '18px 20px', marginBottom: '18px', background: '#171310' }}>
+    <div style={{ ...t.panelStyle, padding: '18px 20px', marginBottom: '18px', background: t.bg }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
-        <div style={{ ...panelTitleStyle, margin: 0 }}>BULK TOOLS</div>
+        <div style={{ ...t.panelTitle, margin: 0 }}>BULK TOOLS</div>
         <button
           onClick={() => setOpen(false)}
-          style={{ background: 'transparent', border: 'none', color: MUTED, fontSize: 12, letterSpacing: '0.08em', fontFamily: SERIF, cursor: 'pointer', padding: '2px 6px' }}
+          style={{ background: 'transparent', border: 'none', color: t.muted, fontSize: 12, letterSpacing: '0.08em', fontFamily: t.fontMono, cursor: 'pointer', padding: '2px 6px' }}
         >
           HIDE ✕
         </button>
       </div>
 
       {/* ---- Paste & match ---- */}
-      <div style={{ margin: '16px 0 8px', fontSize: 11.5, letterSpacing: '0.18em', color: GOLD }}>
+      <div style={{ margin: '16px 0 8px', fontSize: 11.5, letterSpacing: '0.18em', color: t.accent, fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
         PASTE &amp; MATCH
       </div>
-      <div style={{ ...noteStyle, fontSize: 12, marginBottom: '10px' }}>
+      <div style={{ ...t.note, fontSize: 12, marginBottom: '10px' }}>
         One line per item, top to bottom in the grid order below. Fields:
         caption | price | condition | status — separated by tab (spreadsheet
         paste), | or comma. Tab and | take precedence, so captions may contain
@@ -202,27 +200,27 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
         placeholder={'caption | price | condition | status\nCharizard, holo | 250 | PSA 9 | sold\n| 40   (price only — tab or comma work too)'}
         rows={5}
         disabled={applying}
-        style={{ ...inputStyle, fontSize: 12.5, minHeight: '96px', resize: 'vertical' }}
+        style={{ ...t.input, fontSize: 12.5, minHeight: '96px', resize: 'vertical' }}
       />
 
       {rows.length > 0 && rows.length !== items.length && (
-        <div style={{ ...noteStyle, fontSize: 11.5, marginTop: '8px' }}>
+        <div style={{ ...t.note, fontSize: 11.5, marginTop: '8px' }}>
           {rows.length} {rows.length === 1 ? 'line' : 'lines'} / {items.length}{' '}
           {items.length === 1 ? 'item' : 'items'} — applying the first {previewCount}.
         </div>
       )}
 
       {previewCount > 0 && (
-        <div style={{ maxHeight: '300px', overflowY: 'auto', marginTop: '12px', border: `1px solid rgba(212,175,55,0.12)`, borderRadius: '2px' }}>
+        <div style={{ maxHeight: '300px', overflowY: 'auto', marginTop: '12px', border: `1px solid ${withAlpha(t.accent, 0.12)}`, borderRadius: '2px' }}>
           <table data-testid="bulk-preview" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={thStyle} />
-                <th style={thStyle}>CURRENT</th>
-                <th style={thStyle}>→ CAPTION</th>
-                <th style={thStyle}>PRICE</th>
-                <th style={thStyle}>CONDITION</th>
-                <th style={thStyle}>STATUS</th>
+                <th style={th} />
+                <th style={th}>CURRENT</th>
+                <th style={th}>→ CAPTION</th>
+                <th style={th}>PRICE</th>
+                <th style={th}>CONDITION</th>
+                <th style={th}>STATUS</th>
               </tr>
             </thead>
             <tbody>
@@ -230,22 +228,22 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
                 const item = items[i];
                 return (
                   <tr key={item.id}>
-                    <td style={{ ...tdStyle, width: 38 }}>
+                    <td style={{ ...td, width: 38 }}>
                       <img
                         src={item.imageUrl}
                         alt=""
-                        style={{ width: 34, height: 34, objectFit: 'cover', display: 'block', borderRadius: 2, border: `1px solid ${HAIRLINE}` }}
+                        style={{ width: 34, height: 34, objectFit: 'cover', display: 'block', borderRadius: 2, border: `1px solid ${t.border}` }}
                       />
                     </td>
-                    <td style={{ ...tdStyle, color: MUTED, fontStyle: 'italic', textDecoration: row.caption !== undefined ? 'line-through' : 'none', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ ...td, color: t.muted, fontStyle: 'italic', textDecoration: row.caption !== undefined ? 'line-through' : 'none', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.caption || '(no caption)'}
                     </td>
-                    <td style={{ ...tdStyle, fontFamily: SERIF }}>{row.caption ?? UNTOUCHED}</td>
-                    <td style={{ ...tdStyle, color: row.price !== undefined ? GOLD : undefined, whiteSpace: 'nowrap' }}>
+                    <td style={{ ...td, fontFamily: t.id === 'refined' ? t.fontDisplay : t.fontBody }}>{row.caption ?? UNTOUCHED}</td>
+                    <td style={{ ...td, color: row.price !== undefined ? t.accent : undefined, whiteSpace: 'nowrap' }}>
                       {row.price !== undefined ? formatPrice(row.price) : UNTOUCHED}
                     </td>
-                    <td style={tdStyle}>{row.condition ?? UNTOUCHED}</td>
-                    <td style={tdStyle}>{row.status !== undefined ? STATUS_LABEL[row.status] : UNTOUCHED}</td>
+                    <td style={td}>{row.condition ?? UNTOUCHED}</td>
+                    <td style={td}>{row.status !== undefined ? STATUS_LABEL[row.status] : UNTOUCHED}</td>
                   </tr>
                 );
               })}
@@ -258,25 +256,25 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
         <button
           onClick={handleApplyPaste}
           disabled={applying || previewCount === 0}
-          style={!applying && previewCount > 0 ? smallPrimaryStyle : smallPrimaryDisabledStyle}
+          style={!applying && previewCount > 0 ? smallPrimary : smallPrimaryDisabled}
         >
           APPLY {previewCount > 0 ? `TO ${previewCount} ITEM${previewCount === 1 ? '' : 'S'}` : ''}
         </button>
         {progress && (
-          <span style={{ fontFamily: SERIF, fontSize: '12.5px', color: GOLD, letterSpacing: '0.04em' }}>
+          <span style={{ fontFamily: t.fontMono, fontSize: '12.5px', color: t.accent, letterSpacing: '0.04em' }}>
             {progress}
           </span>
         )}
         {!progress && note && (
-          <span style={{ fontFamily: SERIF, fontSize: '12.5px', color: GOLD, letterSpacing: '0.04em' }}>
+          <span style={{ fontFamily: t.fontMono, fontSize: '12.5px', color: t.accent, letterSpacing: '0.04em' }}>
             {note}
           </span>
         )}
       </div>
-      {error && <p style={{ ...errorTextStyle, margin: '10px 0 0' }}>{error}</p>}
+      {error && <p style={{ ...t.errorText, margin: '10px 0 0' }}>{error}</p>}
 
       {/* ---- Apply to every item ---- */}
-      <div style={{ margin: '22px 0 8px', fontSize: 11.5, letterSpacing: '0.18em', color: GOLD }}>
+      <div style={{ margin: '22px 0 8px', fontSize: 11.5, letterSpacing: '0.18em', color: t.accent, fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
         APPLY TO EVERY ITEM
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -285,7 +283,7 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
           title="Status for every item"
           disabled={applying}
           onChange={(e) => setAllStatus(e.target.value as '' | InventoryStatus)}
-          style={{ ...inputStyle, display: 'inline-block', width: 'auto', fontSize: 12.5, padding: '8px 10px' }}
+          style={{ ...t.input, display: 'inline-block', width: 'auto', fontSize: 12.5, padding: '8px 10px' }}
         >
           <option value="">— unchanged —</option>
           <option value="forSale">For sale</option>
@@ -298,12 +296,12 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
           value={allCondition}
           disabled={applying}
           onChange={(e) => setAllCondition(e.target.value)}
-          style={{ ...inputStyle, display: 'inline-block', width: 'auto', flex: 1, minWidth: '160px', fontSize: 12.5, padding: '8px 10px', fontStyle: allCondition ? 'normal' : 'italic' }}
+          style={{ ...t.input, display: 'inline-block', width: 'auto', flex: 1, minWidth: '160px', fontSize: 12.5, padding: '8px 10px', fontStyle: allCondition ? 'normal' : 'italic' }}
         />
         <button
           onClick={handleApplyAll}
           disabled={applying || (!allStatus && !allCondition.trim())}
-          style={!applying && (allStatus || allCondition.trim()) ? smallPrimaryStyle : smallPrimaryDisabledStyle}
+          style={!applying && (allStatus || allCondition.trim()) ? smallPrimary : smallPrimaryDisabled}
         >
           SET ALL
         </button>

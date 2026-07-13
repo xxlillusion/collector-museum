@@ -7,27 +7,23 @@ import { getMyProfile } from '../../lib/profileService';
 import { listMyShows, setShowPublished, deleteShow } from '../../lib/showService';
 import type { MyShow } from '../../lib/showService';
 import { formatShowDate } from '../shows/ShowDirectory';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, ERROR, SERIF,
-  Section, primaryButtonStyle, noteStyle, errorTextStyle,
-} from '../../components/museumKit';
-
-/** Big italic-serif commentary for the gate / empty states. */
-const bigNoteStyle: CSSProperties = { ...noteStyle, fontSize: 17, lineHeight: 1.7 };
-
-/** Gold text affordance for the show rows (Edit / Publish / Delete). */
-const rowActionStyle: CSSProperties = {
-  background: 'transparent',
-  border: 'none',
-  padding: '4px 2px',
-  color: GOLD,
-  fontFamily: SERIF,
-  fontSize: 12.5,
-  letterSpacing: '0.12em',
-  cursor: 'pointer',
-};
+import { Section, useTheme } from '../../components/themeKit';
 
 export default function OrganizerHome() {
+  const t = useTheme();
+  /** Big note commentary for the gate / empty states. */
+  const bigNoteStyle: CSSProperties = { ...t.note, fontSize: 17, lineHeight: 1.7 };
+  /** Accent text affordance for the show rows (Edit / Publish / Delete). */
+  const rowActionStyle: CSSProperties = {
+    background: 'transparent',
+    border: 'none',
+    padding: '4px 2px',
+    color: t.accent,
+    fontFamily: t.fontMono,
+    fontSize: 12.5,
+    letterSpacing: '0.12em',
+    cursor: 'pointer',
+  };
   const { configured, session, loading } = useAuth();
   const [shows, setShows] = useState<MyShow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +103,7 @@ export default function OrganizerHome() {
         <>
           <p style={bigNoteStyle}>Sign in to publish and manage your card shows.</p>
           <p style={{ marginTop: 18 }}>
-            <Link href="/login" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
+            <Link href="/login" style={{ color: t.accent, fontSize: 15, fontFamily: t.fontMono, letterSpacing: '0.08em' }}>
               Sign in →
             </Link>
           </p>
@@ -122,11 +118,11 @@ export default function OrganizerHome() {
         <>
           <p style={bigNoteStyle}>
             Only organizers can create shows — enable the organizer designation on your{' '}
-            <Link href="/account" style={{ color: GOLD }}>Account page</Link> and come back to
+            <Link href="/account" style={{ color: t.accent }}>Account page</Link> and come back to
             publish floor plans anyone can walk in 3D.
           </p>
           <p style={{ marginTop: 18 }}>
-            <Link href="/account" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
+            <Link href="/account" style={{ color: t.accent, fontSize: 15, fontFamily: t.fontMono, letterSpacing: '0.08em' }}>
               Go to my account →
             </Link>
           </p>
@@ -139,7 +135,7 @@ export default function OrganizerHome() {
             <Link
               href="/organizer/show/new"
               style={{
-                ...primaryButtonStyle,
+                ...t.primaryButton,
                 display: 'inline-block',
                 textDecoration: 'none',
               }}
@@ -150,13 +146,13 @@ export default function OrganizerHome() {
 
           <Section numeral="I." title="MY SHOWS">
             {error && (
-              <p style={{ ...errorTextStyle, marginBottom: 14 }}>{error}</p>
+              <p style={{ ...t.errorText, marginBottom: 14 }}>{error}</p>
             )}
 
-            {shows === null && !error && <p style={noteStyle}>Loading your shows…</p>}
+            {shows === null && !error && <p style={t.note}>Loading your shows…</p>}
 
             {shows !== null && shows.length === 0 && !error && (
-              <p style={noteStyle}>Nothing published yet.</p>
+              <p style={t.note}>Nothing published yet.</p>
             )}
 
             {shows !== null &&
@@ -172,7 +168,7 @@ export default function OrganizerHome() {
                       gap: 14,
                       flexWrap: 'wrap',
                       padding: '14px 12px',
-                      borderBottom: `1px solid ${HAIRLINE}`,
+                      borderBottom: `1px solid ${t.border}`,
                       opacity: busy ? 0.6 : 1,
                     }}
                   >
@@ -180,8 +176,8 @@ export default function OrganizerHome() {
                       style={{
                         flex: 1,
                         minWidth: 140,
-                        color: TEXT,
-                        fontFamily: SERIF,
+                        color: t.text,
+                        fontFamily: t.fontDisplay,
                         fontSize: 16.5,
                         letterSpacing: '0.04em',
                       }}
@@ -189,7 +185,7 @@ export default function OrganizerHome() {
                       {s.published ? (
                         <Link
                           href={`/show/${s.id}`}
-                          style={{ color: TEXT, textDecoration: 'none' }}
+                          style={{ color: t.text, textDecoration: 'none' }}
                         >
                           {s.name}
                         </Link>
@@ -201,9 +197,9 @@ export default function OrganizerHome() {
                       style={{
                         fontSize: 10.5,
                         letterSpacing: '0.18em',
-                        fontFamily: SERIF,
-                        color: s.published ? GOLD : MUTED,
-                        border: `1px solid ${s.published ? GOLD : HAIRLINE}`,
+                        fontFamily: t.fontMono,
+                        color: s.published ? t.accent : t.muted,
+                        border: `${t.borderWidth}px solid ${s.published ? t.accent : t.border}`,
                         borderRadius: 2,
                         padding: '3px 9px',
                       }}
@@ -212,11 +208,10 @@ export default function OrganizerHome() {
                     </span>
                     <span
                       style={{
-                        color: MUTED,
+                        ...t.note,
                         fontSize: 13,
                         whiteSpace: 'nowrap',
-                        fontFamily: SERIF,
-                        fontStyle: 'italic',
+                        lineHeight: 'normal',
                       }}
                     >
                       {formatShowDate(s.showDate) ?? 'no date'} · {s.boothCount} booth
@@ -239,7 +234,7 @@ export default function OrganizerHome() {
                     <button
                       onClick={() => handleDelete(s)}
                       disabled={busy}
-                      style={{ ...rowActionStyle, color: ERROR }}
+                      style={{ ...rowActionStyle, color: t.error }}
                     >
                       DELETE
                     </button>

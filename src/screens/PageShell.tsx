@@ -4,15 +4,12 @@ import type { Session } from '@supabase/supabase-js';
 import { useAuth } from '../lib/auth';
 import { useMyProfile } from '../lib/useMyProfile';
 import SiteFooter from '../components/SiteFooter';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, SERIF, SANS, PAGE_BG,
-  Ornament, museumHoverCss, noteStyle,
-} from '../components/museumKit';
+import { Ornament, useTheme } from '../components/themeKit';
 
 /**
  * Shared chrome for the DOM-only platform pages (auth, shows directory,
- * vendor profiles, organizer). Museum-refined masthead: small-caps eyebrow,
- * serif letterspaced title, ornament rule — matching the home page. Owns its
+ * vendor profiles, organizer). Themed masthead: small-caps eyebrow,
+ * letterspaced display title, ornament rule — matching the home page. Owns its
  * own scrolling — html/body/#root keep overflow hidden for the canvases.
  */
 /** Signup writes display_name into auth metadata (lib/auth.tsx), so it's
@@ -45,18 +42,28 @@ export default function PageShell({ title, eyebrow, wide, children }: {
 }) {
   const { configured, session } = useAuth();
   const { profile } = useMyProfile();
+  const t = useTheme();
+  const night = t.id === 'night';
+  const cornerPill = {
+    color: t.accent,
+    textDecoration: 'none',
+    border: `${t.borderWidth}px solid ${t.border}`,
+    borderRadius: 999,
+    padding: '7px 14px',
+    whiteSpace: 'nowrap',
+  } as const;
   return (
     <div
       style={{
         height: '100vh',
         overflowY: 'auto',
-        background: PAGE_BG,
-        color: TEXT,
-        fontFamily: SANS,
+        background: t.pageBg,
+        color: t.text,
+        fontFamily: t.fontBody,
         position: 'relative',
       }}
     >
-      <style>{museumHoverCss}</style>
+      <style>{t.hoverCss}</style>
       {/* Corner chrome: sized to clear the "← VENDOR MUSEUM" back link at
           375px — single row, ellipsized account label, bottom above y=48. */}
       <div
@@ -68,35 +75,20 @@ export default function PageShell({ title, eyebrow, wide, children }: {
           alignItems: 'center',
           gap: 8,
           maxWidth: 'calc(100vw - 44px)',
-          fontFamily: SERIF,
+          fontFamily: t.fontMono,
           fontSize: 12,
           letterSpacing: '0.12em',
           zIndex: 2,
         }}
       >
-        <Link
-          href="/wants"
-          style={{
-            color: GOLD,
-            textDecoration: 'none',
-            border: `1px solid ${HAIRLINE}`,
-            borderRadius: 999,
-            padding: '7px 14px',
-            whiteSpace: 'nowrap',
-          }}
-        >
+        <Link href="/wants" style={cornerPill}>
           ♥ WANTS
         </Link>
         {configured && (
           <Link
             href={session ? '/account' : '/login'}
             style={{
-              color: GOLD,
-              textDecoration: 'none',
-              border: `1px solid ${HAIRLINE}`,
-              borderRadius: 999,
-              padding: '7px 14px',
-              whiteSpace: 'nowrap',
+              ...cornerPill,
               maxWidth: 'min(40vw, 240px)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -109,24 +101,33 @@ export default function PageShell({ title, eyebrow, wide, children }: {
       <div style={{ maxWidth: wide ? 1100 : 880, margin: '0 auto', padding: '48px clamp(16px, 4vw, 24px) 80px' }}>
         <Link
           href="/"
-          style={{ color: GOLD, textDecoration: 'none', fontFamily: SERIF, fontSize: 12, letterSpacing: '0.22em' }}
+          style={{ color: t.accent, textDecoration: 'none', fontFamily: t.fontMono, fontSize: 12, letterSpacing: '0.22em' }}
         >
           ← VENDOR MUSEUM
         </Link>
         <header style={{ textAlign: 'center', margin: '30px 0 40px' }}>
           {eyebrow && (
-            <div style={{ fontSize: 11, letterSpacing: '0.4em', color: MUTED, marginBottom: 12 }}>
+            <div
+              style={{
+                fontSize: 11,
+                letterSpacing: '0.4em',
+                color: t.muted,
+                marginBottom: 12,
+                fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+              }}
+            >
               {eyebrow}
             </div>
           )}
           <h1
             style={{
               margin: 0,
-              fontFamily: SERIF,
-              fontWeight: 400,
-              fontSize: 'clamp(24px, 7vw, 34px)',
-              letterSpacing: '0.16em',
-              color: GOLD,
+              fontFamily: t.fontDisplay,
+              fontWeight: t.displayWeight,
+              fontSize: night ? 'clamp(30px, 8vw, 44px)' : 'clamp(24px, 7vw, 34px)',
+              letterSpacing: night ? '0.05em' : '0.16em',
+              lineHeight: night ? 0.98 : undefined,
+              color: t.accent,
               textTransform: 'uppercase',
             }}
           >
@@ -145,5 +146,6 @@ export default function PageShell({ title, eyebrow, wide, children }: {
 
 /** Placeholder body for routes whose workstream hasn't landed yet. */
 export function ComingSoon({ note }: { note: string }) {
-  return <p style={{ ...noteStyle, fontSize: 17, lineHeight: 1.7 }}>{note}</p>;
+  const t = useTheme();
+  return <p style={{ ...t.note, fontSize: 17, lineHeight: 1.7 }}>{note}</p>;
 }

@@ -1,41 +1,42 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Link } from 'wouter';
 import PageShell from '../PageShell';
-import { GOLD, TEXT, SERIF, noteStyle } from '../../components/museumKit';
+import { useTheme } from '../../components/themeKit';
 
 /**
  * Static trust pages (UX Wave A). One file, four named exports; routes.tsx
  * maps each through React.lazy. Short, honest copy in the museum voice —
- * serif italic body, small-caps side headings, nothing legalese.
+ * themed note-style body, small-caps side headings, nothing legalese.
  */
 
-const bodyStyle: CSSProperties = {
-  ...noteStyle,
-  fontSize: 15.5,
-  lineHeight: 1.8,
-  margin: '0 0 22px',
-};
-
-const headingStyle: CSSProperties = {
-  margin: '34px 0 12px',
-  fontFamily: SERIF,
-  fontSize: 13,
-  fontWeight: 400,
-  letterSpacing: '0.22em',
-  color: GOLD,
-};
-
-const emailLinkStyle: CSSProperties = {
-  color: GOLD,
-  textDecoration: 'none',
-  fontStyle: 'normal',
-};
+/** Per-theme prose styles — each page destructures what it uses. */
+function usePageStyles() {
+  const t = useTheme();
+  const bodyStyle: CSSProperties = {
+    ...t.note,
+    fontSize: 15.5,
+    lineHeight: 1.8,
+    margin: '0 0 22px',
+  };
+  // Side headings share the panel-title recipe (small caps, letterspaced).
+  const headingStyle: CSSProperties = {
+    ...t.panelTitle,
+    margin: '34px 0 12px',
+  };
+  const emailLinkStyle: CSSProperties = {
+    color: t.accent,
+    textDecoration: 'none',
+    fontStyle: 'normal',
+  };
+  return { t, bodyStyle, headingStyle, emailLinkStyle };
+}
 
 function Prose({ children }: { children: ReactNode }) {
   return <div style={{ maxWidth: 620, margin: '0 auto' }}>{children}</div>;
 }
 
 export function AboutPage() {
+  const { bodyStyle, emailLinkStyle } = usePageStyles();
   return (
     <PageShell eyebrow="THE MUSEUM" title="About">
       <Prose>
@@ -68,6 +69,7 @@ export function AboutPage() {
 }
 
 export function PrivacyPage() {
+  const { bodyStyle, headingStyle, emailLinkStyle } = usePageStyles();
   return (
     <PageShell eyebrow="THE MUSEUM" title="Privacy">
       <Prose>
@@ -111,6 +113,7 @@ export function PrivacyPage() {
 }
 
 export function TermsPage() {
+  const { bodyStyle } = usePageStyles();
   return (
     <PageShell eyebrow="THE MUSEUM" title="Terms">
       <Prose>
@@ -142,6 +145,7 @@ export function TermsPage() {
 }
 
 export function ContactPage() {
+  const { t, bodyStyle, emailLinkStyle } = usePageStyles();
   return (
     <PageShell eyebrow="THE MUSEUM" title="Contact">
       <Prose>
@@ -158,7 +162,7 @@ export function ContactPage() {
           Expect a human, not a helpdesk. Replies come when the human is awake,
           which is most of the time and never all of it.
         </p>
-        <p style={{ ...bodyStyle, color: TEXT, opacity: 0.85 }}>
+        <p style={{ ...bodyStyle, color: t.text, opacity: 0.85 }}>
           If you're a show organizer or a vendor and want a hand getting your
           floor plan or inventory in, say so — happy to walk you through it.
         </p>

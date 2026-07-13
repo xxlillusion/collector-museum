@@ -28,7 +28,24 @@
       "PowerShell(npm ls *)",
       "PowerShell($env:BASE_URL = 'http://localhost:5176'; node verify.tmp.mjs)",
       "PowerShell($env:BASE_URL = 'http://localhost:5176'; node startprobe.tmp.mjs)",
-      "PowerShell($env:BASE_URL = 'http://localhost:5176'; node museum.tmp.mjs)"
+      "PowerShell($env:BASE_URL = 'http://localhost:5176'; node museum.tmp.mjs)",
+      "WebFetch(domain:museum.maybesomething.tech)",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepA.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepD.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepD2.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepD3.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepD4.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepC.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepE1.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepE2.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepE3.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepE4.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepE5.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepE6.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepF.mjs\")",
+      "Bash(node \"C:/Users/jason/AppData/Local/Temp/claude/C--Users-jason-OneDrive-Desktop-playground-vendor-museum/204fcfe6-c430-4a05-9b0a-59a8f932aacf/scratchpad/uxsweepG.mjs\")",
+      "PowerShell($scratch = \"C:\\\\Users\\\\jason\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-jason-Desktop-playground-vendor-museum\\\\a0d38261-f43a-4303-b022-1a332acffa82\\\\scratchpad\"; node \"$scratch\\\\theme-shots.mjs\" \"$scratch\\\\shots\"; Get-ChildItem \"$scratch\\\\shots\" | Select-Object Name, @{n='KB';e={[math]::Round\\($_.Length/1KB\\)}})",
+      "PowerShell(node \"C:\\\\Users\\\\jason\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-jason-Desktop-playground-vendor-museum\\\\a0d38261-f43a-4303-b022-1a332acffa82\\\\scratchpad\\\\build-gallery.mjs\")"
     ]
   }
 }

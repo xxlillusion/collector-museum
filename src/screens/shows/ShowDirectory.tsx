@@ -7,26 +7,25 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { listPublishedShows } from '../../lib/publicShows';
 import type { PublicShowSummary, ShowLocationFilter } from '../../lib/publicShows';
 import { COUNTRIES, regionOptions, formatLocation } from '../../lib/locations';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, PANEL, SERIF,
-  inputStyle, labelStyle, noteStyle,
-} from '../../components/museumKit';
+import { useTheme } from '../../components/themeKit';
+import type { Theme } from '../../components/themeKit';
 
-/** Museum-styled inline select for the filter row (also used by /vendors). */
-export const filterSelectStyle: CSSProperties = {
-  ...inputStyle,
+/** Themed inline select for the filter row (also used by /vendors) — call
+ *  with the active theme from useTheme(). */
+export const filterSelectStyle = (t: Theme): CSSProperties => ({
+  ...t.input,
   display: 'inline-block',
   width: 'auto',
   fontSize: 13,
   padding: '8px 12px',
   cursor: 'pointer',
-};
+});
 
-export const filterLabelStyle: CSSProperties = {
-  ...labelStyle,
+export const filterLabelStyle = (t: Theme): CSSProperties => ({
+  ...t.label,
   display: 'inline-block',
   margin: '0 8px 0 0',
-};
+});
 
 export function formatShowDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -37,6 +36,7 @@ export function formatShowDate(iso: string | null): string | null {
 
 // Owned by the shows workstream (Stream C).
 export default function ShowDirectory() {
+  const t = useTheme();
   const [shows, setShows] = useState<PublicShowSummary[] | null>(null);
   const [country, setCountry] = useState('');
   const [state, setState] = useState('');
@@ -66,7 +66,7 @@ export default function ShowDirectory() {
   return (
     <PageShell title="Card Shows" eyebrow="PUBLIC EXHIBITIONS">
       {!isSupabaseConfigured && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>
+        <p style={{ ...t.note, fontSize: 16 }}>
           The shows directory needs a configured backend — this deployment runs in
           guest-only mode. You can still build and walk floor plans from the home screen.
         </p>
@@ -84,14 +84,14 @@ export default function ShowDirectory() {
         >
           <SearchBox width={280} />
           <div>
-            <span style={filterLabelStyle}>COUNTRY</span>
+            <span style={filterLabelStyle(t)}>COUNTRY</span>
             <select
               value={country}
               onChange={(e) => {
                 setCountry(e.target.value);
                 setState('');
               }}
-              style={filterSelectStyle}
+              style={filterSelectStyle(t)}
             >
               <option value="">All countries</option>
               {COUNTRIES.map((c) => (
@@ -103,11 +103,11 @@ export default function ShowDirectory() {
           </div>
           {regions.length > 0 && (
             <div>
-              <span style={filterLabelStyle}>{country === 'CA' ? 'PROVINCE' : 'STATE'}</span>
+              <span style={filterLabelStyle(t)}>{country === 'CA' ? 'PROVINCE' : 'STATE'}</span>
               <select
                 value={state}
                 onChange={(e) => setState(e.target.value)}
-                style={filterSelectStyle}
+                style={filterSelectStyle(t)}
               >
                 <option value="">All</option>
                 {regions.map((r) => (
@@ -122,12 +122,12 @@ export default function ShowDirectory() {
       )}
 
       {isSupabaseConfigured && shows === null && (
-        <p style={{ ...noteStyle, fontSize: 16 }}>Loading shows…</p>
+        <p style={{ ...t.note, fontSize: 16 }}>Loading shows…</p>
       )}
 
       {isSupabaseConfigured && shows !== null && shows.length === 0 && (
         <>
-          <p style={{ ...noteStyle, fontSize: 16 }}>
+          <p style={{ ...t.note, fontSize: 16 }}>
             {filtered
               ? 'No shows in this area yet — try widening the search.'
               : 'No shows published yet — check back soon.'}
@@ -139,15 +139,9 @@ export default function ShowDirectory() {
               <Link
                 href="/demo"
                 style={{
+                  ...t.ghostButton,
                   display: 'inline-block',
-                  color: GOLD,
                   textDecoration: 'none',
-                  border: `1px solid ${HAIRLINE}`,
-                  borderRadius: 2,
-                  padding: '11px 22px',
-                  fontFamily: SERIF,
-                  fontSize: 12,
-                  letterSpacing: '0.16em',
                 }}
               >
                 {'WALK THE DEMO SHOW →'}
@@ -172,11 +166,11 @@ export default function ShowDirectory() {
                   gap: 20,
                   alignItems: 'center',
                   padding: '16px 18px',
-                  border: `1px solid ${HAIRLINE}`,
+                  border: `${t.borderWidth}px solid ${t.border}`,
                   borderRadius: 4,
-                  background: PANEL,
+                  background: t.panel,
                   textDecoration: 'none',
-                  color: TEXT,
+                  color: t.text,
                 }}
               >
                 <div
@@ -185,8 +179,8 @@ export default function ShowDirectory() {
                     height: 84,
                     flexShrink: 0,
                     borderRadius: 2,
-                    border: `1px solid ${HAIRLINE}`,
-                    background: '#0d0b0a',
+                    border: `${t.borderWidth}px solid ${t.border}`,
+                    background: t.surface,
                     overflow: 'hidden',
                     display: 'flex',
                     alignItems: 'center',
@@ -200,7 +194,7 @@ export default function ShowDirectory() {
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   ) : (
-                    <span style={{ fontFamily: SERIF, fontStyle: 'italic', color: MUTED, fontSize: 12 }}>
+                    <span style={{ ...t.note, fontSize: 12, lineHeight: 'normal' }}>
                       no plan
                     </span>
                   )}
@@ -208,10 +202,10 @@ export default function ShowDirectory() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div
                     style={{
-                      fontFamily: SERIF,
+                      fontFamily: t.fontDisplay,
                       fontSize: 19,
                       letterSpacing: '0.06em',
-                      color: TEXT,
+                      color: t.text,
                       marginBottom: 5,
                     }}
                   >
@@ -219,14 +213,8 @@ export default function ShowDirectory() {
                     {upcoming && (
                       <span
                         style={{
+                          ...t.chip,
                           marginLeft: 10,
-                          fontFamily: SERIF,
-                          fontSize: 10,
-                          letterSpacing: '0.2em',
-                          color: GOLD,
-                          border: `1px solid ${HAIRLINE}`,
-                          borderRadius: 2,
-                          padding: '2px 8px',
                           verticalAlign: 'middle',
                         }}
                       >
@@ -234,25 +222,33 @@ export default function ShowDirectory() {
                       </span>
                     )}
                   </div>
-                  <div style={{ ...noteStyle, fontSize: 13.5, lineHeight: 1.55 }}>
+                  <div style={{ ...t.note, fontSize: 13.5, lineHeight: 1.55 }}>
                     {formatShowDate(s.showDate) ?? 'Date to be announced'}
                   </div>
                   {location && (
-                    <div style={{ ...noteStyle, fontSize: 13, lineHeight: 1.55 }}>
+                    <div style={{ ...t.note, fontSize: 13, lineHeight: 1.55 }}>
                       {location}
                     </div>
                   )}
-                  <div style={{ fontSize: 11, letterSpacing: '0.14em', color: MUTED, marginTop: 6 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      letterSpacing: '0.14em',
+                      color: t.muted,
+                      marginTop: 6,
+                      fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+                    }}
+                  >
                     {s.boothCount} BOOTH{s.boothCount === 1 ? '' : 'S'} ·{' '}
                     {s.vendorCount} VENDOR{s.vendorCount === 1 ? '' : 'S'}
                   </div>
                 </div>
                 <span
                   style={{
-                    fontFamily: SERIF,
+                    fontFamily: t.fontMono,
                     fontSize: 12,
                     letterSpacing: '0.18em',
-                    color: GOLD,
+                    color: t.accent,
                     whiteSpace: 'nowrap',
                   }}
                 >

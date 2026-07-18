@@ -891,6 +891,26 @@ parallel streams, additive-only changes since — never reshape existing signatu
   FloatingThemeBar: goes light-LCD when handheld is active + flexWrap below ~420px
   (4 chips overflowed 375px). Promoting handheld to the real design = keep its
   token block + lcdKit, delete the other theme blocks + the bar.
+  **Mockup layout pass (2026-07-18, from the user's Claude-Design screens 6a–6d):**
+  PageShell's handheld header became the mockups' compact row — title LEFT +
+  nav right (◀ HOME · ♥ WANTS · inverted account chip) over the 4px double
+  rule, no eyebrow/masthead; new OPTIONAL `aside` prop (handheld-only)
+  replaces that nav with page meta — ShowDetail passes "AUG 15 · SACRAMENTO,
+  CA", VendorPage passes WEB ↗ / MAIL ✉ / @HANDLE chips; other themes ignore
+  it. LandingScreen = strict 3-row title menu (NEW GAME/CONTINUE/DEMO, inline
+  "— HINT" text, © line on top, motto-only footer — shows/vendors/sandbox
+  rows + search box + SiteFooter dropped on handheld only). ShowDirectory =
+  "AREA:" chip + right-edge WALK ▶/VIEW row actions + "N SHOWS FOUND…"
+  results dialog (UPCOMING chip dropped on lcd). ShowDetail = two-column flex
+  (plan + "■ = BOOTH · ★ = STARRED · PRESS ▶ TO WALK" legend + full-width
+  WALK button left; "— VENDORS (N) —" menu w/ bare counts + apply dialog
+  right; plan preview extracted to a shared `planPreview` var so marker math
+  never forks; classic body kept verbatim under `!lcd`). VendorPage = tiles
+  as framed panels (name + "$75 · NM" INSIDE, lcdImg not cardFrame on lcd),
+  9-per-page binder pagination ("PAGE X/Y ◀ ▶", lcd-only state) + "APPEARS
+  AT: SHOW (AUG 02) ▶" bottom bar replacing Sections I/II on lcd; a "▶ WALK
+  IN 3D" chip joins the bar once the greeting is dismissed so walk access
+  survives JUST BROWSE.
 - Candidate next steps (discussed, not built): booth labels on tables;
   bundle code-splitting (~1.4MB); deploy setup (any static host).
 - Museum-side known gaps: east/west walls unused by card layout (overflow silently

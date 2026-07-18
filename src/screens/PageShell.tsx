@@ -14,8 +14,11 @@ import { LcdDialog, lcdScreenFrame } from '../components/lcdKit';
  * own scrolling — html/body/#root keep overflow hidden for the canvases.
  *
  * THE HANDHELD: the page body paints the device shell (t.pageBg) and every
- * routed page's content — header, body, footer — lives inside the LCD screen
- * frame (lcdKit.lcdScreenFrame). Corner chrome becomes shell-mounted chips.
+ * routed page's content lives inside the LCD screen frame. Per the design
+ * mockups (#6b–#6d) the header is a single compact row — title left, nav
+ * right (◀ HOME · ♥ WANTS · inverted account chip) — over a 4px double rule.
+ * Detail pages replace the nav with page meta via the `aside` prop
+ * ("AUG 02 · SEATTLE, WA", contact chips). No centered masthead, no eyebrow.
  */
 /** Signup writes display_name into auth metadata (lib/auth.tsx), so it's
  *  available synchronously while the profile row is still loading. */
@@ -37,12 +40,17 @@ export function accountLabel(
   );
 }
 
-export default function PageShell({ title, eyebrow, wide, children }: {
+export default function PageShell({ title, eyebrow, wide, aside, children }: {
   title: string;
   /** Small-caps line above the title, e.g. "PUBLIC DIRECTORY". */
   eyebrow?: string;
   /** Widens the content column (plan editors need the room). */
   wide?: boolean;
+  /** THE HANDHELD only: right side of the LCD title row — page meta that
+   *  replaces the default ◀ HOME / ♥ WANTS / account nav (mockups #6c/#6d
+   *  show "AUG 02 · SEATTLE, WA" and "WEB ↗ / MAIL ✉" there). Ignored by
+   *  every other theme. */
+  aside?: ReactNode;
   children: ReactNode;
 }) {
   const { configured, session } = useAuth();
@@ -50,92 +58,122 @@ export default function PageShell({ title, eyebrow, wide, children }: {
   const t = useTheme();
   const night = t.id === 'night';
   const lcd = t.id === 'handheld';
-  const cornerPill = lcd
-    ? ({
-        // Handheld secondary chip: panel bg + ink border, square, Silkscreen.
-        color: t.text,
-        textDecoration: 'none',
-        border: `2px solid ${t.border}`,
-        borderRadius: 0,
-        padding: '4px 8px',
-        background: t.panel,
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        whiteSpace: 'nowrap',
-      } as const)
-    : ({
-        color: t.accent,
-        textDecoration: 'none',
-        border: `${t.borderWidth}px solid ${t.border}`,
-        borderRadius: 999,
-        padding: '7px 14px',
-        whiteSpace: 'nowrap',
-      } as const);
-  const inner = (
-    <>
-      <Link
-        href="/"
+  const cornerPill = {
+    color: t.accent,
+    textDecoration: 'none',
+    border: `${t.borderWidth}px solid ${t.border}`,
+    borderRadius: 999,
+    padding: '7px 14px',
+    whiteSpace: 'nowrap',
+  } as const;
+
+  // ------------------------------------------------------------ THE HANDHELD
+  if (lcd) {
+    const navLink = {
+      color: t.muted,
+      textDecoration: 'none',
+      fontWeight: 700,
+      textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
+    } as const;
+    const lcdNav = (
+      <nav
         style={{
-          color: t.accent,
-          textDecoration: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+          justifyContent: 'flex-end',
           fontFamily: t.fontMono,
-          fontSize: lcd ? 10 : 12,
-          fontWeight: lcd ? 700 : undefined,
-          letterSpacing: lcd ? '0.08em' : '0.22em',
+          fontSize: 9.5,
+          letterSpacing: '0.06em',
+          minWidth: 0,
         }}
       >
-        ← VENDOR MUSEUM
-      </Link>
-      <header
-        style={{
-          textAlign: 'center',
-          margin: lcd ? '22px 0 30px' : '30px 0 40px',
-          // The LCD header rule: 4px double ink under title + eyebrow.
-          ...(lcd ? { borderBottom: `4px double ${t.border}`, paddingBottom: 18 } : {}),
-        }}
-      >
-        {eyebrow && (
-          <div
+        <Link href="/" style={{ ...navLink, color: t.text }}>
+          ◀ HOME
+        </Link>
+        <Link href="/wants" style={navLink}>
+          ♥ WANTS
+        </Link>
+        {configured && (
+          <Link
+            href={session ? '/account' : '/login'}
             style={{
-              fontSize: lcd ? 9.5 : 11,
-              letterSpacing: lcd ? '0.12em' : '0.4em',
-              color: t.muted,
-              marginBottom: lcd ? 8 : 12,
-              fontFamily: t.id === 'refined' ? undefined : t.fontMono,
-              textTransform: lcd ? 'uppercase' : undefined,
+              ...navLink,
+              background: t.accent,
+              color: t.accentContrast,
+              padding: '3px 7px',
+              maxWidth: 'min(34vw, 200px)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
-            {eyebrow}
-          </div>
+            {session ? accountLabel(session, profile?.displayName) : 'SIGN IN'}
+          </Link>
         )}
-        <h1
+      </nav>
+    );
+    return (
+      <div
+        style={{
+          height: '100vh',
+          overflowY: 'auto',
+          background: t.pageBg,
+          color: t.text,
+          fontFamily: t.fontBody,
+          position: 'relative',
+        }}
+      >
+        <style>{t.hoverCss}</style>
+        <div
           style={{
-            margin: 0,
-            fontFamily: t.fontDisplay,
-            fontWeight: t.displayWeight,
-            fontSize: lcd
-              ? 'clamp(16px, 5vw, 26px)'
-              : night
-                ? 'clamp(30px, 8vw, 44px)'
-                : 'clamp(24px, 7vw, 34px)',
-            letterSpacing: lcd ? '0.06em' : night ? '0.05em' : '0.16em',
-            lineHeight: night ? 0.98 : undefined,
-            color: t.accent,
-            textTransform: 'uppercase',
+            maxWidth: wide ? 1100 : 980,
+            margin: '0 auto',
+            // Sides go near-full-bleed on mobile while leaving room for the
+            // frame's drop shadow.
+            padding: '26px clamp(10px, 2.5vw, 24px) 44px',
           }}
         >
-          {title}
-        </h1>
-        {!lcd && (
-          <div style={{ marginTop: 16 }}>
-            <Ornament width={46} />
+          <div style={{ ...lcdScreenFrame, padding: 'clamp(16px, 3.5vw, 24px)' }}>
+            {/* The mockup header row: compact title left, nav/meta right. */}
+            <header
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+                borderBottom: `4px double ${t.border}`,
+                padding: '2px 2px 10px',
+                marginBottom: 20,
+              }}
+            >
+              <h1
+                style={{
+                  margin: 0,
+                  fontFamily: t.fontDisplay,
+                  fontWeight: 700,
+                  fontSize: 'clamp(13px, 3.6vw, 16px)',
+                  letterSpacing: '0.08em',
+                  color: t.text,
+                  textTransform: 'uppercase',
+                  minWidth: 0,
+                }}
+              >
+                {title}
+              </h1>
+              {aside ?? lcdNav}
+            </header>
+            {children}
+            <SiteFooter />
           </div>
-        )}
-      </header>
-      {children}
-      <SiteFooter />
-    </>
-  );
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------- refined / night / lobby
   return (
     <div
       style={{
@@ -149,9 +187,7 @@ export default function PageShell({ title, eyebrow, wide, children }: {
     >
       <style>{t.hoverCss}</style>
       {/* Corner chrome: sized to clear the "← VENDOR MUSEUM" back link at
-          375px — single row, ellipsized account label, bottom above y=48.
-          Handheld: chips sit on the shell above the screen frame — the
-          account/SIGN IN chip is the inverted one (ink bg, screen text). */}
+          375px — single row, ellipsized account label, bottom above y=48. */}
       <div
         style={{
           position: 'absolute',
@@ -162,8 +198,8 @@ export default function PageShell({ title, eyebrow, wide, children }: {
           gap: 8,
           maxWidth: 'calc(100vw - 44px)',
           fontFamily: t.fontMono,
-          fontSize: lcd ? 10 : 12,
-          letterSpacing: lcd ? '0.06em' : '0.12em',
+          fontSize: 12,
+          letterSpacing: '0.12em',
           zIndex: 2,
         }}
       >
@@ -175,7 +211,6 @@ export default function PageShell({ title, eyebrow, wide, children }: {
             href={session ? '/account' : '/login'}
             style={{
               ...cornerPill,
-              ...(lcd ? { background: t.accent, color: t.accentContrast } : {}),
               maxWidth: 'min(40vw, 240px)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -185,25 +220,48 @@ export default function PageShell({ title, eyebrow, wide, children }: {
           </Link>
         )}
       </div>
-      {lcd ? (
-        <div
-          style={{
-            maxWidth: wide ? 1100 : 980,
-            margin: '0 auto',
-            // Top clears the shell-mounted corner chips; sides go near-full-
-            // bleed on mobile while leaving room for the frame's drop shadow.
-            padding: '54px clamp(10px, 2.5vw, 24px) 44px',
-          }}
+      <div style={{ maxWidth: wide ? 1100 : 880, margin: '0 auto', padding: '48px clamp(16px, 4vw, 24px) 80px' }}>
+        <Link
+          href="/"
+          style={{ color: t.accent, textDecoration: 'none', fontFamily: t.fontMono, fontSize: 12, letterSpacing: '0.22em' }}
         >
-          <div style={{ ...lcdScreenFrame, padding: 'clamp(16px, 3.5vw, 24px)' }}>
-            {inner}
+          ← VENDOR MUSEUM
+        </Link>
+        <header style={{ textAlign: 'center', margin: '30px 0 40px' }}>
+          {eyebrow && (
+            <div
+              style={{
+                fontSize: 11,
+                letterSpacing: '0.4em',
+                color: t.muted,
+                marginBottom: 12,
+                fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+              }}
+            >
+              {eyebrow}
+            </div>
+          )}
+          <h1
+            style={{
+              margin: 0,
+              fontFamily: t.fontDisplay,
+              fontWeight: t.displayWeight,
+              fontSize: night ? 'clamp(30px, 8vw, 44px)' : 'clamp(24px, 7vw, 34px)',
+              letterSpacing: night ? '0.05em' : '0.16em',
+              lineHeight: night ? 0.98 : undefined,
+              color: t.accent,
+              textTransform: 'uppercase',
+            }}
+          >
+            {title}
+          </h1>
+          <div style={{ marginTop: 16 }}>
+            <Ornament width={46} />
           </div>
-        </div>
-      ) : (
-        <div style={{ maxWidth: wide ? 1100 : 880, margin: '0 auto', padding: '48px clamp(16px, 4vw, 24px) 80px' }}>
-          {inner}
-        </div>
-      )}
+        </header>
+        {children}
+        <SiteFooter />
+      </div>
     </div>
   );
 }

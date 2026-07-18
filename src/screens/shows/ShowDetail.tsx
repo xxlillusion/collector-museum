@@ -15,7 +15,7 @@ import {
   applyForBooth, listMyApplications, withdrawApplication,
 } from '../../lib/applicationService';
 import type { BoothApplication } from '../../lib/applicationService';
-import { formatShowDate } from './ShowDirectory';
+import { formatShowDate, lcdShowDate } from './ShowDirectory';
 import { formatLocation } from '../../lib/locations';
 import { Section, useTheme, withAlpha } from '../../components/themeKit';
 import {
@@ -307,6 +307,139 @@ export default function ShowDetail({ showId }: { showId: string }) {
     </>
   );
 
+  // The 2D plan preview with booth markers — shared by the classic body and
+  // the handheld two-column body (#6c) so the marker math never forks. The
+  // in-box legend renders for classic themes; handheld puts its legend line
+  // outside, under the box.
+  const planPreview = show?.planUrl ? (
+    <div
+      style={{
+        border: lcd ? `3px solid ${t.border}` : `${t.borderWidth}px solid ${t.border}`,
+        borderRadius: lcd ? 0 : 2,
+        padding: 8,
+        background: lcd ? t.surface : t.panel,
+        marginBottom: lcd ? 10 : 38,
+      }}
+    >
+      {/* position:relative wrapper hugs the image exactly (no panel
+          padding inside), so percentage-positioned booth dots land on
+          the same spots at every viewport width. */}
+      <div
+        style={{ position: 'relative' }}
+        // Tap/click anywhere else on the plan dismisses the label
+        // (touch has no mouseleave); dot clicks stopPropagation.
+        onClick={() => setActiveMarker(null)}
+      >
+        <img
+          src={show.planUrl}
+          alt={`${show.name} floor plan`}
+          style={{ width: '100%', display: 'block', filter: t.planFilter }}
+        />
+        {boothMarkers.map((m, i) => {
+          const isStarred = starred.has(m.vendorId);
+          const size = lcd ? (isStarred ? 14 : 10) : isStarred ? 13 : 9;
+          // '' = keep today's gold dots (refined); night/lobby recolor.
+          // Handheld: square ink pixels, starred = bigger square with
+          // a screen-colored ring (inversion, never glow).
+          const dot = t.boothDot;
+          return (
+            <div
+              key={i}
+              data-booth-marker={m.vendorId}
+              onMouseEnter={() => setActiveMarker(i)}
+              onMouseLeave={() => setActiveMarker((cur) => (cur === i ? null : cur))}
+              // Set, never toggle — a tap synthesizes mouseenter first,
+              // and enter-then-toggle would flash the label off again.
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveMarker(i);
+              }}
+              style={{
+                position: 'absolute',
+                left: `${m.leftPct}%`,
+                top: `${m.topPct}%`,
+                width: size,
+                height: size,
+                transform: 'translate(-50%, -50%)',
+                borderRadius: lcd ? 0 : '50%',
+                // Same family as the in-hall minimap dots: theme dot
+                // color, starred vendors bigger + steady glow.
+                background: dot || (isStarred ? '#ffd75e' : 'rgba(212,175,55,0.85)'),
+                boxShadow: lcd
+                  ? isStarred
+                    ? `0 0 0 2px ${t.accentContrast}`
+                    : 'none'
+                  : isStarred
+                    ? `0 0 8px 2px ${dot ? withAlpha(dot, 0.75) : 'rgba(255,215,94,0.75)'}`
+                    : '0 0 3px rgba(0,0,0,0.6)',
+                cursor: 'default',
+              }}
+            />
+          );
+        })}
+        {activeMarker !== null && boothMarkers[activeMarker] && (
+          <div
+            style={{
+              position: 'absolute',
+              // Clamp so labels on edge booths never spill out of the
+              // preview (matters at 375px — no horizontal scroll).
+              left: `clamp(70px, ${boothMarkers[activeMarker].leftPct}%, calc(100% - 70px))`,
+              top: `${boothMarkers[activeMarker].topPct}%`,
+              transform:
+                boothMarkers[activeMarker].topPct < 12
+                  ? 'translate(-50%, 14px)'
+                  : 'translate(-50%, calc(-100% - 14px))',
+              whiteSpace: 'nowrap',
+              maxWidth: '60vw',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              pointerEvents: 'none',
+              zIndex: 2,
+              ...(lcd
+                ? {
+                    // Inverted name chip — no dark scrim on the LCD.
+                    background: t.accent,
+                    color: t.accentContrast,
+                    fontFamily: t.fontMono,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase' as const,
+                    padding: '3px 8px',
+                    borderRadius: 0,
+                  }
+                : {
+                    background: 'rgba(8,6,4,0.92)',
+                    color: t.text,
+                    border: `1px solid ${withAlpha(t.accent, 0.4)}`,
+                    fontFamily: t.fontMono,
+                    fontSize: 12,
+                    letterSpacing: '0.06em',
+                    padding: '3px 9px',
+                    borderRadius: 4,
+                  }),
+            }}
+          >
+            {boothMarkers[activeMarker].name}
+          </div>
+        )}
+      </div>
+      {boothMarkers.length > 0 && !lcd && (
+        <p
+          style={{
+            ...t.note,
+            fontSize: 12,
+            margin: '8px 2px 2px',
+            textAlign: 'center',
+          }}
+        >
+          <span style={{ color: t.boothDot || t.accent, fontStyle: 'normal' }}>●</span> assigned booths
+          · glowing = vendors you starred
+        </p>
+      )}
+    </div>
+  ) : null;
+
   if (walking && show && show.meta && show.planUrl) {
     return (
       <Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#000' }} />}>
@@ -327,8 +460,26 @@ export default function ShowDetail({ showId }: { showId: string }) {
     );
   }
 
+  // #6c: the LCD title row carries "AUG 15 · SACRAMENTO, CA" on its right.
+  const lcdCityState = show ? [show.city, show.state].filter(Boolean).join(', ') : '';
+  const lcdAside = lcd && show ? (
+    <span
+      style={{
+        fontFamily: t.fontMono,
+        fontSize: 9.5,
+        fontWeight: 700,
+        letterSpacing: '0.06em',
+        color: t.muted,
+        textTransform: 'uppercase',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {[lcdShowDate(show.showDate), lcdCityState].filter(Boolean).join(' · ')}
+    </span>
+  ) : undefined;
+
   return (
-    <PageShell title={show?.name ?? 'Show'} eyebrow="PUBLIC EXHIBITION">
+    <PageShell title={show?.name ?? 'Show'} eyebrow="PUBLIC EXHIBITION" aside={lcdAside}>
       {show === undefined && <p style={{ ...t.note, fontSize: lcd ? 11 : 16 }}>Loading show…</p>}
 
       {show === null && (lcd ? (
@@ -359,7 +510,220 @@ export default function ShowDetail({ showId }: { showId: string }) {
         </>
       ))}
 
-      {show && (
+      {/* ------------------------------------------------------ THE HANDHELD
+          #6c two-column body: floor plan + legend + WALK left, the VENDORS
+          panel + apply dialog right. Date/location live in the header aside;
+          the slim strip below carries the remaining logistics. Starring,
+          application and walk logic are the same handlers as the classic
+          body. */}
+      {show && lcd && (
+        <>
+          {((walks !== null && walks >= 1) || show.venueName || formatLocation(show) || show.address
+            || show.hours || show.admission || show.externalUrl) && (
+            <div
+              style={{
+                margin: '0 0 16px',
+                fontSize: 10,
+                lineHeight: 1.9,
+                color: t.muted,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}
+            >
+              {walks !== null && walks >= 1 && (
+                <span style={{ ...t.chip, marginRight: 10 }}>
+                  ◈ {walks} WALK{walks === 1 ? '' : 'S'}
+                </span>
+              )}
+              {(show.venueName || formatLocation(show)) && (
+                <span style={{ marginRight: 10 }}>
+                  {[show.venueName, formatLocation(show)].filter(Boolean).join(' · ')}
+                </span>
+              )}
+              {show.address && (
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(show.address)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: t.text, textDecoration: 'underline', marginRight: 10 }}
+                >
+                  {show.address} ↗
+                </a>
+              )}
+              {(show.hours || show.admission) && (
+                <span style={{ marginRight: 10 }}>
+                  {[show.hours, show.admission].filter(Boolean).join(' · ')}
+                </span>
+              )}
+              {show.externalUrl && (
+                <a
+                  href={show.externalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: t.text, fontWeight: 700, textDecoration: 'underline' }}
+                >
+                  SHOW WEBSITE / TICKETS ▶
+                </a>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 22, alignItems: 'flex-start' }}>
+            {/* Left column: the map is the hero. */}
+            <div style={{ flex: '1 1 340px', minWidth: 0 }}>
+              {planPreview}
+              {show.planUrl && boothMarkers.length > 0 && (
+                <p style={{ margin: '0 0 12px', fontSize: 9.5, letterSpacing: '0.08em', color: t.muted, textTransform: 'uppercase' }}>
+                  ■ = BOOTH · ★ = STARRED · PRESS ▶ TO WALK
+                </p>
+              )}
+              <button
+                onClick={handleWalk}
+                disabled={!canWalk}
+                style={{
+                  ...(canWalk ? t.primaryButton : t.primaryButtonDisabled),
+                  width: '100%',
+                  padding: '13px 20px',
+                  fontSize: 12,
+                }}
+              >
+                ▶ WALK THIS SHOW
+              </button>
+              {!canWalk && (
+                <p style={{ ...t.note, fontSize: 10, margin: '10px 0 0' }}>
+                  NO MAP YET! THE ORGANIZER HASN&rsquo;T UPLOADED A FLOOR PLAN.
+                </p>
+              )}
+              {isOwner && (
+                <p style={{ margin: '12px 0 0' }}>
+                  <Link
+                    href={`/organizer/show/${showId}/edit`}
+                    style={{ fontFamily: t.fontMono, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em', color: t.accent, textDecoration: 'none' }}
+                  >
+                    ✎ EDIT THIS SHOW ▶
+                  </Link>
+                </p>
+              )}
+            </div>
+
+            {/* Right column: — VENDORS (N) — then the apply dialog. */}
+            <div style={{ flex: '1 1 250px', minWidth: 0 }}>
+              <div
+                style={{
+                  textAlign: 'center',
+                  fontFamily: t.fontMono,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.12em',
+                  color: t.text,
+                  margin: '0 0 8px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                — VENDORS ({show.vendors.length}) —
+              </div>
+              {show.vendors.length === 0 ? (
+                <LcdDialog>NO VENDORS AT THE TABLES YET!</LcdDialog>
+              ) : (
+                <div style={lcdMenuBox}>
+                  {show.vendors.map((v) => {
+                    const hot = hotVendor === v.id;
+                    return (
+                      <Link
+                        key={v.id}
+                        href={`/vendor/${v.id}`}
+                        onMouseEnter={() => setHotVendor(v.id)}
+                        onMouseLeave={() => setHotVendor((c) => (c === v.id ? null : c))}
+                        onFocus={() => setHotVendor(v.id)}
+                        onBlur={() => setHotVendor((c) => (c === v.id ? null : c))}
+                        style={{ ...lcdMenuRow(hot), textDecoration: 'none' }}
+                      >
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleToggleStar(v.id);
+                          }}
+                          title={starred.has(v.id) ? 'Unstar this vendor' : 'Star — glow on the walk map'}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            lineHeight: 1,
+                            padding: '0 2px',
+                            color: hot ? t.accentContrast : starred.has(v.id) ? t.text : t.muted,
+                          }}
+                        >
+                          {starred.has(v.id) ? '★' : '☆'}
+                        </button>
+                        <span
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {v.name}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 9.5,
+                            fontWeight: 400,
+                            whiteSpace: 'nowrap',
+                            color: hot ? t.accentContrast : t.muted,
+                          }}
+                        >
+                          {v.inventoryCount > 0 ? v.inventoryCount : '—'}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+              {canWalk && show.vendors.length > 0 && (
+                <p style={{ ...t.note, fontSize: 9, margin: '8px 0 0' }}>
+                  ★ STARRED BOOTHS GROW BIG ON THE HALL MAP!
+                </p>
+              )}
+              {isOwner ? (
+                <LcdDialog
+                  style={{ marginTop: 16 }}
+                  choices={[
+                    {
+                      label: 'REVIEW BOOTH APPLICATIONS',
+                      onClick: () => navigate(`/organizer/show/${showId}/edit`),
+                      primary: true,
+                    },
+                  ]}
+                >
+                  THIS IS YOUR SHOW! VENDORS APPLY TO YOU.
+                </LcdDialog>
+              ) : myStores.length > 0 ? (
+                <div style={{ ...lcdDialogBox, marginTop: 16 }}>
+                  <p style={{ margin: '0 0 10px', fontWeight: 700 }}>
+                    WANT TO SELL HERE? APPLY WITH YOUR STORE!
+                  </p>
+                  {applyBody}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 22, display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap' }}>
+            <Link href="/shows" style={backLinkStyle}>
+              ◀ ALL CARD SHOWS
+            </Link>
+            <ShareButton title={show.name} />
+          </div>
+        </>
+      )}
+
+      {show && !lcd && (
         <>
           <div
             style={{
@@ -505,140 +869,7 @@ export default function ShowDetail({ showId }: { showId: string }) {
             </p>
           )}
 
-          {show.planUrl && (
-            <div
-              style={{
-                border: lcd ? `3px solid ${t.border}` : `${t.borderWidth}px solid ${t.border}`,
-                borderRadius: lcd ? 0 : 2,
-                padding: 8,
-                background: lcd ? t.surface : t.panel,
-                marginBottom: 38,
-              }}
-            >
-              {/* position:relative wrapper hugs the image exactly (no panel
-                  padding inside), so percentage-positioned booth dots land on
-                  the same spots at every viewport width. */}
-              <div
-                style={{ position: 'relative' }}
-                // Tap/click anywhere else on the plan dismisses the label
-                // (touch has no mouseleave); dot clicks stopPropagation.
-                onClick={() => setActiveMarker(null)}
-              >
-                <img
-                  src={show.planUrl}
-                  alt={`${show.name} floor plan`}
-                  style={{ width: '100%', display: 'block', filter: t.planFilter }}
-                />
-                {boothMarkers.map((m, i) => {
-                  const isStarred = starred.has(m.vendorId);
-                  const size = lcd ? (isStarred ? 14 : 10) : isStarred ? 13 : 9;
-                  // '' = keep today's gold dots (refined); night/lobby recolor.
-                  // Handheld: square ink pixels, starred = bigger square with
-                  // a screen-colored ring (inversion, never glow).
-                  const dot = t.boothDot;
-                  return (
-                    <div
-                      key={i}
-                      data-booth-marker={m.vendorId}
-                      onMouseEnter={() => setActiveMarker(i)}
-                      onMouseLeave={() => setActiveMarker((cur) => (cur === i ? null : cur))}
-                      // Set, never toggle — a tap synthesizes mouseenter first,
-                      // and enter-then-toggle would flash the label off again.
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveMarker(i);
-                      }}
-                      style={{
-                        position: 'absolute',
-                        left: `${m.leftPct}%`,
-                        top: `${m.topPct}%`,
-                        width: size,
-                        height: size,
-                        transform: 'translate(-50%, -50%)',
-                        borderRadius: lcd ? 0 : '50%',
-                        // Same family as the in-hall minimap dots: theme dot
-                        // color, starred vendors bigger + steady glow.
-                        background: dot || (isStarred ? '#ffd75e' : 'rgba(212,175,55,0.85)'),
-                        boxShadow: lcd
-                          ? isStarred
-                            ? `0 0 0 2px ${t.accentContrast}`
-                            : 'none'
-                          : isStarred
-                            ? `0 0 8px 2px ${dot ? withAlpha(dot, 0.75) : 'rgba(255,215,94,0.75)'}`
-                            : '0 0 3px rgba(0,0,0,0.6)',
-                        cursor: 'default',
-                      }}
-                    />
-                  );
-                })}
-                {activeMarker !== null && boothMarkers[activeMarker] && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      // Clamp so labels on edge booths never spill out of the
-                      // preview (matters at 375px — no horizontal scroll).
-                      left: `clamp(70px, ${boothMarkers[activeMarker].leftPct}%, calc(100% - 70px))`,
-                      top: `${boothMarkers[activeMarker].topPct}%`,
-                      transform:
-                        boothMarkers[activeMarker].topPct < 12
-                          ? 'translate(-50%, 14px)'
-                          : 'translate(-50%, calc(-100% - 14px))',
-                      whiteSpace: 'nowrap',
-                      maxWidth: '60vw',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      pointerEvents: 'none',
-                      zIndex: 2,
-                      ...(lcd
-                        ? {
-                            // Inverted name chip — no dark scrim on the LCD.
-                            background: t.accent,
-                            color: t.accentContrast,
-                            fontFamily: t.fontMono,
-                            fontSize: 10,
-                            fontWeight: 700,
-                            letterSpacing: '0.06em',
-                            textTransform: 'uppercase' as const,
-                            padding: '3px 8px',
-                            borderRadius: 0,
-                          }
-                        : {
-                            background: 'rgba(8,6,4,0.92)',
-                            color: t.text,
-                            border: `1px solid ${withAlpha(t.accent, 0.4)}`,
-                            fontFamily: t.fontMono,
-                            fontSize: 12,
-                            letterSpacing: '0.06em',
-                            padding: '3px 9px',
-                            borderRadius: 4,
-                          }),
-                    }}
-                  >
-                    {boothMarkers[activeMarker].name}
-                  </div>
-                )}
-              </div>
-              {boothMarkers.length > 0 && (
-                <p
-                  style={{
-                    ...t.note,
-                    fontSize: lcd ? 9.5 : 12,
-                    margin: '8px 2px 2px',
-                    textAlign: 'center',
-                  }}
-                >
-                  {lcd ? (
-                    <>■ = a booth with a vendor · big ■ = vendors you starred!</>
-                  ) : (
-                    <>
-                      <span style={{ color: t.boothDot || t.accent, fontStyle: 'normal' }}>●</span> assigned booths
-                      · glowing = vendors you starred
-                    </>
-                  )}
-                </p>
-              )}
-            </div>
-          )}
+          {planPreview}
 
           <Section title="ATTENDING VENDORS">
             {show.vendors.length === 0 ? (

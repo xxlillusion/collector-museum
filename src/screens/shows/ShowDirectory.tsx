@@ -37,8 +37,9 @@ export function formatShowDate(iso: string | null): string | null {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-/** Handheld menu-row date: "AUG 02" (or "TBA"). */
-function lcdShowDate(iso: string | null): string {
+/** Handheld menu-row date: "AUG 02" (or "TBA"). Also feeds ShowDetail's
+ *  header aside ("AUG 02 · SEATTLE, WA"). */
+export function lcdShowDate(iso: string | null): string {
   if (!iso) return 'TBA';
   const d = new Date(`${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
@@ -56,7 +57,7 @@ function LcdSelectChip({ label, value, onChange, children }: {
   const t = useTheme();
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center' }}>
-      <span style={{ ...filterLabelStyle(t), margin: '0 6px 0 0' }}>{label}</span>
+      {label && <span style={{ ...filterLabelStyle(t), margin: '0 6px 0 0' }}>{label}</span>}
       <span style={{ position: 'relative', display: 'inline-block' }}>
         <select
           value={value}
@@ -123,6 +124,12 @@ export default function ShowDirectory() {
   const regions = regionOptions(country || null);
   const filtered = Boolean(country || state);
   const lcd = t.id === 'handheld';
+  // "3 SHOWS FOUND IN WASHINGTON!" — the active area's display name.
+  const lcdAreaName = state
+    ? regionName(country, state)
+    : country
+      ? (COUNTRIES.find((c) => c.code === country)?.name ?? country)
+      : null;
 
   return (
     <PageShell title="Card Shows" eyebrow="PUBLIC EXHIBITIONS">
@@ -148,10 +155,14 @@ export default function ShowDirectory() {
             marginBottom: 26,
           }}
         >
-          <SearchBox width={280} />
+          {/* Handheld (#6b): "AREA: X ▼" chip leads, search follows — the
+              `order` bump keeps the other themes' search-first DOM intact. */}
+          <span style={lcd ? { order: 2 } : undefined}>
+            <SearchBox width={lcd ? 220 : 280} />
+          </span>
           {lcd ? (
             <LcdSelectChip
-              label="COUNTRY"
+              label="AREA:"
               value={country}
               onChange={(v) => {
                 setCountry(v);
@@ -187,7 +198,7 @@ export default function ShowDirectory() {
           )}
           {regions.length > 0 && (lcd ? (
             <LcdSelectChip
-              label={country === 'CA' ? 'PROVINCE' : 'STATE'}
+              label=""
               value={state}
               onChange={setState}
             >
@@ -261,80 +272,85 @@ export default function ShowDirectory() {
       ))}
 
       {shows !== null && shows.length > 0 && (lcd ? (
-        // Handheld: the directory is a MENU — rows invert on hover/focus,
-        // meta reads "AUG 02 · SEATTLE · 50 BOOTHS · MAP OK!".
-        <div style={lcdMenuBox}>
-          {shows.map((s, i) => {
-            const upcoming = s.showDate !== null && s.showDate >= today;
-            const hot = hotRow === i;
-            const place = s.city || regionName(s.country, s.state);
-            const meta = [
-              lcdShowDate(s.showDate),
-              place,
-              `${s.boothCount} BOOTH${s.boothCount === 1 ? '' : 'S'}`,
-              s.planImageUrl ? 'MAP OK!' : 'NO MAP YET',
-            ]
-              .filter(Boolean)
-              .join(' · ');
-            return (
-              <Link
-                key={s.id}
-                href={`/show/${s.id}`}
-                onMouseEnter={() => setHotRow(i)}
-                onMouseLeave={() => setHotRow((c) => (c === i ? null : c))}
-                onFocus={() => setHotRow(i)}
-                onBlur={() => setHotRow((c) => (c === i ? null : c))}
-                style={{
-                  ...lcdMenuRow(hot),
-                  textDecoration: 'none',
-                  alignItems: 'flex-start',
-                  padding: '10px 12px',
-                }}
-              >
-                <LcdCursor active={hot} />
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span
-                    style={{
-                      display: 'block',
-                      fontWeight: 700,
-                      fontSize: 11,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {s.name}
-                    {upcoming && (
-                      <span
-                        style={{
-                          marginLeft: 8,
-                          padding: '0 5px',
-                          fontSize: 8.5,
-                          fontWeight: 700,
-                          border: `2px solid ${hot ? t.accentContrast : t.text}`,
-                          color: hot ? t.accentContrast : t.text,
-                        }}
-                      >
-                        UPCOMING
-                      </span>
-                    )}
+        // Handheld (#6b): the directory is a MENU — rows invert on hover/
+        // focus, meta reads "AUG 02 · SEATTLE · 50 BOOTHS · MAP OK!", and the
+        // right edge carries the action (WALK ▶ with a map, VIEW without).
+        // A results dialog closes the list.
+        <>
+          <div style={lcdMenuBox}>
+            {shows.map((s, i) => {
+              const hot = hotRow === i;
+              const place = s.city || regionName(s.country, s.state);
+              const meta = [
+                lcdShowDate(s.showDate),
+                place,
+                `${s.boothCount} BOOTH${s.boothCount === 1 ? '' : 'S'}`,
+                s.planImageUrl ? 'MAP OK!' : 'NO MAP YET',
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                <Link
+                  key={s.id}
+                  href={`/show/${s.id}`}
+                  onMouseEnter={() => setHotRow(i)}
+                  onMouseLeave={() => setHotRow((c) => (c === i ? null : c))}
+                  onFocus={() => setHotRow(i)}
+                  onBlur={() => setHotRow((c) => (c === i ? null : c))}
+                  style={{
+                    ...lcdMenuRow(hot),
+                    textDecoration: 'none',
+                    alignItems: 'flex-start',
+                    padding: '10px 12px',
+                  }}
+                >
+                  <LcdCursor active={hot} />
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span
+                      style={{
+                        display: 'block',
+                        fontWeight: 700,
+                        fontSize: 11,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {s.name}
+                    </span>
+                    <span
+                      style={{
+                        display: 'block',
+                        marginTop: 3,
+                        fontSize: 9.5,
+                        fontWeight: 400,
+                        color: hot ? t.accentContrast : t.muted,
+                      }}
+                    >
+                      {meta}
+                    </span>
                   </span>
                   <span
                     style={{
-                      display: 'block',
-                      marginTop: 3,
+                      alignSelf: 'center',
                       fontSize: 9.5,
-                      fontWeight: 400,
-                      color: hot ? t.accentContrast : t.muted,
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                      color: hot ? t.accentContrast : t.text,
                     }}
                   >
-                    {meta}
+                    {s.planImageUrl ? 'WALK ▶' : 'VIEW'}
                   </span>
-                </span>
-              </Link>
-            );
-          })}
-        </div>
+                </Link>
+              );
+            })}
+          </div>
+          <LcdDialog cursor style={{ marginTop: 18, fontWeight: 700 }}>
+            {`${shows.length} SHOW${shows.length === 1 ? '' : 'S'} FOUND${
+              lcdAreaName ? ` IN ${lcdAreaName}` : ''
+            }! STAR VENDORS TO PLAN YOUR ROUTE.`}
+          </LcdDialog>
+        </>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {shows.map((s) => {

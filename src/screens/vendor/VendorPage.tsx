@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import ShareButton from '../../components/ShareButton';
@@ -15,11 +14,8 @@ import { Section, useTheme, withAlpha } from '../../components/themeKit';
 import type { LcdChoice } from '../../components/lcdKit';
 import {
   LCD,
-  LcdCursor,
   LcdDialog,
   lcdImg,
-  lcdMenuBox,
-  lcdMenuRow,
   lcdSoldStamp,
   lcdWell,
 } from '../../components/lcdKit';
@@ -39,35 +35,6 @@ function shortShowDate(iso: string): string {
   const date = new Date(y, (m ?? 1) - 1, d ?? 1);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }).toUpperCase();
-}
-
-// Handheld-only ▶ menu row wrapping a contact link — hover/focus inverts the
-// row (ink bg, screen text); never a hue shift.
-function LcdLinkRow({ href, external, last, children }: {
-  href: string;
-  external?: boolean;
-  last?: boolean;
-  children: ReactNode;
-}) {
-  const [active, setActive] = useState(false);
-  return (
-    <a
-      href={href}
-      {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
-      onMouseEnter={() => setActive(true)}
-      onMouseLeave={() => setActive(false)}
-      onFocus={() => setActive(true)}
-      onBlur={() => setActive(false)}
-      style={{
-        ...lcdMenuRow(active),
-        textDecoration: 'none',
-        ...(last ? { borderBottom: 'none' } : {}),
-      }}
-    >
-      <LcdCursor active={active} />
-      {children}
-    </a>
-  );
 }
 
 function formatShowDate(iso: string): string {
@@ -113,10 +80,16 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   // Anonymous walk counter (0007) — null on any failure hides the line.
   const [walks, setWalks] = useState<number | null>(null);
 
+  // Handheld binder-page pagination (#6d): 9 items per "page" — a 3×3 pocket
+  // sheet. Presentation-only; the other themes render the full grid.
+  const LCD_PAGE_SIZE = 9;
+  const [page, setPage] = useState(0);
+
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let cancelled = false;
     setState({ status: 'loading' });
+    setPage(0);
     getPublicVendorProfile(vendorId).then((profile) => {
       if (cancelled) return;
       setState(profile ? { status: 'ready', profile } : { status: 'notFound' });
@@ -215,18 +188,95 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
       : []),
     { label: 'JUST BROWSE', primary: !walkable, onClick: () => setGreetDismissed(true) },
   ];
-  const lastContact = instagram ? 'instagram' : contactEmail ? 'email' : 'website';
+  // Square LCD pager chips for the binder-page bar.
+  const pagerBtn = (off: boolean): React.CSSProperties => ({
+    background: LCD.panel,
+    color: LCD.ink,
+    border: `2px solid ${LCD.ink}`,
+    borderRadius: 0,
+    width: 24,
+    height: 22,
+    padding: 0,
+    fontFamily: t.fontMono,
+    fontSize: 10,
+    fontWeight: 700,
+    lineHeight: 1,
+    cursor: off ? 'default' : 'pointer',
+    opacity: off ? 0.4 : 1,
+  });
+
+  // #6d header aside: "WEB ↗ / MAIL ✉ / @HANDLE" chips on the LCD title row
+  // (replaces the default nav there — mockup shows contacts only).
+  const lcdAsideLink = {
+    color: t.text,
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+  } as const;
+  const lcdAside = lcd && hasContact ? (
+    <span
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        flexWrap: 'wrap',
+        justifyContent: 'flex-end',
+        fontFamily: t.fontMono,
+        fontSize: 9.5,
+        fontWeight: 700,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        minWidth: 0,
+      }}
+    >
+      {website && (
+        <a
+          href={/^https?:\/\//i.test(website) ? website : `https://${website}`}
+          target="_blank"
+          rel="noreferrer"
+          style={lcdAsideLink}
+        >
+          WEB ↗
+        </a>
+      )}
+      {contactEmail && (
+        <a href={`mailto:${contactEmail}`} style={lcdAsideLink}>
+          MAIL ✉
+        </a>
+      )}
+      {instagram && (
+        <a
+          href={`https://instagram.com/${instagram}`}
+          target="_blank"
+          rel="noreferrer"
+          style={lcdAsideLink}
+        >
+          @{instagram.toUpperCase()}
+        </a>
+      )}
+    </span>
+  ) : undefined;
+
+  // Handheld pagination state derived per render (state above the early
+  // returns): the grid shows one 3×3 "binder page" at a time.
+  const lcdPageCount = Math.max(1, Math.ceil(profile.items.length / LCD_PAGE_SIZE));
+  const lcdPage = Math.min(page, lcdPageCount - 1);
+  const gridItems = lcd
+    ? profile.items.slice(lcdPage * LCD_PAGE_SIZE, (lcdPage + 1) * LCD_PAGE_SIZE)
+    : profile.items;
 
   const inventoryGrid = (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-        gap: 22,
+        // Handheld (#6d): bigger framed tile panels, ~3-up in the frame.
+        gridTemplateColumns: lcd
+          ? 'repeat(auto-fill, minmax(180px, 1fr))'
+          : 'repeat(auto-fill, minmax(140px, 1fr))',
+        gap: lcd ? 14 : 22,
         alignItems: 'start',
       }}
     >
-      {profile.items.map((item) => {
+      {gridItems.map((item) => {
         const sold = item.status === 'sold';
         const wanted = isWanted(item.id);
         // Handheld meta line: SOLD is told by the stamp + struck price, so the
@@ -243,9 +293,12 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
               objectFit: 'cover',
               display: 'block',
               background: t.surface,
-              ...t.cardFrame,
-              // Handheld SOLD idiom: dimmer saturation under the stamp.
-              ...(lcd && sold ? { filter: 'saturate(0.5)' } : {}),
+              // Handheld: the TILE carries the frame (mockup panels) — the
+              // image itself just gets the LCD pixelation; sold dims under
+              // the stamp.
+              ...(lcd
+                ? { ...lcdImg, ...(sold ? { filter: 'saturate(0.5)' } : {}) }
+                : t.cardFrame),
             }}
           />
         );
@@ -294,60 +347,74 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
               {wanted ? '♥' : '♡'}
             </button>
             {lcd ? (
-              <div style={{ position: 'relative' }}>
-                {img}
-                {sold && <span style={lcdSoldStamp}>SOLD!</span>}
+              // #6d tile panel: 3px ink frame on screen bg; name + "$240 · NM"
+              // meta live INSIDE the panel, left-aligned.
+              <div style={{ border: `3px solid ${LCD.ink}`, background: LCD.screen, padding: 8 }}>
+                <div style={{ position: 'relative' }}>
+                  {img}
+                  {sold && <span style={lcdSoldStamp}>SOLD!</span>}
+                </div>
+                {(item.caption || lcdMeta) && (
+                  <figcaption
+                    style={{
+                      marginTop: 8,
+                      fontFamily: t.fontMono,
+                      lineHeight: 1.6,
+                      textAlign: 'left',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                    }}
+                  >
+                    {item.caption && (
+                      <span
+                        style={{
+                          display: 'block',
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          color: LCD.ink,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {item.caption}
+                      </span>
+                    )}
+                    {lcdMeta && (
+                      <span style={{ display: 'block', marginTop: 2, fontSize: 9.5, color: LCD.muted }}>
+                        {item.price !== undefined && (
+                          <span
+                            style={{
+                              color: LCD.ink,
+                              fontWeight: 700,
+                              textDecoration: sold ? 'line-through' : 'none',
+                            }}
+                          >
+                            {formatPrice(item.price)}
+                          </span>
+                        )}
+                        {item.condition && (
+                          <span>{item.price !== undefined ? ' · ' : ''}{item.condition}</span>
+                        )}
+                        {item.status === 'display' && (
+                          <span
+                            style={{
+                              ...t.chip,
+                              marginLeft: item.price !== undefined || item.condition ? 6 : 0,
+                            }}
+                          >
+                            DISPLAY
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </figcaption>
+                )}
               </div>
             ) : (
-              img
-            )}
-            {lcd ? (
-              (item.caption || lcdMeta) && (
-                <figcaption
-                  style={{
-                    marginTop: 8,
-                    fontFamily: t.fontMono,
-                    fontSize: 9.5,
-                    lineHeight: 1.7,
-                    color: LCD.muted,
-                    textAlign: 'center',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                  }}
-                >
-                  {item.caption && <span style={{ display: 'block' }}>{item.caption}</span>}
-                  {lcdMeta && (
-                    <span style={{ display: 'block', marginTop: item.caption ? 3 : 0, fontSize: 10 }}>
-                      {item.price !== undefined && (
-                        <span
-                          style={{
-                            color: LCD.ink,
-                            fontWeight: 700,
-                            textDecoration: sold ? 'line-through' : 'none',
-                          }}
-                        >
-                          {formatPrice(item.price)}
-                        </span>
-                      )}
-                      {item.condition && (
-                        <span>{item.price !== undefined ? ' · ' : ''}{item.condition}</span>
-                      )}
-                      {item.status === 'display' && (
-                        <span
-                          style={{
-                            ...t.chip,
-                            marginLeft: item.price !== undefined || item.condition ? 6 : 0,
-                          }}
-                        >
-                          DISPLAY
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </figcaption>
-              )
-            ) : (
-              (item.caption || item.price !== undefined || item.status !== 'forSale') && (
+              <>
+                {img}
+                {(item.caption || item.price !== undefined || item.status !== 'forSale') && (
                 <figcaption
                   style={{
                     marginTop: 10,
@@ -415,7 +482,8 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                     </span>
                   )}
                 </figcaption>
-              )
+                )}
+              </>
             )}
           </figure>
         );
@@ -424,10 +492,11 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   );
 
   return (
-    <PageShell title={profile.name} eyebrow="REGISTERED VENDOR">
+    <PageShell title={profile.name} eyebrow="REGISTERED VENDOR" aside={lcdAside}>
       {lcd && !greetDismissed && (
         <LcdDialog cursor style={{ marginBottom: 26 }} choices={greetChoices}>
-          HI! WELCOME TO {profile.name}!{walkable ? ' TAKE A LOOK AT THE BINDER…' : ''}
+          HI! WELCOME TO {profile.name}!
+          {walkable ? ' TAKE A LOOK AT THE BINDER — OR WALK THE TABLE IN 3D!' : ''}
         </LcdDialog>
       )}
       {isOwner &&
@@ -471,8 +540,14 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
             </Link>
           </div>
         ))}
-      {(location || areaServed || hasContact) && (
-        <div style={{ margin: '-18px 0 30px', textAlign: 'center' }}>
+      {(location || areaServed || hasContact || (lcd && walks !== null && walks >= 1)) && (
+        <div
+          style={lcd
+            // #6d: compact left-aligned meta line under the header ("· SEATTLE"
+            // + walk-count chip); contacts live in the header aside.
+            ? { margin: '0 0 20px', textAlign: 'left' }
+            : { margin: '-18px 0 30px', textAlign: 'center' }}
+        >
           {location && (
             <div
               style={{
@@ -481,42 +556,21 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                 color: t.muted,
                 letterSpacing: '0.08em',
                 textTransform: lcd ? 'uppercase' : undefined,
+                display: lcd ? 'inline' : undefined,
               }}
             >
-              {location}
+              {lcd ? `· ${location}` : location}
             </div>
           )}
           {areaServed && (
-            <div style={{ ...t.note, fontSize: lcd ? 9.5 : 13.5, marginTop: 5 }}>
+            <div style={{ ...t.note, fontSize: lcd ? 9.5 : 13.5, marginTop: 5, display: lcd ? 'inline' : undefined, marginLeft: lcd && location ? 8 : 0 }}>
               Serves: {areaServed}
             </div>
           )}
-          {hasContact && lcd && (
-            <div style={{ ...lcdMenuBox, maxWidth: 420, margin: '14px auto 0', textAlign: 'left' }}>
-              {website && (
-                <LcdLinkRow
-                  external
-                  href={/^https?:\/\//i.test(website) ? website : `https://${website}`}
-                  last={lastContact === 'website'}
-                >
-                  WEBSITE ↗
-                </LcdLinkRow>
-              )}
-              {contactEmail && (
-                <LcdLinkRow href={`mailto:${contactEmail}`} last={lastContact === 'email'}>
-                  CONTACT ✉
-                </LcdLinkRow>
-              )}
-              {instagram && (
-                <LcdLinkRow
-                  external
-                  href={`https://instagram.com/${instagram}`}
-                  last={lastContact === 'instagram'}
-                >
-                  @{instagram.toUpperCase()}
-                </LcdLinkRow>
-              )}
-            </div>
+          {lcd && walks !== null && walks >= 1 && (
+            <span style={{ ...t.chip, marginLeft: location || areaServed ? 10 : 0 }}>
+              {walks} MUSEUM WALK{walks === 1 ? '' : 'S'}
+            </span>
           )}
           {hasContact && !lcd && (
             <div
@@ -583,6 +637,93 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
         </div>
       )}
 
+      {/* #6d handheld: no section chrome — the tiles well follows the
+          greeting directly, closed by the binder-page bar (PAGE X/Y ◀ ▶ left,
+          APPEARS AT right). WALK access returns as a chip once the greeting
+          is dismissed. */}
+      {lcd ? (
+        !profile.inventoryPublic ? (
+          <LcdDialog cursor>THIS VENDOR KEEPS THE BINDER PRIVATE!</LcdDialog>
+        ) : profile.items.length === 0 ? (
+          <LcdDialog cursor>NOTHING ON THE TABLE YET — CHECK BACK SOON!</LcdDialog>
+        ) : (
+          <>
+            <div style={lcdWell}>{inventoryGrid}</div>
+            <div
+              style={{
+                marginTop: 12,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+                fontFamily: t.fontMono,
+                fontSize: 10,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: LCD.ink,
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {greetDismissed && (
+                  <Link
+                    href={`/museum/vendor/${profile.id}`}
+                    style={{ ...t.chip, fontWeight: 700, textDecoration: 'none' }}
+                  >
+                    ▶ WALK IN 3D
+                  </Link>
+                )}
+                {lcdPageCount > 1 && (
+                  <>
+                    <span style={{ fontWeight: 700 }}>
+                      PAGE {lcdPage + 1}/{lcdPageCount}
+                    </span>
+                    <button
+                      onClick={() => setPage(Math.max(0, lcdPage - 1))}
+                      disabled={lcdPage === 0}
+                      aria-label="Previous page"
+                      style={pagerBtn(lcdPage === 0)}
+                    >
+                      ◀
+                    </button>
+                    <button
+                      onClick={() => setPage(Math.min(lcdPageCount - 1, lcdPage + 1))}
+                      disabled={lcdPage >= lcdPageCount - 1}
+                      aria-label="Next page"
+                      style={pagerBtn(lcdPage >= lcdPageCount - 1)}
+                    >
+                      ▶
+                    </button>
+                  </>
+                )}
+              </span>
+              {profile.upcomingShows.length > 0 && (
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    gap: 8,
+                    flexWrap: 'wrap',
+                    justifyContent: 'flex-end',
+                    minWidth: 0,
+                  }}
+                >
+                  <span style={{ fontWeight: 700 }}>APPEARS AT:</span>
+                  {profile.upcomingShows.map((show) => (
+                    <Link
+                      key={show.showId}
+                      href={`/show/${show.showId}`}
+                      style={{ color: LCD.ink, textDecoration: 'underline', fontWeight: 700, whiteSpace: 'nowrap' }}
+                    >
+                      {show.name} ({shortShowDate(show.date)}) ▶
+                    </Link>
+                  ))}
+                </span>
+              )}
+            </div>
+          </>
+        )
+      ) : (
       <Section numeral="I." title="INVENTORY">
         {!profile.inventoryPublic ? (
           lcd ? (
@@ -625,7 +766,9 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
           </>
         )}
       </Section>
+      )}
 
+      {!lcd && (
       <Section numeral="II." title="APPEARING AT">
         {profile.upcomingShows.length === 0 ? (
           <Note>{lcd ? 'NO SHOWS ON THE CALENDAR YET!' : 'No upcoming shows announced.'}</Note>
@@ -711,6 +854,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
           </div>
         )}
       </Section>
+      )}
 
       <div style={{ marginTop: 10 }}>
         <ShareButton title={profile.name} />

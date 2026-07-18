@@ -5,6 +5,7 @@ import type { BulkRow } from '../lib/bulkInventory';
 import { formatPrice } from '../lib/price';
 import { useTheme, withAlpha } from './themeKit';
 import type { Theme } from './themeKit';
+import { LCD, PIXEL_FONT, LcdDialog, lcdImg } from './lcdKit';
 
 // Bulk inventory tooling for the Vendor Registry — vendors have hundreds of
 // cards and per-item typing is the ceiling. Two tools: PASTE & MATCH (one
@@ -67,24 +68,45 @@ const smallPrimaryDisabledStyle = (t: Theme): React.CSSProperties => ({
   letterSpacing: '0.1em',
 });
 
-const thStyle = (t: Theme): React.CSSProperties => ({
-  textAlign: 'left',
-  padding: '6px 8px',
-  fontSize: 10.5,
-  fontWeight: 400,
-  letterSpacing: '0.14em',
-  color: t.muted,
-  borderBottom: `1px solid ${t.border}`,
-  whiteSpace: 'nowrap',
-  fontFamily: t.id === 'refined' ? undefined : t.fontMono,
-});
+const thStyle = (t: Theme): React.CSSProperties => t.id === 'handheld'
+  ? {
+      textAlign: 'left',
+      padding: '6px 8px',
+      fontSize: 9.5,
+      fontWeight: 700,
+      letterSpacing: '0.08em',
+      color: LCD.ink,
+      borderBottom: `2px solid ${LCD.ink}`,
+      whiteSpace: 'nowrap',
+      fontFamily: PIXEL_FONT,
+      textTransform: 'uppercase',
+    }
+  : {
+      textAlign: 'left',
+      padding: '6px 8px',
+      fontSize: 10.5,
+      fontWeight: 400,
+      letterSpacing: '0.14em',
+      color: t.muted,
+      borderBottom: `1px solid ${t.border}`,
+      whiteSpace: 'nowrap',
+      fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+    };
 
-const tdStyle = (t: Theme): React.CSSProperties => ({
-  padding: '6px 8px',
-  fontSize: 12.5,
-  borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
-  verticalAlign: 'middle',
-});
+const tdStyle = (t: Theme): React.CSSProperties => t.id === 'handheld'
+  ? {
+      padding: '6px 8px',
+      fontSize: 10,
+      borderBottom: `2px solid ${LCD.mid}`,
+      verticalAlign: 'middle',
+      textTransform: 'uppercase',
+    }
+  : {
+      padding: '6px 8px',
+      fontSize: 12.5,
+      borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
+      verticalAlign: 'middle',
+    };
 
 /** Only defined fields make it into the patch — blanks leave values alone. */
 function rowToPatch(row: BulkRow): BulkPatch {
@@ -98,6 +120,7 @@ function rowToPatch(row: BulkRow): BulkPatch {
 
 export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: BulkInventoryPanelProps) {
   const t = useTheme();
+  const lcd = t.id === 'handheld';
   const smallGhost = smallGhostStyle(t);
   const smallPrimary = smallPrimaryStyle(t);
   const smallPrimaryDisabled = smallPrimaryDisabledStyle(t);
@@ -110,6 +133,9 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
   const [error, setError] = useState<string | null>(null);
   const [allStatus, setAllStatus] = useState<'' | InventoryStatus>('');
   const [allCondition, setAllCondition] = useState('');
+  // Handheld theme only: the SET ALL confirmation runs as an in-page LCD
+  // dialog instead of window.confirm. Inert for the other themes.
+  const [confirmingAll, setConfirmingAll] = useState(false);
   const applying = progress !== null;
 
   const rows = useMemo(() => parseBulkLines(text), [text]);
@@ -143,12 +169,31 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
     runBatch(updates, () => setText(''));
   };
 
+  /** The confirmed SET ALL batch — shared by the window.confirm path and the
+   *  handheld dialog's YES choice. Reads the same state either way. */
+  const doApplyAll = () => {
+    const patch: BulkPatch = {};
+    if (allStatus) patch.status = allStatus;
+    if (allCondition.trim()) patch.condition = allCondition.trim();
+    if (Object.keys(patch).length === 0) return;
+    const updates = items.map((it) => ({ id: it.id, patch }));
+    runBatch(updates, () => {
+      setAllStatus('');
+      setAllCondition('');
+    });
+  };
+
   const handleApplyAll = () => {
     if (applying) return;
     const patch: BulkPatch = {};
     if (allStatus) patch.status = allStatus;
     if (allCondition.trim()) patch.condition = allCondition.trim();
     if (Object.keys(patch).length === 0) return;
+    if (lcd) {
+      // Confirmation happens in the LCD dialog rendered below the controls
+      setConfirmingAll(true);
+      return;
+    }
     const parts = [
       allStatus ? `status "${STATUS_LABEL[allStatus]}"` : null,
       allCondition.trim() ? `condition "${allCondition.trim()}"` : null,
@@ -177,15 +222,15 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
         <div style={{ ...t.panelTitle, margin: 0 }}>BULK TOOLS</div>
         <button
-          onClick={() => setOpen(false)}
-          style={{ background: 'transparent', border: 'none', color: t.muted, fontSize: 12, letterSpacing: '0.08em', fontFamily: t.fontMono, cursor: 'pointer', padding: '2px 6px' }}
+          onClick={() => { setOpen(false); setConfirmingAll(false); }}
+          style={{ background: 'transparent', border: 'none', color: t.muted, fontSize: lcd ? 10 : 12, letterSpacing: '0.08em', fontFamily: t.fontMono, cursor: 'pointer', padding: '2px 6px', ...(lcd ? { textTransform: 'uppercase' as const } : {}) }}
         >
           HIDE ✕
         </button>
       </div>
 
       {/* ---- Paste & match ---- */}
-      <div style={{ margin: '16px 0 8px', fontSize: 11.5, letterSpacing: '0.18em', color: t.accent, fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
+      <div style={{ margin: '16px 0 8px', fontSize: lcd ? 11 : 11.5, fontWeight: lcd ? 700 : undefined, letterSpacing: lcd ? '0.08em' : '0.18em', color: t.accent, fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
         PASTE &amp; MATCH
       </div>
       <div style={{ ...t.note, fontSize: 12, marginBottom: '10px' }}>
@@ -200,7 +245,7 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
         placeholder={'caption | price | condition | status\nCharizard, holo | 250 | PSA 9 | sold\n| 40   (price only — tab or comma work too)'}
         rows={5}
         disabled={applying}
-        style={{ ...t.input, fontSize: 12.5, minHeight: '96px', resize: 'vertical' }}
+        style={{ ...t.input, fontSize: lcd ? 11 : 12.5, minHeight: '96px', resize: 'vertical' }}
       />
 
       {rows.length > 0 && rows.length !== items.length && (
@@ -211,7 +256,7 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
       )}
 
       {previewCount > 0 && (
-        <div style={{ maxHeight: '300px', overflowY: 'auto', marginTop: '12px', border: `1px solid ${withAlpha(t.accent, 0.12)}`, borderRadius: '2px' }}>
+        <div style={{ maxHeight: '300px', overflowY: 'auto', marginTop: '12px', border: lcd ? `3px solid ${LCD.ink}` : `1px solid ${withAlpha(t.accent, 0.12)}`, borderRadius: lcd ? 0 : '2px' }}>
           <table data-testid="bulk-preview" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -232,10 +277,10 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
                       <img
                         src={item.imageUrl}
                         alt=""
-                        style={{ width: 34, height: 34, objectFit: 'cover', display: 'block', borderRadius: 2, border: `1px solid ${t.border}` }}
+                        style={{ width: 34, height: 34, objectFit: 'cover', display: 'block', borderRadius: lcd ? 0 : 2, border: lcd ? `2px solid ${LCD.ink}` : `1px solid ${t.border}`, ...(lcd ? lcdImg : {}) }}
                       />
                     </td>
-                    <td style={{ ...td, color: t.muted, fontStyle: 'italic', textDecoration: row.caption !== undefined ? 'line-through' : 'none', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ ...td, color: t.muted, fontStyle: lcd ? 'normal' : 'italic', textDecoration: row.caption !== undefined ? 'line-through' : 'none', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.caption || '(no caption)'}
                     </td>
                     <td style={{ ...td, fontFamily: t.id === 'refined' ? t.fontDisplay : t.fontBody }}>{row.caption ?? UNTOUCHED}</td>
@@ -258,23 +303,23 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
           disabled={applying || previewCount === 0}
           style={!applying && previewCount > 0 ? smallPrimary : smallPrimaryDisabled}
         >
-          APPLY {previewCount > 0 ? `TO ${previewCount} ITEM${previewCount === 1 ? '' : 'S'}` : ''}
+          {lcd ? '▶ ' : ''}APPLY {previewCount > 0 ? `TO ${previewCount} ITEM${previewCount === 1 ? '' : 'S'}` : ''}
         </button>
         {progress && (
-          <span style={{ fontFamily: t.fontMono, fontSize: '12.5px', color: t.accent, letterSpacing: '0.04em' }}>
+          <span style={{ fontFamily: t.fontMono, fontSize: lcd ? '10px' : '12.5px', color: t.accent, letterSpacing: '0.04em', ...(lcd ? { textTransform: 'uppercase' as const, fontWeight: 700 } : {}) }}>
             {progress}
           </span>
         )}
         {!progress && note && (
-          <span style={{ fontFamily: t.fontMono, fontSize: '12.5px', color: t.accent, letterSpacing: '0.04em' }}>
+          <span style={{ fontFamily: t.fontMono, fontSize: lcd ? '10px' : '12.5px', color: t.accent, letterSpacing: '0.04em', ...(lcd ? { textTransform: 'uppercase' as const } : {}) }}>
             {note}
           </span>
         )}
       </div>
-      {error && <p style={{ ...t.errorText, margin: '10px 0 0' }}>{error}</p>}
+      {error && <p style={{ ...t.errorText, margin: '10px 0 0' }}>{lcd ? '! ' : ''}{error}</p>}
 
       {/* ---- Apply to every item ---- */}
-      <div style={{ margin: '22px 0 8px', fontSize: 11.5, letterSpacing: '0.18em', color: t.accent, fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
+      <div style={{ margin: '22px 0 8px', fontSize: lcd ? 11 : 11.5, fontWeight: lcd ? 700 : undefined, letterSpacing: lcd ? '0.08em' : '0.18em', color: t.accent, fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
         APPLY TO EVERY ITEM
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -283,7 +328,7 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
           title="Status for every item"
           disabled={applying}
           onChange={(e) => setAllStatus(e.target.value as '' | InventoryStatus)}
-          style={{ ...t.input, display: 'inline-block', width: 'auto', fontSize: 12.5, padding: '8px 10px' }}
+          style={{ ...t.input, display: 'inline-block', width: 'auto', fontSize: lcd ? 11 : 12.5, padding: '8px 10px' }}
         >
           <option value="">— unchanged —</option>
           <option value="forSale">For sale</option>
@@ -296,16 +341,28 @@ export default function BulkInventoryPanel({ items, onBulkUpdate, onDone }: Bulk
           value={allCondition}
           disabled={applying}
           onChange={(e) => setAllCondition(e.target.value)}
-          style={{ ...t.input, display: 'inline-block', width: 'auto', flex: 1, minWidth: '160px', fontSize: 12.5, padding: '8px 10px', fontStyle: allCondition ? 'normal' : 'italic' }}
+          style={{ ...t.input, display: 'inline-block', width: 'auto', flex: 1, minWidth: '160px', fontSize: lcd ? 11 : 12.5, padding: '8px 10px', fontStyle: lcd ? 'normal' : allCondition ? 'normal' : 'italic' }}
         />
         <button
           onClick={handleApplyAll}
           disabled={applying || (!allStatus && !allCondition.trim())}
           style={!applying && (allStatus || allCondition.trim()) ? smallPrimary : smallPrimaryDisabled}
         >
-          SET ALL
+          {lcd ? '▶ SET ALL' : 'SET ALL'}
         </button>
       </div>
+
+      {lcd && confirmingAll && (
+        <LcdDialog
+          style={{ marginTop: 12 }}
+          choices={[
+            { label: 'NO', primary: true, onClick: () => setConfirmingAll(false) },
+            { label: 'YES', onClick: () => { setConfirmingAll(false); doApplyAll(); } },
+          ]}
+        >
+          ! THIS CHANGES EVERY ITEM. CONTINUE?
+        </LcdDialog>
+      )}
     </div>
   );
 }

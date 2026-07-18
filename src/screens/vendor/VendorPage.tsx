@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'wouter';
+import type { ReactNode } from 'react';
+import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import ShareButton from '../../components/ShareButton';
 import { useAuth } from '../../lib/auth';
@@ -11,6 +12,17 @@ import type { PublicVendorProfile } from '../../lib/publicVendors';
 import { formatLocation } from '../../lib/locations';
 import { formatPrice } from '../../lib/price';
 import { Section, useTheme, withAlpha } from '../../components/themeKit';
+import type { LcdChoice } from '../../components/lcdKit';
+import {
+  LCD,
+  LcdCursor,
+  LcdDialog,
+  lcdImg,
+  lcdMenuBox,
+  lcdMenuRow,
+  lcdSoldStamp,
+  lcdWell,
+} from '../../components/lcdKit';
 
 // Public vendor profile page (/vendor/:id) — owned by the vendor-portal
 // workstream (Stream B). Anon-safe: reads via lib/publicVendors.ts (direct
@@ -18,7 +30,44 @@ import { Section, useTheme, withAlpha } from '../../components/themeKit';
 
 function Note({ children }: { children: string }) {
   const t = useTheme();
-  return <p style={{ ...t.note, fontSize: 16 }}>{children}</p>;
+  return <p style={{ ...t.note, fontSize: t.id === 'handheld' ? 11 : 16 }}>{children}</p>;
+}
+
+/** Short show date for handheld chips — "AUG 02". */
+function shortShowDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(y, (m ?? 1) - 1, d ?? 1);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }).toUpperCase();
+}
+
+// Handheld-only ▶ menu row wrapping a contact link — hover/focus inverts the
+// row (ink bg, screen text); never a hue shift.
+function LcdLinkRow({ href, external, last, children }: {
+  href: string;
+  external?: boolean;
+  last?: boolean;
+  children: ReactNode;
+}) {
+  const [active, setActive] = useState(false);
+  return (
+    <a
+      href={href}
+      {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={() => setActive(false)}
+      style={{
+        ...lcdMenuRow(active),
+        textDecoration: 'none',
+        ...(last ? { borderBottom: 'none' } : {}),
+      }}
+    >
+      <LcdCursor active={active} />
+      {children}
+    </a>
+  );
 }
 
 function formatShowDate(iso: string): string {
@@ -41,6 +90,10 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const { session } = useAuth();
   const t = useTheme();
+  const [, navigate] = useLocation();
+  // Handheld shopkeeper greeting — "JUST BROWSE" dismisses it for this visit.
+  const [greetDismissed, setGreetDismissed] = useState(false);
+  const lcd = t.id === 'handheld';
   const contactLinkStyle: React.CSSProperties = {
     fontFamily: t.fontMono,
     fontSize: 12.5,
@@ -80,10 +133,17 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   if (!isSupabaseConfigured) {
     return (
       <PageShell title="Vendor Profile" eyebrow="REGISTERED VENDOR">
-        <Note>
-          This gallery is running in guest mode — public vendor profiles need the cloud
-          connection, which isn't configured here.
-        </Note>
+        {lcd ? (
+          <LcdDialog cursor>
+            ! NO LINK CABLE! PUBLIC VENDOR PAGES NEED A CLOUD CONNECTION — THIS
+            MACHINE RUNS IN GUEST MODE.
+          </LcdDialog>
+        ) : (
+          <Note>
+            This gallery is running in guest mode — public vendor profiles need the cloud
+            connection, which isn't configured here.
+          </Note>
+        )}
       </PageShell>
     );
   }
@@ -91,7 +151,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   if (state.status === 'loading') {
     return (
       <PageShell title="Vendor Profile" eyebrow="REGISTERED VENDOR">
-        <Note>Unrolling the banner…</Note>
+        <Note>{lcd ? 'OPENING THE SHOP…' : 'Unrolling the banner…'}</Note>
       </PageShell>
     );
   }
@@ -99,24 +159,35 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   if (state.status === 'notFound') {
     return (
       <PageShell title="Vendor Profile" eyebrow="REGISTERED VENDOR">
-        <Note>
-          We couldn't find that vendor — the profile may have been removed, or the link may be
-          incorrect.
-        </Note>
-        <p style={{ marginTop: 24 }}>
-          <Link
-            href="/"
-            style={{
-              color: t.accent,
-              textDecoration: 'none',
-              fontFamily: t.fontMono,
-              fontSize: 12.5,
-              letterSpacing: '0.18em',
-            }}
+        {lcd ? (
+          <LcdDialog
+            choices={[{ label: 'GO HOME', primary: true, onClick: () => navigate('/') }]}
           >
-            RETURN TO THE MUSEUM →
-          </Link>
-        </p>
+            ! THIS SHOP IS GONE! THE PROFILE MAY HAVE BEEN REMOVED, OR THE LINK MAY
+            BE WRONG.
+          </LcdDialog>
+        ) : (
+          <>
+            <Note>
+              We couldn't find that vendor — the profile may have been removed, or the link may be
+              incorrect.
+            </Note>
+            <p style={{ marginTop: 24 }}>
+              <Link
+                href="/"
+                style={{
+                  color: t.accent,
+                  textDecoration: 'none',
+                  fontFamily: t.fontMono,
+                  fontSize: 12.5,
+                  letterSpacing: '0.18em',
+                }}
+              >
+                RETURN TO THE MUSEUM →
+              </Link>
+            </p>
+          </>
+        )}
       </PageShell>
     );
   }
@@ -131,56 +202,323 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
   const contactEmail = profile.contactEmail.trim();
   const instagram = profile.instagram.trim().replace(/^@/, '');
   const hasContact = Boolean(website || contactEmail || instagram);
+  // Handheld: WALK IN 3D only when the museum link renders below (public,
+  // non-empty inventory); JUST BROWSE dismisses the greeting.
+  const walkable = profile.inventoryPublic && profile.items.length > 0;
+  const greetChoices: LcdChoice[] = [
+    ...(walkable
+      ? [{
+          label: 'WALK IN 3D',
+          primary: true,
+          onClick: () => navigate(`/museum/vendor/${profile.id}`),
+        }]
+      : []),
+    { label: 'JUST BROWSE', primary: !walkable, onClick: () => setGreetDismissed(true) },
+  ];
+  const lastContact = instagram ? 'instagram' : contactEmail ? 'email' : 'website';
+
+  const inventoryGrid = (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+        gap: 22,
+        alignItems: 'start',
+      }}
+    >
+      {profile.items.map((item) => {
+        const sold = item.status === 'sold';
+        const wanted = isWanted(item.id);
+        // Handheld meta line: SOLD is told by the stamp + struck price, so the
+        // text line only needs price / condition / the DISPLAY chip.
+        const lcdMeta = item.price !== undefined || Boolean(item.condition) || item.status === 'display';
+        const img = (
+          <img
+            src={item.imageUrl}
+            alt={item.caption || 'Inventory item'}
+            loading="lazy"
+            style={{
+              width: '100%',
+              aspectRatio: String(item.aspect),
+              objectFit: 'cover',
+              display: 'block',
+              background: t.surface,
+              ...t.cardFrame,
+              // Handheld SOLD idiom: dimmer saturation under the stamp.
+              ...(lcd && sold ? { filter: 'saturate(0.5)' } : {}),
+            }}
+          />
+        );
+        return (
+          <figure key={item.id} className="museum-lift" style={{ margin: 0, position: 'relative' }}>
+            <button
+              onClick={() => handleToggleWant(item.id)}
+              title={wanted ? 'On your want list' : "I'm interested"}
+              style={lcd ? {
+                // Handheld want chip: ♥ active = inverted (ink bg, screen text).
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                zIndex: 1,
+                background: wanted ? LCD.ink : LCD.panel,
+                color: wanted ? LCD.screen : LCD.ink,
+                border: `2px solid ${LCD.ink}`,
+                borderRadius: 0,
+                width: 28,
+                height: 28,
+                fontFamily: t.fontMono,
+                fontSize: 12,
+                fontWeight: 700,
+                lineHeight: '24px',
+                textAlign: 'center',
+                padding: 0,
+                cursor: 'pointer',
+              } : {
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                zIndex: 1,
+                background: 'rgba(0,0,0,0.65)',
+                color: wanted ? t.accent : 'rgba(255,255,255,0.75)',
+                border: `${t.borderWidth}px solid ${wanted ? t.accent : 'rgba(255,255,255,0.3)'}`,
+                borderRadius: '50%',
+                width: 30,
+                height: 30,
+                fontSize: 14,
+                lineHeight: '28px',
+                textAlign: 'center',
+                padding: 0,
+                cursor: 'pointer',
+              }}
+            >
+              {wanted ? '♥' : '♡'}
+            </button>
+            {lcd ? (
+              <div style={{ position: 'relative' }}>
+                {img}
+                {sold && <span style={lcdSoldStamp}>SOLD!</span>}
+              </div>
+            ) : (
+              img
+            )}
+            {lcd ? (
+              (item.caption || lcdMeta) && (
+                <figcaption
+                  style={{
+                    marginTop: 8,
+                    fontFamily: t.fontMono,
+                    fontSize: 9.5,
+                    lineHeight: 1.7,
+                    color: LCD.muted,
+                    textAlign: 'center',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  {item.caption && <span style={{ display: 'block' }}>{item.caption}</span>}
+                  {lcdMeta && (
+                    <span style={{ display: 'block', marginTop: item.caption ? 3 : 0, fontSize: 10 }}>
+                      {item.price !== undefined && (
+                        <span
+                          style={{
+                            color: LCD.ink,
+                            fontWeight: 700,
+                            textDecoration: sold ? 'line-through' : 'none',
+                          }}
+                        >
+                          {formatPrice(item.price)}
+                        </span>
+                      )}
+                      {item.condition && (
+                        <span>{item.price !== undefined ? ' · ' : ''}{item.condition}</span>
+                      )}
+                      {item.status === 'display' && (
+                        <span
+                          style={{
+                            ...t.chip,
+                            marginLeft: item.price !== undefined || item.condition ? 6 : 0,
+                          }}
+                        >
+                          DISPLAY
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </figcaption>
+              )
+            ) : (
+              (item.caption || item.price !== undefined || item.status !== 'forSale') && (
+                <figcaption
+                  style={{
+                    marginTop: 10,
+                    fontFamily: t.fontMono,
+                    fontSize: 12.5,
+                    lineHeight: 1.5,
+                    color: t.muted,
+                    textAlign: 'center',
+                  }}
+                >
+                  {item.caption && (
+                    <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}>
+                      {item.caption}
+                    </span>
+                  )}
+                  {(item.price !== undefined || item.condition || item.status !== 'forSale') && (
+                    <span
+                      style={{
+                        display: 'block',
+                        marginTop: item.caption ? 4 : 0,
+                        letterSpacing: '0.08em',
+                      }}
+                    >
+                      {item.price !== undefined && (
+                        <span
+                          style={{
+                            color: item.status === 'sold' ? t.muted : t.accent,
+                            textDecoration: item.status === 'sold' ? 'line-through' : 'none',
+                          }}
+                        >
+                          {formatPrice(item.price)}
+                        </span>
+                      )}
+                      {item.condition && (
+                        <span>{item.price !== undefined ? ' · ' : ''}{item.condition}</span>
+                      )}
+                      {item.status === 'sold' && (
+                        <>
+                          {(item.price !== undefined || item.condition) && (
+                            <span style={{ color: t.id === 'refined' ? '#b0685c' : t.muted, letterSpacing: '0.2em' }}> · </span>
+                          )}
+                          <span
+                            style={t.id === 'refined'
+                              ? { color: '#b0685c', letterSpacing: '0.2em' }
+                              : t.chip}
+                          >
+                            SOLD
+                          </span>
+                        </>
+                      )}
+                      {item.status === 'display' && (
+                        <>
+                          {(item.price !== undefined || item.condition) && (
+                            <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}> · </span>
+                          )}
+                          <span
+                            style={t.id === 'refined'
+                              ? { fontStyle: 'italic' }
+                              : { ...t.chip, background: 'transparent', color: t.muted, border: `1px solid ${t.border}` }}
+                          >
+                            Display only
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  )}
+                </figcaption>
+              )
+            )}
+          </figure>
+        );
+      })}
+    </div>
+  );
 
   return (
     <PageShell title={profile.name} eyebrow="REGISTERED VENDOR">
-      {isOwner && (
-        <div
-          style={{
-            border: `${t.borderWidth}px solid ${t.border}`,
-            borderRadius: 2,
-            background: t.panel,
-            padding: '9px 16px',
-            margin: '-10px 0 26px',
-            textAlign: 'center',
-            fontFamily: t.fontMono,
-            fontSize: 13,
-            color: t.muted,
-          }}
-        >
-          This is your store —{' '}
-          <Link
-            href="/account?tab=stores"
+      {lcd && !greetDismissed && (
+        <LcdDialog cursor style={{ marginBottom: 26 }} choices={greetChoices}>
+          HI! WELCOME TO {profile.name}!{walkable ? ' TAKE A LOOK AT THE BINDER…' : ''}
+        </LcdDialog>
+      )}
+      {isOwner &&
+        (lcd ? (
+          <LcdDialog
+            style={{ marginBottom: 26 }}
+            choices={[
+              {
+                label: 'MY STORES',
+                primary: true,
+                onClick: () => navigate('/account?tab=stores'),
+              },
+            ]}
+          >
+            THIS IS YOUR STORE! YOU CAN MANAGE IT IN MY STORES.
+          </LcdDialog>
+        ) : (
+          <div
             style={{
-              color: t.accent,
-              textDecoration: 'none',
-              letterSpacing: '0.12em',
+              border: `${t.borderWidth}px solid ${t.border}`,
+              borderRadius: 2,
+              background: t.panel,
+              padding: '9px 16px',
+              margin: '-10px 0 26px',
+              textAlign: 'center',
+              fontFamily: t.fontMono,
+              fontSize: 13,
+              color: t.muted,
             }}
           >
-            manage it in MY STORES →
-          </Link>
-        </div>
-      )}
+            This is your store —{' '}
+            <Link
+              href="/account?tab=stores"
+              style={{
+                color: t.accent,
+                textDecoration: 'none',
+                letterSpacing: '0.12em',
+              }}
+            >
+              manage it in MY STORES →
+            </Link>
+          </div>
+        ))}
       {(location || areaServed || hasContact) && (
         <div style={{ margin: '-18px 0 30px', textAlign: 'center' }}>
           {location && (
             <div
               style={{
                 fontFamily: t.fontMono,
-                fontSize: 14.5,
+                fontSize: lcd ? 10 : 14.5,
                 color: t.muted,
                 letterSpacing: '0.08em',
+                textTransform: lcd ? 'uppercase' : undefined,
               }}
             >
               {location}
             </div>
           )}
           {areaServed && (
-            <div style={{ ...t.note, fontSize: 13.5, marginTop: 5 }}>
+            <div style={{ ...t.note, fontSize: lcd ? 9.5 : 13.5, marginTop: 5 }}>
               Serves: {areaServed}
             </div>
           )}
-          {hasContact && (
+          {hasContact && lcd && (
+            <div style={{ ...lcdMenuBox, maxWidth: 420, margin: '14px auto 0', textAlign: 'left' }}>
+              {website && (
+                <LcdLinkRow
+                  external
+                  href={/^https?:\/\//i.test(website) ? website : `https://${website}`}
+                  last={lastContact === 'website'}
+                >
+                  WEBSITE ↗
+                </LcdLinkRow>
+              )}
+              {contactEmail && (
+                <LcdLinkRow href={`mailto:${contactEmail}`} last={lastContact === 'email'}>
+                  CONTACT ✉
+                </LcdLinkRow>
+              )}
+              {instagram && (
+                <LcdLinkRow
+                  external
+                  href={`https://instagram.com/${instagram}`}
+                  last={lastContact === 'instagram'}
+                >
+                  @{instagram.toUpperCase()}
+                </LcdLinkRow>
+              )}
+            </div>
+          )}
+          {hasContact && !lcd && (
             <div
               style={{
                 display: 'flex',
@@ -225,7 +563,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
         <div
           style={{
             border: `${t.borderWidth}px solid ${t.border}`,
-            borderRadius: 2,
+            borderRadius: lcd ? 0 : 2,
             padding: 8,
             background: t.panel,
             marginBottom: 36,
@@ -239,6 +577,7 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
               maxHeight: 240,
               objectFit: 'contain',
               display: 'block',
+              ...(lcd ? lcdImg : {}),
             }}
           />
         </div>
@@ -246,9 +585,17 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
 
       <Section numeral="I." title="INVENTORY">
         {!profile.inventoryPublic ? (
-          <Note>This vendor keeps their inventory private.</Note>
+          lcd ? (
+            <LcdDialog cursor>THIS VENDOR KEEPS THE BINDER PRIVATE!</LcdDialog>
+          ) : (
+            <Note>This vendor keeps their inventory private.</Note>
+          )
         ) : profile.items.length === 0 ? (
-          <Note>Nothing on display yet — check back soon.</Note>
+          lcd ? (
+            <LcdDialog cursor>NOTHING ON THE TABLE YET — CHECK BACK SOON!</LcdDialog>
+          ) : (
+            <Note>Nothing on display yet — check back soon.</Note>
+          )
         ) : (
           <>
             <Link
@@ -260,138 +607,60 @@ export default function VendorPage({ vendorId }: { vendorId: string }) {
                 marginBottom: 26,
               }}
             >
-              WALK THE MUSEUM →
+              {lcd ? '▶ WALK THE MUSEUM' : 'WALK THE MUSEUM →'}
             </Link>
-            {walks !== null && walks >= 1 && (
-              <p style={{ ...t.note, fontSize: 12.5, margin: '-14px 0 26px' }}>
-                {walks} museum walk{walks === 1 ? '' : 's'}
-              </p>
-            )}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                gap: 22,
-                alignItems: 'start',
-              }}
-            >
-              {profile.items.map((item) => (
-                <figure key={item.id} className="museum-lift" style={{ margin: 0, position: 'relative' }}>
-                  <button
-                    onClick={() => handleToggleWant(item.id)}
-                    title={isWanted(item.id) ? 'On your want list' : "I'm interested"}
-                    style={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      zIndex: 1,
-                      background: 'rgba(0,0,0,0.65)',
-                      color: isWanted(item.id) ? t.accent : 'rgba(255,255,255,0.75)',
-                      border: `${t.borderWidth}px solid ${isWanted(item.id) ? t.accent : 'rgba(255,255,255,0.3)'}`,
-                      borderRadius: '50%',
-                      width: 30,
-                      height: 30,
-                      fontSize: 14,
-                      lineHeight: '28px',
-                      textAlign: 'center',
-                      padding: 0,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {isWanted(item.id) ? '♥' : '♡'}
-                  </button>
-                  <img
-                    src={item.imageUrl}
-                    alt={item.caption || 'Inventory item'}
-                    loading="lazy"
-                    style={{
-                      width: '100%',
-                      aspectRatio: String(item.aspect),
-                      objectFit: 'cover',
-                      display: 'block',
-                      background: t.surface,
-                      ...t.cardFrame,
-                    }}
-                  />
-                  {(item.caption || item.price !== undefined || item.status !== 'forSale') && (
-                    <figcaption
-                      style={{
-                        marginTop: 10,
-                        fontFamily: t.fontMono,
-                        fontSize: 12.5,
-                        lineHeight: 1.5,
-                        color: t.muted,
-                        textAlign: 'center',
-                      }}
-                    >
-                      {item.caption && (
-                        <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}>
-                          {item.caption}
-                        </span>
-                      )}
-                      {(item.price !== undefined || item.condition || item.status !== 'forSale') && (
-                        <span
-                          style={{
-                            display: 'block',
-                            marginTop: item.caption ? 4 : 0,
-                            letterSpacing: '0.08em',
-                          }}
-                        >
-                          {item.price !== undefined && (
-                            <span
-                              style={{
-                                color: item.status === 'sold' ? t.muted : t.accent,
-                                textDecoration: item.status === 'sold' ? 'line-through' : 'none',
-                              }}
-                            >
-                              {formatPrice(item.price)}
-                            </span>
-                          )}
-                          {item.condition && (
-                            <span>{item.price !== undefined ? ' · ' : ''}{item.condition}</span>
-                          )}
-                          {item.status === 'sold' && (
-                            <>
-                              {(item.price !== undefined || item.condition) && (
-                                <span style={{ color: t.id === 'refined' ? '#b0685c' : t.muted, letterSpacing: '0.2em' }}> · </span>
-                              )}
-                              <span
-                                style={t.id === 'refined'
-                                  ? { color: '#b0685c', letterSpacing: '0.2em' }
-                                  : t.chip}
-                              >
-                                SOLD
-                              </span>
-                            </>
-                          )}
-                          {item.status === 'display' && (
-                            <>
-                              {(item.price !== undefined || item.condition) && (
-                                <span style={{ fontStyle: t.id === 'refined' ? 'italic' : 'normal' }}> · </span>
-                              )}
-                              <span
-                                style={t.id === 'refined'
-                                  ? { fontStyle: 'italic' }
-                                  : { ...t.chip, background: 'transparent', color: t.muted, border: `1px solid ${t.border}` }}
-                              >
-                                Display only
-                              </span>
-                            </>
-                          )}
-                        </span>
-                      )}
-                    </figcaption>
-                  )}
-                </figure>
+            {walks !== null && walks >= 1 &&
+              (lcd ? (
+                <div style={{ margin: '-14px 0 26px' }}>
+                  <span style={t.chip}>
+                    {walks} MUSEUM WALK{walks === 1 ? '' : 'S'}
+                  </span>
+                </div>
+              ) : (
+                <p style={{ ...t.note, fontSize: 12.5, margin: '-14px 0 26px' }}>
+                  {walks} museum walk{walks === 1 ? '' : 's'}
+                </p>
               ))}
-            </div>
+            {lcd ? <div style={lcdWell}>{inventoryGrid}</div> : inventoryGrid}
           </>
         )}
       </Section>
 
       <Section numeral="II." title="APPEARING AT">
         {profile.upcomingShows.length === 0 ? (
-          <Note>No upcoming shows announced.</Note>
+          <Note>{lcd ? 'NO SHOWS ON THE CALENDAR YET!' : 'No upcoming shows announced.'}</Note>
+        ) : lcd ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              flexWrap: 'wrap',
+              gap: 8,
+              fontFamily: t.fontMono,
+              fontSize: 10,
+              letterSpacing: '0.06em',
+              lineHeight: 1.9,
+              color: LCD.ink,
+              textTransform: 'uppercase',
+            }}
+          >
+            <span style={{ fontWeight: 700 }}>APPEARS AT:</span>
+            {profile.upcomingShows.map((show) => (
+              <Link
+                key={show.showId}
+                href={`/show/${show.showId}`}
+                style={{
+                  ...t.chip,
+                  fontSize: 10,
+                  padding: '3px 8px',
+                  textDecoration: 'none',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {show.name} · {shortShowDate(show.date)}
+              </Link>
+            ))}
+          </div>
         ) : (
           <div>
             {profile.upcomingShows.map((show) => (

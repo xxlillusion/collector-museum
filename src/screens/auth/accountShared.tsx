@@ -13,6 +13,27 @@ export function errMsg(err: unknown): string {
 
 export function StatusLine({ status, error }: { status: SaveStatus; error?: string | null }) {
   const t = useTheme();
+  if (t.id === 'handheld') {
+    // LCD: statuses in game voice; errors are the inverted "!" box (t.errorText).
+    return (
+      <p
+        style={{
+          margin: '6px 0 0',
+          fontSize: 10,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: t.muted,
+          minHeight: 15,
+        }}
+      >
+        {status === 'saving' && 'SAVING…'}
+        {status === 'saved' && 'SAVED!'}
+        {status === 'error' && (
+          <span style={t.errorText}>! {error || 'COULD NOT SAVE — TRY AGAIN.'}</span>
+        )}
+      </p>
+    );
+  }
   return (
     <p
       style={{
@@ -33,7 +54,10 @@ export const checkLabelStyle = (t: Theme): CSSProperties => ({
   display: 'flex',
   alignItems: 'baseline',
   gap: 12,
-  fontSize: 15,
+  fontSize: t.id === 'handheld' ? 10.5 : 15,
+  ...(t.id === 'handheld'
+    ? { textTransform: 'uppercase' as const, letterSpacing: '0.04em', lineHeight: 1.8 }
+    : {}),
   color: t.text,
   cursor: 'pointer',
 });

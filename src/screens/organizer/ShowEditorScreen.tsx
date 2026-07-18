@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
 import { getMyProfile } from '../../lib/profileService';
@@ -22,6 +22,7 @@ import { useProvider } from '../../lib/provider/context';
 import { deleteAllVendorBanners } from '../../lib/db';
 import type { PlanWorkbenchHandle, PlanWorkbenchState } from '../../components/PlanWorkbench';
 import { useTheme, withAlpha } from '../../components/themeKit';
+import { LCD, LcdCursor, LcdDialog, lcdMenuBox, lcdMenuRow } from '../../components/lcdKit';
 
 // The workbench carries the detection pipeline + plan editor — lazy so the
 // organizer list / gate pages never pull that chunk.
@@ -37,8 +38,13 @@ const PlanWorkbench = lazy(() => import('../../components/PlanWorkbench'));
 export default function ShowEditorScreen({ showId }: { showId?: string }) {
   const isEdit = Boolean(showId);
   const t = useTheme();
+  const lcd = t.id === 'handheld';
+  // Handheld dialogs navigate via choices (no inline Links inside them).
+  const [, navigate] = useLocation();
   // Theme note, sized up for the gate / status pages.
-  const noteStyle: CSSProperties = { ...t.note, fontSize: 17, lineHeight: 1.7 };
+  const noteStyle: CSSProperties = { ...t.note, fontSize: lcd ? 11 : 17, lineHeight: lcd ? 1.9 : 1.7 };
+  /** Gate/status page link — same rendered values as before for non-handheld. */
+  const gateLinkStyle: CSSProperties = { color: t.accent, fontSize: lcd ? 11 : 15, fontFamily: t.fontMono, letterSpacing: '0.08em' };
   const { configured, session, loading: authLoading } = useAuth();
   const provider = useProvider();
   const vendorPlan = useVendorPlan();
@@ -300,7 +306,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>Sign in to create and manage card shows.</p>
         <p style={{ marginTop: 18 }}>
-          <Link href="/login" style={{ color: t.accent, fontSize: 15, fontFamily: t.fontMono, letterSpacing: '0.08em' }}>Sign in →</Link>
+          <Link href="/login" style={gateLinkStyle}>Sign in →</Link>
         </p>
       </PageShell>
     );
@@ -313,7 +319,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           <Link href="/account" style={{ color: t.accent }}>Account page</Link> and come back.
         </p>
         <p style={{ marginTop: 18 }}>
-          <Link href="/account" style={{ color: t.accent, fontSize: 15, fontFamily: t.fontMono, letterSpacing: '0.08em' }}>Go to my account →</Link>
+          <Link href="/account" style={gateLinkStyle}>Go to my account →</Link>
         </p>
       </PageShell>
     );
@@ -331,9 +337,9 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>That show doesn't exist (or isn't yours).</p>
-        {error && <p style={{ ...t.errorText, marginTop: 12 }}>{error}</p>}
+        {error && <p style={{ ...t.errorText, marginTop: 12 }}>{lcd ? '! ' : ''}{error}</p>}
         <p style={{ marginTop: 18 }}>
-          <Link href="/organizer" style={{ color: t.accent, fontSize: 15, fontFamily: t.fontMono, letterSpacing: '0.08em' }}>← Back to my shows</Link>
+          <Link href="/organizer" style={gateLinkStyle}>← Back to my shows</Link>
         </p>
       </PageShell>
     );
@@ -343,21 +349,40 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   if (createdId) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
-        <p style={{ ...noteStyle, fontStyle: 'normal', color: t.text }}>
-          {publishNow
-            ? 'Your show is live in the public directory.'
-            : 'Your show was created hidden — publish it from My Shows whenever it’s ready.'}
-        </p>
-        <p style={{ marginTop: 22, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          {publishNow && (
-            <Link href={`/show/${createdId}`} style={{ color: t.accent, fontSize: 15, fontFamily: t.fontMono, letterSpacing: '0.08em' }}>
-              View the show page →
-            </Link>
-          )}
-          <Link href="/organizer" style={{ color: t.accent, fontSize: 15, fontFamily: t.fontMono, letterSpacing: '0.08em' }}>
-            My shows →
-          </Link>
-        </p>
+        {lcd ? (
+          <LcdDialog
+            cursor
+            style={{ maxWidth: 560 }}
+            choices={publishNow ? [
+              { label: 'VIEW SHOW', primary: true, onClick: () => navigate(`/show/${createdId}`) },
+              { label: 'BACK', onClick: () => navigate('/organizer') },
+            ] : [
+              { label: 'MY SHOWS', primary: true, onClick: () => navigate('/organizer') },
+            ]}
+          >
+            {publishNow
+              ? `${name.trim() || 'YOUR SHOW'} IS LIVE! SHARE IT WITH THE WORLD?`
+              : `${name.trim() || 'YOUR SHOW'} WAS CREATED HIDDEN! PUBLISH IT FROM MY SHOWS WHEN IT'S READY.`}
+          </LcdDialog>
+        ) : (
+          <>
+            <p style={{ ...noteStyle, fontStyle: 'normal', color: t.text }}>
+              {publishNow
+                ? 'Your show is live in the public directory.'
+                : 'Your show was created hidden — publish it from My Shows whenever it’s ready.'}
+            </p>
+            <p style={{ marginTop: 22, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              {publishNow && (
+                <Link href={`/show/${createdId}`} style={gateLinkStyle}>
+                  View the show page →
+                </Link>
+              )}
+              <Link href="/organizer" style={gateLinkStyle}>
+                My shows →
+              </Link>
+            </p>
+          </>
+        )}
       </PageShell>
     );
   }
@@ -366,42 +391,62 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   if (!confirmed) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
-        <p style={noteStyle}>
-          {isEdit
-            ? "Editing opens this show's floor plan in the plan workspace. If you have an unsaved plan in BUILD A SHOW, it will be replaced — save it as a plan first if you want to keep it."
-            : "A new show starts with a fresh floor plan in the plan workspace. You have an unsaved plan in BUILD A SHOW — starting fresh replaces it (save it as a plan first if you want to keep it), or use it as this show's floor plan."}
-        </p>
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 24, alignItems: 'center' }}>
-          {isEdit ? (
-            <button
-              onClick={() => setConfirmed(true)}
-              style={t.primaryButton}
-            >
-              CONTINUE →
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={async () => {
-                  await handleClearPlan();
-                  setConfirmed(true);
-                }}
-                style={t.primaryButton}
-              >
-                START FRESH →
-              </button>
-              <button
-                onClick={() => setConfirmed(true)}
-                style={t.ghostButton}
-              >
-                Use my BUILD A SHOW plan for this show
-              </button>
-            </>
-          )}
-          <Link href="/organizer" style={{ ...t.subtleButton, textDecoration: 'none', display: 'inline-block' }}>
-            Cancel
-          </Link>
-        </div>
+        {lcd ? (
+          <LcdDialog
+            style={{ maxWidth: 640 }}
+            choices={isEdit ? [
+              { label: 'CONTINUE', primary: true, onClick: () => setConfirmed(true) },
+              { label: 'CANCEL', onClick: () => navigate('/organizer') },
+            ] : [
+              { label: 'START FRESH', primary: true, onClick: () => { handleClearPlan().then(() => setConfirmed(true)); } },
+              { label: 'USE MY SANDBOX PLAN', onClick: () => setConfirmed(true) },
+              { label: 'CANCEL', onClick: () => navigate('/organizer') },
+            ]}
+          >
+            {isEdit
+              ? "EDITING OPENS THIS SHOW'S FLOOR PLAN IN THE WORKSPACE! AN UNSAVED PLAN IN BUILD A SHOW WILL BE REPLACED — SAVE IT AS A PLAN FIRST IF YOU WANT TO KEEP IT."
+              : 'A NEW SHOW STARTS WITH A FRESH FLOOR PLAN! YOU HAVE AN UNSAVED PLAN IN BUILD A SHOW — START FRESH, OR USE IT FOR THIS SHOW?'}
+          </LcdDialog>
+        ) : (
+          <>
+            <p style={noteStyle}>
+              {isEdit
+                ? "Editing opens this show's floor plan in the plan workspace. If you have an unsaved plan in BUILD A SHOW, it will be replaced — save it as a plan first if you want to keep it."
+                : "A new show starts with a fresh floor plan in the plan workspace. You have an unsaved plan in BUILD A SHOW — starting fresh replaces it (save it as a plan first if you want to keep it), or use it as this show's floor plan."}
+            </p>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 24, alignItems: 'center' }}>
+              {isEdit ? (
+                <button
+                  onClick={() => setConfirmed(true)}
+                  style={t.primaryButton}
+                >
+                  CONTINUE →
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={async () => {
+                      await handleClearPlan();
+                      setConfirmed(true);
+                    }}
+                    style={t.primaryButton}
+                  >
+                    START FRESH →
+                  </button>
+                  <button
+                    onClick={() => setConfirmed(true)}
+                    style={t.ghostButton}
+                  >
+                    Use my BUILD A SHOW plan for this show
+                  </button>
+                </>
+              )}
+              <Link href="/organizer" style={{ ...t.subtleButton, textDecoration: 'none', display: 'inline-block' }}>
+                Cancel
+              </Link>
+            </div>
+          </>
+        )}
       </PageShell>
     );
   }
@@ -410,7 +455,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>Preparing the floor plan editor…</p>
-        {error && <p style={{ ...t.errorText, marginTop: 12 }}>{error}</p>}
+        {error && <p style={{ ...t.errorText, marginTop: 12 }}>{lcd ? '! ' : ''}{error}</p>}
       </PageShell>
     );
   }
@@ -419,9 +464,9 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   return (
     <PageShell title={title} eyebrow="ORGANIZER TOOLS" wide>
       {isEdit && show && !show.published && (
-        <p style={{ ...t.note, fontSize: 14, marginBottom: 18 }}>
+        <p style={{ ...t.note, fontSize: lcd ? 10 : 14, marginBottom: 18 }}>
           This show is currently hidden — publish it from{' '}
-          <Link href="/organizer" style={{ color: t.accent }}>My Shows</Link> when it's ready.
+          <Link href="/organizer" style={{ color: t.accent, fontWeight: lcd ? 700 : undefined }}>My Shows</Link> when it's ready.
         </p>
       )}
 
@@ -429,20 +474,34 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           top of the per-booth assignment dropdown below. */}
       {isEdit && apps.length > 0 && (
         <div
-          style={{
+          style={lcd ? {
+            border: `3px solid ${LCD.ink}`,
+            borderRadius: 0,
+            background: t.panel,
+            padding: '14px 18px',
+            marginBottom: 26,
+          } : {
             border: `${t.borderWidth}px solid ${withAlpha(t.accent, 0.3)}`,
             borderRadius: 4,
             padding: '14px 18px',
             marginBottom: 26,
           }}
         >
-          <div style={{ ...t.label, marginBottom: 6 }}>
+          <div style={{ ...t.label, marginBottom: 6, ...(lcd ? { fontSize: 12, fontWeight: 700, color: t.text } : {}) }}>
             BOOTH APPLICATIONS ({apps.filter((a) => a.status === 'pending').length} pending)
           </div>
-          {apps.map((a) => (
+          {apps.map((a, i) => (
             <div
               key={a.id}
-              style={{
+              style={lcd ? {
+                ...lcdMenuRow(false),
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+                padding: '9px 4px',
+                opacity: appBusyId === a.id ? 0.6 : 1,
+                ...(i === apps.length - 1 ? { borderBottom: 'none' } : {}),
+              } : {
                 display: 'flex',
                 alignItems: 'baseline',
                 gap: 14,
@@ -452,11 +511,11 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
                 opacity: appBusyId === a.id ? 0.6 : 1,
               }}
             >
-              <span style={{ fontFamily: t.fontDisplay, fontSize: 15, color: t.text, minWidth: 140 }}>
+              <span style={{ fontFamily: t.fontDisplay, fontSize: lcd ? 11 : 15, fontWeight: lcd ? 700 : undefined, color: t.text, minWidth: 140 }}>
                 {a.vendorName}
               </span>
               {a.message && (
-                <span style={{ ...t.note, fontSize: 12.5, flex: 1, minWidth: 160 }}>
+                <span style={{ ...t.note, fontSize: lcd ? 9.5 : 12.5, flex: 1, minWidth: 160 }}>
                   “{a.message}”
                 </span>
               )}
@@ -465,21 +524,30 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
                   <button
                     onClick={() => handleApplication(a.id, 'approved')}
                     disabled={appBusyId === a.id}
-                    style={{ ...t.ghostButton, padding: '5px 14px', fontSize: 11 }}
+                    style={lcd
+                      ? { ...t.chip, fontSize: 10, cursor: 'pointer' }
+                      : { ...t.ghostButton, padding: '5px 14px', fontSize: 11 }}
                   >
-                    APPROVE
+                    {lcd ? '▶ APPROVE' : 'APPROVE'}
                   </button>
                   <button
                     onClick={() => handleApplication(a.id, 'declined')}
                     disabled={appBusyId === a.id}
-                    style={{ ...t.ghostButton, padding: '5px 14px', fontSize: 11, color: '#b0685c', borderColor: 'rgba(176,104,92,0.5)' }}
+                    style={lcd
+                      ? { ...t.chip, fontSize: 10, cursor: 'pointer', color: t.muted }
+                      : { ...t.ghostButton, padding: '5px 14px', fontSize: 11, color: '#b0685c', borderColor: 'rgba(176,104,92,0.5)' }}
                   >
                     DECLINE
                   </button>
                 </span>
               ) : (
                 <span
-                  style={{
+                  style={lcd ? {
+                    ...t.chip,
+                    ...(a.status === 'approved'
+                      ? { background: LCD.ink, color: LCD.screen }
+                      : { color: t.muted }),
+                  } : {
                     fontSize: 10.5,
                     letterSpacing: '0.18em',
                     fontFamily: t.fontMono,
@@ -494,8 +562,8 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
               )}
             </div>
           ))}
-          {appError && <p style={{ ...t.errorText, marginTop: 10 }}>{appError}</p>}
-          <p style={{ ...t.note, fontSize: 12, marginTop: 10 }}>
+          {appError && <p style={{ ...t.errorText, marginTop: 10 }}>{lcd ? '! ' : ''}{appError}</p>}
+          <p style={{ ...t.note, fontSize: lcd ? 9.5 : 12, marginTop: 10 }}>
             Approving moves the store to the top of each booth's vendor dropdown — assign
             them to a booth below to place them on the floor.
           </p>
@@ -523,7 +591,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
             title="Show date (optional) — shown in the public directory"
             value={showDate}
             onChange={(e) => setShowDate(e.target.value)}
-            style={{ ...t.input, width: 180, color: showDate ? t.text : '#777' }}
+            style={{ ...t.input, width: 180, color: showDate ? t.text : (lcd ? t.muted : '#777') }}
           />
         </div>
       </div>
@@ -648,54 +716,102 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       </Suspense>
 
       {error && (
-        <p style={{ ...t.errorText, margin: '18px 0 0' }}>{error}</p>
+        <p style={{ ...t.errorText, margin: '18px 0 0' }}>{lcd ? '! ' : ''}{error}</p>
       )}
       {savedNote && !error && (
-        <p style={{ color: t.accent, fontSize: 14, fontFamily: t.fontMono, margin: '18px 0 0' }}>
-          Changes saved.{' '}
-          {show?.published && (
-            <Link href={`/show/${showId}`} style={{ color: t.accent }}>View the show page →</Link>
-          )}
-        </p>
+        lcd ? (
+          <LcdDialog
+            cursor
+            style={{ marginTop: 18, maxWidth: 480 }}
+            choices={show?.published ? [
+              { label: 'VIEW SHOW', primary: true, onClick: () => navigate(`/show/${showId}`) },
+            ] : undefined}
+          >
+            SAVED! YOUR CHANGES ARE IN.
+          </LcdDialog>
+        ) : (
+          <p style={{ color: t.accent, fontSize: 14, fontFamily: t.fontMono, margin: '18px 0 0' }}>
+            Changes saved.{' '}
+            {show?.published && (
+              <Link href={`/show/${showId}`} style={{ color: t.accent }}>View the show page →</Link>
+            )}
+          </p>
+        )
       )}
 
       {!isEdit && (
         <div style={{ marginTop: 26 }}>
-          <span style={t.label}>VISIBILITY</span>
-          <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
-            {([
-              [true, 'Publish immediately', 'appears in the public directory right away'],
-              [false, 'Create hidden', 'publish it later from My Shows'],
-            ] as const).map(([value, label, sub]) => (
-              <label
-                key={label}
-                style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer' }}
-              >
-                <input
-                  type="radio"
-                  name="show-editor-visibility"
-                  checked={publishNow === value}
-                  onChange={() => setPublishNow(value)}
-                  style={{ accentColor: t.accent }}
-                />
-                <span style={{ fontFamily: t.fontDisplay, fontSize: 14.5, color: t.text }}>
-                  {label}
-                  <span
-                    style={{
-                      display: 'block',
-                      fontSize: 12,
-                      color: t.muted,
-                      fontStyle: t.id === 'refined' ? 'italic' : 'normal',
-                      fontFamily: t.id === 'refined' ? undefined : t.fontMono,
-                      marginTop: 2,
-                    }}
-                  >
-                    {sub}
+          <span style={{ ...t.label, ...(lcd ? { fontSize: 12, fontWeight: 700, color: t.text, marginBottom: 8 } : {}) }}>VISIBILITY</span>
+          {lcd ? (
+            <div style={{ ...lcdMenuBox, maxWidth: 460 }}>
+              {([
+                [true, 'Publish immediately', 'appears in the public directory right away'],
+                [false, 'Create hidden', 'publish it later from My Shows'],
+              ] as const).map(([value, label, sub], i) => (
+                <div
+                  key={label}
+                  onClick={() => setPublishNow(value)}
+                  style={{
+                    ...lcdMenuRow(publishNow === value),
+                    cursor: 'pointer',
+                    ...(i === 1 ? { borderBottom: 'none' } : {}),
+                  }}
+                >
+                  <LcdCursor active={publishNow === value} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    {label}
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: 9,
+                        fontWeight: 400,
+                        letterSpacing: '0.06em',
+                        color: publishNow === value ? LCD.screen : t.muted,
+                        marginTop: 2,
+                      }}
+                    >
+                      {sub}
+                    </span>
                   </span>
-                </span>
-              </label>
-            ))}
-          </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+              {([
+                [true, 'Publish immediately', 'appears in the public directory right away'],
+                [false, 'Create hidden', 'publish it later from My Shows'],
+              ] as const).map(([value, label, sub]) => (
+                <label
+                  key={label}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer' }}
+                >
+                  <input
+                    type="radio"
+                    name="show-editor-visibility"
+                    checked={publishNow === value}
+                    onChange={() => setPublishNow(value)}
+                    style={{ accentColor: t.accent }}
+                  />
+                  <span style={{ fontFamily: t.fontDisplay, fontSize: 14.5, color: t.text }}>
+                    {label}
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: 12,
+                        color: t.muted,
+                        fontStyle: t.id === 'refined' ? 'italic' : 'normal',
+                        fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+                        marginTop: 2,
+                      }}
+                    >
+                      {sub}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -711,7 +827,11 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         >
           {busy
             ? (isEdit ? 'Saving…' : 'Creating…')
-            : (isEdit ? 'SAVE CHANGES' : (publishNow ? 'CREATE & PUBLISH →' : 'CREATE HIDDEN →'))}
+            : (isEdit
+                ? (lcd ? '▶ SAVE CHANGES' : 'SAVE CHANGES')
+                : (publishNow
+                    ? (lcd ? '▶ CREATE & PUBLISH' : 'CREATE & PUBLISH →')
+                    : (lcd ? '▶ CREATE HIDDEN' : 'CREATE HIDDEN →')))}
         </button>
         <Link href="/organizer" style={{ ...t.note, fontSize: 14, lineHeight: 'normal' }}>
           ← Back to my shows

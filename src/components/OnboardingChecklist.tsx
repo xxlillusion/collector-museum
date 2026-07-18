@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useTheme, withAlpha } from './themeKit';
+import { LCD, PIXEL_FONT, LcdCursor, LcdDialog } from './lcdKit';
 import {
   buildOnboardingSteps,
   isOnboardingDismissed,
@@ -25,6 +26,16 @@ function scrollToAcquisitions() {
     .getElementById('home-dropzone')
     ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
+
+/** Handheld-only: game verb for each step's dialog choice ("▶ UPLOAD!"). */
+const LCD_STEP_VERBS: Record<string, string> = {
+  'collector-cards': 'UPLOAD',
+  'collector-walk': 'WALK',
+  'collector-share': 'SHARE',
+  'vendor-inventory': 'ADD STOCK',
+  'vendor-qr': 'PRINT',
+  'vendor-apply': 'APPLY',
+};
 
 export default function OnboardingChecklist({
   userId,
@@ -68,6 +79,63 @@ export default function OnboardingChecklist({
     }
     if (step.href) navigate(step.href);
   };
+
+  // ------------------------------------------------------------ THE HANDHELD
+  // The checklist as sequential game dialogs: one dialog box per step. Done
+  // steps read muted with an "OK!" suffix; the first pending step is the
+  // current one (700 weight, ▶, blinking ▼); every pending step keeps its CTA
+  // as a dialog choice. Derive/dismiss logic above is untouched. `.lcd-blink`
+  // comes from the host HomeScreen's <style>{t.hoverCss}</style>.
+  if (t.id === 'handheld') {
+    const firstPendingId = steps.find((s) => !s.done)?.id ?? null;
+    return (
+      <section aria-label="Getting started" style={{ maxWidth: 620, margin: '0 auto 48px', textAlign: 'left' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ fontFamily: PIXEL_FONT, fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', color: LCD.ink, textTransform: 'uppercase' }}>
+            GETTING STARTED!
+          </span>
+          <span style={{ fontFamily: PIXEL_FONT, fontSize: 9, letterSpacing: '0.08em', color: LCD.muted, textTransform: 'uppercase' }}>
+            {doneCount} OF {derivable.length} DONE
+          </span>
+          <button
+            onClick={dismiss}
+            title="Dismiss — this checklist won't reappear"
+            aria-label="Dismiss getting-started checklist"
+            style={{
+              marginLeft: 'auto', background: LCD.panel, color: LCD.ink,
+              border: `2px solid ${LCD.ink}`, borderRadius: 0,
+              width: 22, height: 22, cursor: 'pointer', fontSize: 11,
+              lineHeight: '16px', textAlign: 'center', padding: 0, flex: 'none',
+              fontFamily: PIXEL_FONT,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          {steps.map((step) => {
+            const current = step.id === firstPendingId;
+            const verb = LCD_STEP_VERBS[step.id] ?? 'GO';
+            return step.done ? (
+              <LcdDialog key={step.id} style={{ color: LCD.muted, padding: '8px 14px' }}>
+                {step.label} — OK!
+              </LcdDialog>
+            ) : (
+              <LcdDialog
+                key={step.id}
+                cursor={current}
+                choices={[{ label: current ? `${verb}!` : verb, primary: current, onClick: () => activate(step) }]}
+              >
+                {current && <LcdCursor active />}
+                <span style={{ fontWeight: current ? 700 : 400 }}>{step.label}</span>
+                <span style={{ color: LCD.muted }}> — {step.hint}</span>
+              </LcdDialog>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section

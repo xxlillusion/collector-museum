@@ -13,7 +13,7 @@ import type { ThemeId } from './themeKit';
  * - zIndex 90: above HUD/minimap/directory (≤50), below InspectOverlay (100).
  */
 
-const SHORT: Record<ThemeId, string> = { refined: 'REFINED', night: 'NIGHT', lobby: 'LOBBY' };
+const SHORT: Record<ThemeId, string> = { refined: 'REFINED', night: 'NIGHT', lobby: 'LOBBY', handheld: 'HANDHELD' };
 const COLLAPSE_KEY = 'vendor-museum:themebar-min';
 
 export default function FloatingThemeBar() {
@@ -34,6 +34,10 @@ export default function FloatingThemeBar() {
     setMin(v);
   };
 
+  // The handheld theme is the first LIGHT surface — its ink-dark t.muted /
+  // t.accent labels vanish on the legacy near-black pill, so the pill itself
+  // goes LCD (panel bg, ink border). Other themes keep the exact legacy pill.
+  const lcd = t.id === 'handheld';
   const shell = {
     position: 'fixed' as const,
     bottom: 10,
@@ -42,10 +46,15 @@ export default function FloatingThemeBar() {
     zIndex: 90,
     display: 'flex',
     alignItems: 'center',
-    background: withAlpha('#0b0a09', 0.88),
-    border: `1px solid ${t.border}`,
-    borderRadius: 999,
-    boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
+    // Four chips no longer fit a 375px viewport on one line — wrap instead
+    // of clipping (only kicks in below ~420px).
+    flexWrap: 'wrap' as const,
+    justifyContent: 'center',
+    maxWidth: 'calc(100vw - 12px)',
+    background: lcd ? t.panel : withAlpha('#0b0a09', 0.88),
+    border: lcd ? `2px solid ${t.border}` : `1px solid ${t.border}`,
+    borderRadius: lcd ? 0 : 999,
+    boxShadow: lcd ? '4px 4px 0 rgba(43,51,31,0.35)' : '0 6px 24px rgba(0,0,0,0.5)',
     backdropFilter: 'blur(6px)',
   };
 
@@ -100,7 +109,7 @@ export default function FloatingThemeBar() {
               background: active ? t.accent : 'transparent',
               color: active ? t.accentContrast : t.muted,
               border: 'none',
-              borderRadius: 999,
+              borderRadius: lcd ? 0 : 999,
               padding: '5px 10px',
               fontFamily: t.fontMono,
               fontSize: 10,

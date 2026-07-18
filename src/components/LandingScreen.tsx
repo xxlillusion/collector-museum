@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useLocation } from 'wouter';
 import SearchBox from './SearchBox';
 import SiteFooter from './SiteFooter';
 import { Ornament, QuickAction, useTheme } from './themeKit';
+import { LCD, LcdCss, LcdCursor, LcdDialog, lcdImg, lcdMenuBox, lcdMenuRow, lcdScreenFrame } from './lcdKit';
 // Hero stills captured in-app (sandbox gallery + the /demo hall).
 // TODO: re-capture on a real GPU (SwiftShader stills — software GL flattens
 // the warm spot pools and tablecloth sheen).
@@ -18,6 +20,111 @@ export default function LandingScreen() {
   const [, navigate] = useLocation();
   const t = useTheme();
   const night = t.id === 'night';
+  const lcd = t.id === 'handheld';
+  // Handheld title-screen menu: which row the cursor is on (hover/focus moves
+  // it; first row starts selected). State lives here so hooks stay
+  // unconditional — the other themes simply never read it.
+  const [selRow, setSelRow] = useState(0);
+
+  // ------------------------------------------------------------ THE HANDHELD
+  // #6a — the logged-out landing as a game TITLE SCREEN: logo in a dialog
+  // frame, pixelated hero stills, and the main nav as a menu with a ▶ cursor.
+  // Same destinations as the standard landing, reframed in game-menu labels.
+  if (lcd) {
+    const menuRows = [
+      { label: 'NEW GAME', hint: 'SIGN UP', to: '/signup' },
+      { label: 'CONTINUE', hint: 'SIGN IN', to: '/login' },
+      { label: 'DEMO', hint: 'SAMPLE SHOW', to: '/demo' },
+      { label: 'CARD SHOWS', hint: 'BROWSE + WALK', to: '/shows' },
+      { label: 'VENDORS', hint: 'DIRECTORY', to: '/vendors' },
+      { label: 'FREE PLAY', hint: 'NO ACCOUNT', to: '/sandbox' },
+    ] as const;
+    return (
+      <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: t.pageBg, color: t.text, fontFamily: t.fontBody }}>
+        <LcdCss />
+        <div style={{ maxWidth: 720, margin: '0 auto', padding: '28px 12px 48px' }}>
+          <div style={{ ...lcdScreenFrame, padding: 'clamp(16px, 5vw, 36px) clamp(12px, 4vw, 32px) clamp(20px, 5vw, 36px)', textAlign: 'center' }}>
+            <div style={{ fontSize: 9, letterSpacing: '0.14em', color: t.muted, marginBottom: 14, textTransform: 'uppercase' }}>
+              EST. 2026 · CARD SHOWS &amp; COLLECTIONS
+            </div>
+
+            {/* The logo cartridge — title in a dialog frame, awaiting input. */}
+            <LcdDialog cursor style={{ textAlign: 'center', marginBottom: 22 }}>
+              <h1 style={{
+                margin: 0, fontFamily: t.fontDisplay, fontSize: 'clamp(20px, 6.5vw, 26px)',
+                fontWeight: 700, letterSpacing: '0.06em', lineHeight: 1.35,
+                color: t.text, textTransform: 'uppercase',
+              }}>
+                VENDOR MUSEUM
+              </h1>
+              <div style={{ fontSize: 10, marginTop: 6 }}>
+                WALK REAL CARD SHOWS IN 3D! BROWSE VENDOR BINDERS! HANG YOUR CARDS AS SPOTLIT ART!
+              </div>
+            </LcdDialog>
+
+            {/* In-engine stills — pixelated onto the LCD, in ink frames. */}
+            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 26 }}>
+              {([
+                [heroGallery, 'The private gallery — six framed cards under warm spotlights', 'THE GALLERY — YOUR CARDS, SPOTLIT!'],
+                [heroHall, 'A convention hall of red-clothed vendor tables with lettered drapes', 'A SHOW FLOOR — WALK IT BEFORE YOU GO!'],
+              ] as const).map(([src, alt, caption]) => (
+                <figure key={caption} style={{ margin: 0, flex: '1 1 240px', maxWidth: 320 }}>
+                  <div style={{ border: `3px solid ${LCD.ink}`, background: LCD.screen, padding: 3 }}>
+                    <img src={src} alt={alt} style={{ display: 'block', width: '100%', ...lcdImg }} />
+                  </div>
+                  <figcaption style={{ marginTop: 7, fontSize: 9, letterSpacing: '0.06em', color: t.muted, textTransform: 'uppercase' }}>
+                    {caption}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+
+            {/* Main nav as THE MENU — hover/focus moves the ▶ cursor. */}
+            <div style={{ ...lcdMenuBox, maxWidth: 420, margin: '0 auto', textAlign: 'left' }}>
+              {menuRows.map((r, i) => {
+                const sel = selRow === i;
+                return (
+                  <button
+                    key={r.label}
+                    onClick={() => navigate(r.to)}
+                    onMouseEnter={() => setSelRow(i)}
+                    onFocus={() => setSelRow(i)}
+                    style={{
+                      width: '100%', textAlign: 'left', border: 'none', background: 'none',
+                      cursor: 'pointer', outline: 'none',
+                      ...lcdMenuRow(sel),
+                      ...(i === menuRows.length - 1 ? { borderBottom: 'none' } : {}),
+                    }}
+                  >
+                    <LcdCursor active={sel} />
+                    <span>{r.label}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 9, letterSpacing: '0.04em', fontWeight: 400, color: sel ? LCD.screen : LCD.muted }}>
+                      {r.hint}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '26px 0 0' }}>
+              <SearchBox />
+            </div>
+
+            <footer style={{ marginTop: 36 }}>
+              <p style={{ margin: 0, fontSize: 9, letterSpacing: '0.14em', color: t.muted, textTransform: 'uppercase' }}>
+                SHOWS ARE PUBLIC · COLLECTIONS ARE YOURS
+              </p>
+              <p style={{ margin: '6px 0 0', fontSize: 9, letterSpacing: '0.14em', color: t.muted, textTransform: 'uppercase' }}>
+                © 2026 VENDOR MUSEUM
+              </p>
+              <SiteFooter />
+            </footer>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: t.pageBg, color: t.text, fontFamily: t.fontBody }}>
       {/* night-only ticker strip — poster energy above the hero. */}

@@ -13,9 +13,13 @@ import { formatLocation } from '../../lib/locations';
 import { formatPrice } from '../../lib/price';
 import { Section, useTheme } from '../../components/themeKit';
 import type { Theme } from '../../components/themeKit';
+import { LcdCursor, LcdDialog, lcdImg, lcdMenuBox, lcdMenuRow } from '../../components/lcdKit';
 
 // /search?q=… — cross-entity search results (roadmap item 14): published
 // shows by name, registered vendors by name, public inventory by caption.
+// Handheld: each section is a MENU (rows invert on hover/focus with a ▶
+// cursor), card thumbnails get the pixelated LCD treatment, SOLD becomes an
+// inverted chip, and the empty state is a dialog box.
 
 const rowStyle = (t: Theme): CSSProperties => ({
   display: 'flex',
@@ -42,18 +46,75 @@ const arrowStyle = (t: Theme): CSSProperties => ({
 const metaFont = (t: Theme): string | undefined =>
   t.id === 'refined' ? undefined : t.fontMono;
 
+/** Handheld menu-row hover/focus handlers + inverted-row style. */
+function useLcdRow(): {
+  hot: boolean;
+  hotProps: {
+    onMouseEnter: () => void;
+    onMouseLeave: () => void;
+    onFocus: () => void;
+    onBlur: () => void;
+  };
+} {
+  const [hot, setHot] = useState(false);
+  return {
+    hot,
+    hotProps: {
+      onMouseEnter: () => setHot(true),
+      onMouseLeave: () => setHot(false),
+      onFocus: () => setHot(true),
+      onBlur: () => setHot(false),
+    },
+  };
+}
+
 function TruncatedNote({ limit }: { limit: number }) {
   const t = useTheme();
+  const lcd = t.id === 'handheld';
   return (
-    <p style={{ ...t.note, fontSize: 13, marginTop: 10 }}>
-      Showing the first {limit} — refine your search.
+    <p style={{ ...t.note, fontSize: lcd ? 9.5 : 13, marginTop: 10 }}>
+      {lcd
+        ? `SHOWING THE FIRST ${limit} — TRY A NARROWER NAME!`
+        : `Showing the first ${limit} — refine your search.`}
     </p>
   );
 }
 
 function ShowRow({ show }: { show: PublicShowSummary }) {
   const t = useTheme();
+  const { hot, hotProps } = useLcdRow();
   const location = formatLocation(show);
+  if (t.id === 'handheld') {
+    return (
+      <Link
+        href={`/show/${show.id}`}
+        {...hotProps}
+        style={{ ...lcdMenuRow(hot), gap: 10, textDecoration: 'none' }}
+      >
+        <LcdCursor active={hot} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              marginBottom: 2,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {show.name}
+          </div>
+          <div style={{ fontSize: 9.5, fontWeight: 400, color: hot ? t.accentContrast : t.muted }}>
+            {formatShowDate(show.showDate) ?? 'TBA'}
+            {location ? ` · ${location}` : ''}
+            {' · '}
+            {show.boothCount} BOOTH{show.boothCount === 1 ? '' : 'S'}
+          </div>
+        </div>
+      </Link>
+    );
+  }
   return (
     <Link href={`/show/${show.id}`} className="museum-row" style={rowStyle(t)}>
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -76,7 +137,37 @@ function ShowRow({ show }: { show: PublicShowSummary }) {
 
 function VendorRow({ vendor }: { vendor: RegisteredVendorSummary }) {
   const t = useTheme();
+  const { hot, hotProps } = useLcdRow();
   const location = formatLocation({ country: vendor.country, state: vendor.state });
+  if (t.id === 'handheld') {
+    return (
+      <Link
+        href={`/vendor/${vendor.id}`}
+        {...hotProps}
+        style={{ ...lcdMenuRow(hot), gap: 10, textDecoration: 'none' }}
+      >
+        <LcdCursor active={hot} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              marginBottom: 2,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {vendor.name}
+          </div>
+          <div style={{ fontSize: 9.5, fontWeight: 400, color: hot ? t.accentContrast : t.muted }}>
+            {location ? `${location} · ` : ''}
+            {vendor.inventoryCount} ITEM{vendor.inventoryCount === 1 ? '' : 'S'}
+          </div>
+        </div>
+      </Link>
+    );
+  }
   return (
     <Link href={`/vendor/${vendor.id}`} className="museum-row" style={rowStyle(t)}>
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -97,8 +188,82 @@ function VendorRow({ vendor }: { vendor: RegisteredVendorSummary }) {
 
 function CardRow({ item }: { item: SearchInventoryItem }) {
   const t = useTheme();
+  const { hot, hotProps } = useLcdRow();
   const sold = item.status === 'sold';
   const condition = item.condition.trim();
+  if (t.id === 'handheld') {
+    return (
+      <Link
+        href={`/vendor/${item.vendorId}`}
+        {...hotProps}
+        style={{ ...lcdMenuRow(hot), gap: 10, textDecoration: 'none' }}
+      >
+        <LcdCursor active={hot} />
+        <div
+          style={{
+            width: 40,
+            aspectRatio: `${item.aspect > 0 ? item.aspect : 0.714}`,
+            flexShrink: 0,
+            border: `2px solid ${hot ? t.accentContrast : t.text}`,
+            background: t.bg,
+            padding: 2,
+            boxSizing: 'border-box',
+            overflow: 'hidden',
+          }}
+        >
+          <img
+            src={item.imageUrl}
+            alt={item.caption || 'inventory item'}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', ...lcdImg }}
+          />
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              marginBottom: 2,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {item.caption || 'Untitled'}
+          </div>
+          <div style={{ fontSize: 9.5, fontWeight: 400, color: hot ? t.accentContrast : t.muted }}>
+            {item.price !== undefined && (
+              <span
+                style={{
+                  marginRight: 8,
+                  textDecoration: sold ? 'line-through' : 'none',
+                  ...(sold ? {} : { color: hot ? t.accentContrast : t.text, fontWeight: 700 }),
+                }}
+              >
+                {formatPrice(item.price)}
+              </span>
+            )}
+            {sold && (
+              <span
+                style={{
+                  background: hot ? t.accentContrast : t.accent,
+                  color: hot ? t.accent : t.accentContrast,
+                  fontWeight: 700,
+                  fontSize: 8.5,
+                  letterSpacing: '0.06em',
+                  padding: '0 5px',
+                  marginRight: 8,
+                }}
+              >
+                SOLD!
+              </span>
+            )}
+            {condition && <span style={{ marginRight: 8 }}>{condition}</span>}
+            <span>{item.vendorName}</span>
+          </div>
+        </div>
+      </Link>
+    );
+  }
   return (
     <Link href={`/vendor/${item.vendorId}`} className="museum-row" style={rowStyle(t)}>
       <div
@@ -164,6 +329,7 @@ function CardRow({ item }: { item: SearchInventoryItem }) {
 
 export default function SearchScreen() {
   const t = useTheme();
+  const lcd = t.id === 'handheld';
   // Reactive ?q=… — wouter ^3.10 exports useSearch (the query string sans '?').
   const searchString = useSearch();
   const q = (new URLSearchParams(searchString).get('q') ?? '').trim();
@@ -197,7 +363,9 @@ export default function SearchScreen() {
     results.vendors.length === 0 &&
     results.items.length === 0;
 
-  const list = { display: 'flex', flexDirection: 'column', gap: 12 } as const;
+  const list: CSSProperties = lcd
+    ? { display: 'flex', flexDirection: 'column', ...lcdMenuBox }
+    : { display: 'flex', flexDirection: 'column', gap: 12 };
 
   return (
     <PageShell title="Search" eyebrow="THE CATALOGUE">
@@ -207,26 +375,30 @@ export default function SearchScreen() {
       </div>
 
       {!isSupabaseConfigured && (
-        <p style={{ ...t.note, fontSize: 16 }}>
+        <p style={{ ...t.note, fontSize: lcd ? 11 : 16 }}>
           Search needs a configured backend — this deployment runs in guest-only mode.
         </p>
       )}
 
       {isSupabaseConfigured && !longEnough && (
-        <p style={{ ...t.note, fontSize: 16 }}>
+        <p style={{ ...t.note, fontSize: lcd ? 11 : 16 }}>
           Type at least {SEARCH_MIN_CHARS} characters to search shows, vendors and cards.
         </p>
       )}
 
       {isSupabaseConfigured && longEnough && loading && (
-        <p style={{ ...t.note, fontSize: 16 }}>Searching the catalogue…</p>
+        <p style={{ ...t.note, fontSize: lcd ? 11 : 16 }}>Searching the catalogue…</p>
       )}
 
-      {isSupabaseConfigured && empty && (
+      {isSupabaseConfigured && empty && (lcd ? (
+        <div style={{ maxWidth: 460, margin: '0 auto' }}>
+          <LcdDialog cursor>NO RESULTS FOUND FOR “{q}”! TRY ANOTHER NAME?</LcdDialog>
+        </div>
+      ) : (
         <p style={{ ...t.note, fontSize: 16 }}>
           Nothing in the catalogue matches “{q}”.
         </p>
-      )}
+      ))}
 
       {results !== null && results.shows.length > 0 && (
         <Section title="SHOWS">

@@ -11,10 +11,12 @@ import {
   NotConfiguredNote,
 } from './LoginScreen';
 import { useTheme } from '../../components/themeKit';
+import { LcdDialog } from '../../components/lcdKit';
 
 /** Password-recovery landing (reset-email links). Owned by Stream A. */
 export default function ResetPasswordScreen() {
   const t = useTheme();
+  const lcd = t.id === 'handheld';
   const aLabel = authLabelStyle(t);
   const aInput = authInputStyle(t);
   const aButton = authButtonStyle(t);
@@ -54,26 +56,45 @@ export default function ResetPasswordScreen() {
   }
 
   return (
-    <PageShell title="Reset Password" eyebrow="MEMBERS">
+    <PageShell
+      title={lcd ? 'SET A NEW PASSWORD!' : 'Reset Password'}
+      eyebrow={lcd ? 'PASSWORD' : 'MEMBERS'}
+    >
       {!configured ? (
         <NotConfiguredNote />
       ) : loading ? null : done ? (
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <p
-            style={{
-              fontSize: 17,
-              lineHeight: 1.7,
-              color: t.text,
-              fontFamily: t.id === 'refined' ? t.fontDisplay : undefined,
-            }}
-          >
-            Your password has been updated.
-          </p>
-          <p style={{ ...t.note, fontSize: 14 }}>
-            <Link href="/account" style={{ color: t.accent }}>
-              Go to my account →
-            </Link>
-          </p>
+          {lcd ? (
+            <LcdDialog cursor>
+              Password updated! Your save is secure.
+              <span style={{ display: 'block', marginTop: 6 }}>
+                <Link
+                  href="/account"
+                  style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none' }}
+                >
+                  ▶ GO TO OPTIONS
+                </Link>
+              </span>
+            </LcdDialog>
+          ) : (
+            <>
+              <p
+                style={{
+                  fontSize: 17,
+                  lineHeight: 1.7,
+                  color: t.text,
+                  fontFamily: t.id === 'refined' ? t.fontDisplay : undefined,
+                }}
+              >
+                Your password has been updated.
+              </p>
+              <p style={{ ...t.note, fontSize: 14 }}>
+                <Link href="/account" style={{ color: t.accent }}>
+                  Go to my account →
+                </Link>
+              </p>
+            </>
+          )}
         </div>
       ) : canReset ? (
         <div style={{ maxWidth: 440, margin: '0 auto' }}>
@@ -114,22 +135,39 @@ export default function ResetPasswordScreen() {
                 disabled={busy}
                 style={{ ...aButton, width: '100%', opacity: busy ? 0.6 : 1 }}
               >
-                {busy ? 'UPDATING…' : 'UPDATE PASSWORD →'}
+                {busy ? 'UPDATING…' : lcd ? '▶ UPDATE PASSWORD' : 'UPDATE PASSWORD →'}
               </button>
-              {error && <p style={aError}>{error}</p>}
+              {error && <p style={aError}>{lcd ? `! ${error}` : error}</p>}
             </form>
           </div>
         </div>
       ) : (
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <p style={{ ...t.note, fontSize: 17, lineHeight: 1.7 }}>
-            Open the link from your password-reset email to set a new password.
-          </p>
-          <p style={{ ...t.note, fontSize: 14 }}>
-            <Link href="/login" style={{ color: t.accent }}>
-              Back to sign in →
-            </Link>
-          </p>
+          {lcd ? (
+            <LcdDialog cursor>
+              Lost your password? We’ll send a link! Use ▶ FORGOT PASSWORD? at sign-in,
+              then open the link from your email to set a new one.
+              <span style={{ display: 'block', marginTop: 6 }}>
+                <Link
+                  href="/login"
+                  style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none' }}
+                >
+                  ▶ BACK TO SIGN IN
+                </Link>
+              </span>
+            </LcdDialog>
+          ) : (
+            <>
+              <p style={{ ...t.note, fontSize: 17, lineHeight: 1.7 }}>
+                Open the link from your password-reset email to set a new password.
+              </p>
+              <p style={{ ...t.note, fontSize: 14 }}>
+                <Link href="/login" style={{ color: t.accent }}>
+                  Back to sign in →
+                </Link>
+              </p>
+            </>
+          )}
         </div>
       )}
     </PageShell>

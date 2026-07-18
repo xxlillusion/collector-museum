@@ -2,6 +2,7 @@ import { lazy, Suspense, useMemo } from 'react';
 import { useLocation } from 'wouter';
 import { demoManifest, demoVendorSummaries, fetchDemoInventory } from '../../lib/demoShow';
 import { useTheme } from '../../components/themeKit';
+import { LCD, PIXEL_FONT } from '../../components/lcdKit';
 
 // Lazy exactly like ShowDetail's walk — /demo stays a light DOM chunk and the
 // three.js hall loads only when the route mounts the scene.
@@ -18,6 +19,9 @@ const EMPTY_BANNERS = new Map<string, string>();
  */
 export default function DemoShowScreen() {
   const t = useTheme();
+  // 'handheld': the placard becomes an inverted ink chip — same position
+  // (bottom right was chosen deliberately to clear every HUD surface).
+  const lcd = t.id === 'handheld';
   const [, navigate] = useLocation();
   const vendors = useMemo(demoVendorSummaries, []);
 
@@ -40,7 +44,23 @@ export default function DemoShowScreen() {
           floating theme bar bottom-center (10), joystick bottom-left,
           minimap top-right, directory top-left. */}
       <div
-        style={{
+        style={lcd ? {
+          position: 'fixed',
+          bottom: 10,
+          right: 14,
+          zIndex: 9,
+          pointerEvents: 'none',
+          background: LCD.ink,
+          color: LCD.screen,
+          border: 'none',
+          borderRadius: 0,
+          padding: '5px 12px',
+          fontFamily: PIXEL_FONT,
+          fontWeight: 700,
+          fontSize: 9,
+          letterSpacing: '0.1em',
+          whiteSpace: 'nowrap',
+        } : {
           position: 'fixed',
           bottom: 10,
           right: 14,

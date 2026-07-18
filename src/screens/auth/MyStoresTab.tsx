@@ -22,6 +22,7 @@ import { errMsg, StatusLine, checkLabelStyle } from './accountShared';
 import type { SaveStatus } from './accountShared';
 import { useTheme, withAlpha } from '../../components/themeKit';
 import type { Theme } from '../../components/themeKit';
+import { LCD, LcdDialog, lcdMenuBox } from '../../components/lcdKit';
 import { authLabelStyle, authInputStyle, authErrorStyle } from './LoginScreen';
 
 // MY STORES tab of /account: everything a vendor account manages lives here —
@@ -32,13 +33,23 @@ import { authLabelStyle, authInputStyle, authErrorStyle } from './LoginScreen';
 // auto-claimed as stores up to the cap; the rest are listed as claimable.
 
 /** Inner bordered card for one store inside the MY STORES panel. */
-const storeCardStyle = (t: Theme): CSSProperties => ({
-  border: `${t.borderWidth}px solid ${t.border}`,
-  borderRadius: 4,
-  background: 'rgba(0,0,0,0.18)',
-  padding: '18px 20px',
-  marginBottom: 18,
-});
+const storeCardStyle = (t: Theme): CSSProperties =>
+  t.id === 'handheld'
+    ? {
+        // LCD pocket entry: nested screen-colored box, no dark scrim.
+        border: `3px solid ${LCD.ink}`,
+        borderRadius: 0,
+        background: LCD.screen,
+        padding: '16px 18px',
+        marginBottom: 18,
+      }
+    : {
+        border: `${t.borderWidth}px solid ${t.border}`,
+        borderRadius: 4,
+        background: 'rgba(0,0,0,0.18)',
+        padding: '18px 20px',
+        marginBottom: 18,
+      };
 
 /**
  * Booth QR modal: a printable code linking to the store's public page —
@@ -46,6 +57,7 @@ const storeCardStyle = (t: Theme): CSSProperties => ({
  * trick so only the QR sheet reaches paper.
  */
 function StoreQrModal({ store, onClose }: { store: MyStoreRecord; onClose: () => void }) {
+  const t = useTheme();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const url = `${window.location.origin}/vendor/${store.id}`;
 
@@ -64,7 +76,9 @@ function StoreQrModal({ store, onClose }: { store: MyStoreRecord; onClose: () =>
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.8)',
+        // The white printable sheet inside stays untouched (print CSS depends
+        // on it) — only the backdrop themes. LCD scrim = ink, never black.
+        background: t.id === 'handheld' ? 'rgba(43,51,31,0.8)' : 'rgba(0,0,0,0.8)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -162,6 +176,7 @@ function StorePanel({
   onMakeFlagship: (storeId: string) => void;
 }) {
   const t = useTheme();
+  const lcd = t.id === 'handheld';
   const aLabel = authLabelStyle(t);
   const aInput = authInputStyle(t);
   const [rec, setRec] = useState<MyStoreRecord>(store);
@@ -204,6 +219,20 @@ function StorePanel({
 
   return (
     <div style={{ ...storeCardStyle(t), marginBottom: 0 }}>
+      {lcd && (
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: t.text,
+            marginBottom: 10,
+          }}
+        >
+          ▪ {rec.name}
+        </div>
+      )}
       <div
         style={{
           display: 'flex',
@@ -216,16 +245,37 @@ function StorePanel({
         {store.isFlagship ? (
           <span>
             <span
-              style={{
-                color: t.accent,
-                fontSize: 12,
-                letterSpacing: '0.18em',
-                fontFamily: t.id === 'refined' ? undefined : t.fontMono,
-              }}
+              style={
+                lcd
+                  ? {
+                      background: LCD.ink,
+                      color: LCD.screen,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      letterSpacing: '0.08em',
+                      padding: '3px 8px',
+                      textTransform: 'uppercase',
+                      fontFamily: t.fontMono,
+                    }
+                  : {
+                      color: t.accent,
+                      fontSize: 12,
+                      letterSpacing: '0.18em',
+                      fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+                    }
+              }
             >
               ★ FLAGSHIP
             </span>
-            <span style={{ marginLeft: 10, fontSize: 12, color: t.muted, fontStyle: 'italic' }}>
+            <span
+              style={{
+                marginLeft: 10,
+                fontSize: lcd ? 9 : 12,
+                color: t.muted,
+                fontStyle: lcd ? 'normal' : 'italic',
+                ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.06em' } : {}),
+              }}
+            >
               your default store
             </span>
           </span>
@@ -251,8 +301,22 @@ function StorePanel({
           >
             ▦ BOOTH QR
           </button>
-          <Link href={`/vendor/${id}`} style={{ color: t.accent, fontSize: 13 }}>
-            View public page →
+          <Link
+            href={`/vendor/${id}`}
+            style={{
+              color: t.accent,
+              fontSize: lcd ? 10.5 : 13,
+              ...(lcd
+                ? {
+                    fontWeight: 700 as const,
+                    textDecoration: 'none',
+                    textTransform: 'uppercase' as const,
+                    letterSpacing: '0.06em',
+                  }
+                : {}),
+            }}
+          >
+            {lcd ? '▶ PUBLIC PAGE' : 'View public page →'}
           </Link>
         </span>
       </div>
@@ -409,6 +473,7 @@ export default function MyStoresTab({
   onBecameVendor: () => void;
 }) {
   const t = useTheme();
+  const lcd = t.id === 'handheld';
   const aInput = authInputStyle(t);
   const aError = authErrorStyle(t);
   const [stores, setStores] = useState<MyStoreRecord[] | null>(null); // null = loading
@@ -521,7 +586,9 @@ export default function MyStoresTab({
 
   async function unregister(store: MyStoreRecord) {
     const ok = window.confirm(
-      `Unregister “${store.name}”? It keeps its inventory and public page but stops being one of your stores — you can claim it back below while a slot is free.`,
+      lcd
+        ? `UNREGISTER ${store.name.toUpperCase()}? IT KEEPS ITS INVENTORY AND PUBLIC PAGE BUT LEAVES YOUR BAG — CLAIM IT BACK BELOW WHILE A SLOT IS FREE!`
+        : `Unregister “${store.name}”? It keeps its inventory and public page but stops being one of your stores — you can claim it back below while a slot is free.`,
     );
     if (!ok) return;
     setStoreActionError(null);
@@ -536,7 +603,9 @@ export default function MyStoresTab({
   async function deleteStore(store: MyStoreRecord) {
     const count = vendors.vendors.find((v) => v.id === store.id)?.inventoryCount ?? 0;
     const ok = window.confirm(
-      `Delete “${store.name}” and their ${count} inventory items? This removes the store, its public page and its booth assignments for good.`,
+      lcd
+        ? `REALLY DELETE ${store.name.toUpperCase()} AND THEIR ${count} INVENTORY ITEMS? THIS ERASES THE STORE, ITS PUBLIC PAGE AND ITS BOOTH SPOTS FOR GOOD!`
+        : `Delete “${store.name}” and their ${count} inventory items? This removes the store, its public page and its booth assignments for good.`,
     );
     if (!ok) return;
     setStoreActionError(null);
@@ -578,8 +647,8 @@ export default function MyStoresTab({
         {creatingStore
           ? 'OPENING…'
           : stores && stores.length > 0
-            ? 'OPEN A SECOND STORE'
-            : 'OPEN A STORE'}
+            ? lcd ? '▶ OPEN A SECOND STORE' : 'OPEN A SECOND STORE'
+            : lcd ? '▶ OPEN A STORE' : 'OPEN A STORE'}
       </button>
     </div>
   );
@@ -587,19 +656,35 @@ export default function MyStoresTab({
   return (
     <>
       <section style={t.panelStyle}>
-        <h2 style={t.panelTitle}>MY STORES</h2>
+        <h2 style={t.panelTitle}>{lcd ? 'BAG — STORES POCKET' : 'MY STORES'}</h2>
         {storesLoadError ? (
-          <p style={{ ...aError, margin: 0 }}>{storesLoadError}</p>
+          <p style={{ ...aError, margin: 0 }}>{lcd ? `! ${storesLoadError}` : storesLoadError}</p>
         ) : stores === null ? (
-          <p style={{ margin: 0, fontSize: 14, color: t.muted }}>Loading stores…</p>
+          <p
+            style={{
+              margin: 0,
+              fontSize: lcd ? 10 : 14,
+              ...(lcd ? { textTransform: 'uppercase' as const } : {}),
+              color: t.muted,
+            }}
+          >
+            Loading stores…
+          </p>
         ) : stores.length === 0 ? (
           <>
-            <p style={{ ...t.note, margin: '0 0 16px' }}>
-              Sell cards? Open a store — it lists you in the vendor directory and lets
-              organizers assign you to show booths.
-            </p>
+            {lcd ? (
+              <LcdDialog cursor style={{ marginBottom: 16 }}>
+                Sell cards? Open a store! It lists you in the vendor directory and lets
+                organizers assign you to show booths.
+              </LcdDialog>
+            ) : (
+              <p style={{ ...t.note, margin: '0 0 16px' }}>
+                Sell cards? Open a store — it lists you in the vendor directory and lets
+                organizers assign you to show booths.
+              </p>
+            )}
             {openStoreForm}
-            {createError && <p style={aError}>{createError}</p>}
+            {createError && <p style={aError}>{lcd ? `! ${createError}` : createError}</p>}
           </>
         ) : (
           <>
@@ -612,7 +697,24 @@ export default function MyStoresTab({
                     flagshipBusy={flagshipBusy}
                     onMakeFlagship={(id) => void makeFlagship(id)}
                   />
-                  <div style={{ border: `${t.borderWidth}px solid ${t.border}`, borderTop: 'none', borderRadius: '0 0 4px 4px', background: 'rgba(0,0,0,0.18)', padding: '18px 20px' }}>
+                  <div
+                    style={
+                      lcd
+                        ? {
+                            border: `3px solid ${LCD.ink}`,
+                            borderTop: 'none',
+                            background: LCD.screen,
+                            padding: '16px 18px',
+                          }
+                        : {
+                            border: `${t.borderWidth}px solid ${t.border}`,
+                            borderTop: 'none',
+                            borderRadius: '0 0 4px 4px',
+                            background: 'rgba(0,0,0,0.18)',
+                            padding: '18px 20px',
+                          }
+                    }
+                  >
                     {summary ? (
                       <VendorManagementPanel
                         vendor={summary}
@@ -624,7 +726,14 @@ export default function MyStoresTab({
                         onInventoryChanged={() => void vendors.reload()}
                       />
                     ) : (
-                      <p style={{ margin: 0, fontSize: 14, color: t.muted }}>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: lcd ? 10 : 14,
+                          ...(lcd ? { textTransform: 'uppercase' as const } : {}),
+                          color: t.muted,
+                        }}
+                      >
                         {vendors.loading ? 'Loading inventory…' : 'Inventory unavailable — reload the page.'}
                       </p>
                     )}
@@ -638,25 +747,45 @@ export default function MyStoresTab({
                       </button>
                       <button
                         onClick={() => void deleteStore(s)}
-                        style={{ ...t.ghostButton, padding: '7px 14px', fontSize: 11, color: '#c66', borderColor: 'rgba(204,102,102,0.4)' }}
+                        style={{
+                          ...t.ghostButton,
+                          padding: '7px 14px',
+                          fontSize: 11,
+                          // LCD warns with "!" + weight, never with red.
+                          ...(lcd
+                            ? { fontWeight: 700 as const }
+                            : { color: '#c66', borderColor: 'rgba(204,102,102,0.4)' }),
+                        }}
                       >
-                        DELETE STORE &amp; INVENTORY
+                        {lcd ? '! DELETE STORE & INVENTORY' : <>DELETE STORE &amp; INVENTORY</>}
                       </button>
                     </div>
                   </div>
                 </div>
               );
             })}
-            {flagshipError && <p style={t.errorText}>{flagshipError}</p>}
-            {storeActionError && <p style={t.errorText}>{storeActionError}</p>}
+            {flagshipError && <p style={t.errorText}>{lcd ? `! ${flagshipError}` : flagshipError}</p>}
+            {storeActionError && (
+              <p style={t.errorText}>{lcd ? `! ${storeActionError}` : storeActionError}</p>
+            )}
             {canOpenStore ? (
               <div style={{ marginTop: 4 }}>
                 {openStoreForm}
-                {createError && <p style={aError}>{createError}</p>}
+                {createError && <p style={aError}>{lcd ? `! ${createError}` : createError}</p>}
               </div>
             ) : (
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: t.muted, fontStyle: 'italic' }}>
-                Store limit reached ({STORE_LIMIT} per account).
+              <p
+                style={{
+                  margin: '4px 0 0',
+                  fontSize: lcd ? 10 : 13,
+                  color: t.muted,
+                  fontStyle: lcd ? 'normal' : 'italic',
+                  ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.04em' } : {}),
+                }}
+              >
+                {lcd
+                  ? `BAG FULL — STORE LIMIT REACHED (${STORE_LIMIT} PER ACCOUNT).`
+                  : `Store limit reached (${STORE_LIMIT} per account).`}
               </p>
             )}
           </>
@@ -667,43 +796,100 @@ export default function MyStoresTab({
         <section style={t.panelStyle}>
           <h2 style={t.panelTitle}>UNCLAIMED VENDOR PAGES</h2>
           <p style={{ ...t.note, margin: '0 0 14px' }}>
-            Vendors you created outside My Stores. Claim one to register it as a store
-            {atCap ? ' — store limit reached, free a slot first.' : '.'}
+            {lcd
+              ? `Vendor pages you made outside the bag! Claim one to pocket it as a store${atCap ? ' — bag full, free a slot first!' : '.'}`
+              : `Vendors you created outside My Stores. Claim one to register it as a store${atCap ? ' — store limit reached, free a slot first.' : '.'}`}
           </p>
-          {unclaimed.map((v) => (
-            <div
-              key={v.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 14,
-                padding: '10px 4px',
-                borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
-                fontSize: 14,
-              }}
-            >
-              <span style={{ fontFamily: t.fontDisplay, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {v.name}
-              </span>
-              <span style={{ color: t.muted, fontSize: 12, whiteSpace: 'nowrap' }}>
-                {new Date(v.createdAt).toLocaleDateString()}
-              </span>
-              <button
-                onClick={() => void claim(v.id)}
-                disabled={atCap || claimBusyId !== null}
+          {lcd ? (
+            <div style={lcdMenuBox}>
+              {unclaimed.map((v, i) => (
+                <div
+                  key={v.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    padding: '9px 12px',
+                    borderBottom:
+                      i === unclaimed.length - 1 ? 'none' : `2px solid ${LCD.mid}`,
+                    fontSize: 10.5,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {v.name}
+                  </span>
+                  <span style={{ color: t.muted, fontSize: 9, whiteSpace: 'nowrap' }}>
+                    {new Date(v.createdAt).toLocaleDateString()}
+                  </span>
+                  <button
+                    onClick={() => void claim(v.id)}
+                    disabled={atCap || claimBusyId !== null}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      fontFamily: t.fontMono,
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      color: t.text,
+                      opacity: atCap || claimBusyId !== null ? 0.5 : 1,
+                      cursor: atCap || claimBusyId !== null ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {claimBusyId === v.id ? 'CLAIMING…' : '▶ CLAIM'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            unclaimed.map((v) => (
+              <div
+                key={v.id}
                 style={{
-                  ...t.ghostButton,
-                  padding: '6px 14px',
-                  fontSize: 11,
-                  opacity: atCap || claimBusyId !== null ? 0.5 : 1,
-                  cursor: atCap || claimBusyId !== null ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: '10px 4px',
+                  borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
+                  fontSize: 14,
                 }}
               >
-                {claimBusyId === v.id ? 'CLAIMING…' : 'CLAIM'}
-              </button>
-            </div>
-          ))}
-          {claimError && <p style={t.errorText}>{claimError}</p>}
+                <span style={{ fontFamily: t.fontDisplay, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {v.name}
+                </span>
+                <span style={{ color: t.muted, fontSize: 12, whiteSpace: 'nowrap' }}>
+                  {new Date(v.createdAt).toLocaleDateString()}
+                </span>
+                <button
+                  onClick={() => void claim(v.id)}
+                  disabled={atCap || claimBusyId !== null}
+                  style={{
+                    ...t.ghostButton,
+                    padding: '6px 14px',
+                    fontSize: 11,
+                    opacity: atCap || claimBusyId !== null ? 0.5 : 1,
+                    cursor: atCap || claimBusyId !== null ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {claimBusyId === v.id ? 'CLAIMING…' : 'CLAIM'}
+                </button>
+              </div>
+            ))
+          )}
+          {claimError && <p style={t.errorText}>{lcd ? `! ${claimError}` : claimError}</p>}
         </section>
       )}
     </>

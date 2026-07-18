@@ -1,24 +1,27 @@
 import { useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
-import { Link } from 'wouter';
+import type { CSSProperties, ReactNode } from 'react';
+import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import SearchBox from '../../components/SearchBox';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { listPublishedShows } from '../../lib/publicShows';
 import type { PublicShowSummary, ShowLocationFilter } from '../../lib/publicShows';
-import { COUNTRIES, regionOptions, formatLocation } from '../../lib/locations';
+import { COUNTRIES, regionOptions, regionName, formatLocation } from '../../lib/locations';
 import { useTheme } from '../../components/themeKit';
 import type { Theme } from '../../components/themeKit';
+import { LcdCursor, LcdDialog, lcdMenuBox, lcdMenuRow } from '../../components/lcdKit';
 
 /** Themed inline select for the filter row (also used by /vendors) — call
- *  with the active theme from useTheme(). */
+ *  with the active theme from useTheme(). Handheld renders it chip-weight
+ *  (panel bg, bold) — the ▼ suffix is added by the host's chip wrapper. */
 export const filterSelectStyle = (t: Theme): CSSProperties => ({
   ...t.input,
   display: 'inline-block',
   width: 'auto',
-  fontSize: 13,
-  padding: '8px 12px',
+  fontSize: t.id === 'handheld' ? 10.5 : 13,
+  padding: t.id === 'handheld' ? '7px 10px' : '8px 12px',
   cursor: 'pointer',
+  ...(t.id === 'handheld' ? { background: t.panel, fontWeight: 700 } : {}),
 });
 
 export const filterLabelStyle = (t: Theme): CSSProperties => ({
@@ -34,12 +37,69 @@ export function formatShowDate(iso: string | null): string | null {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+/** Handheld menu-row date: "AUG 02" (or "TBA"). */
+function lcdShowDate(iso: string | null): string {
+  if (!iso) return 'TBA';
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }).toUpperCase();
+}
+
+/** Handheld-only: ink-border chip wrapping a native select with a ▼ suffix
+ *  ("AREA: WASHINGTON ▼" feel) — the select keeps full function. */
+function LcdSelectChip({ label, value, onChange, children }: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  children: ReactNode;
+}) {
+  const t = useTheme();
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <span style={{ ...filterLabelStyle(t), margin: '0 6px 0 0' }}>{label}</span>
+      <span style={{ position: 'relative', display: 'inline-block' }}>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            ...filterSelectStyle(t),
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            paddingRight: 26,
+          }}
+        >
+          {children}
+        </select>
+        <span
+          aria-hidden
+          style={{
+            position: 'absolute',
+            right: 9,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            pointerEvents: 'none',
+            fontSize: 8,
+            fontWeight: 700,
+            color: t.text,
+            fontFamily: t.fontMono,
+          }}
+        >
+          ▼
+        </span>
+      </span>
+    </label>
+  );
+}
+
 // Owned by the shows workstream (Stream C).
 export default function ShowDirectory() {
   const t = useTheme();
+  const [, navigate] = useLocation();
   const [shows, setShows] = useState<PublicShowSummary[] | null>(null);
   const [country, setCountry] = useState('');
   const [state, setState] = useState('');
+  // Handheld menu rows: hover/focus = inversion (never hue), tracked here.
+  const [hotRow, setHotRow] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -62,15 +122,21 @@ export default function ShowDirectory() {
   const today = new Date().toISOString().slice(0, 10);
   const regions = regionOptions(country || null);
   const filtered = Boolean(country || state);
+  const lcd = t.id === 'handheld';
 
   return (
     <PageShell title="Card Shows" eyebrow="PUBLIC EXHIBITIONS">
-      {!isSupabaseConfigured && (
+      {!isSupabaseConfigured && (lcd ? (
+        <LcdDialog cursor style={{ maxWidth: 520, margin: '0 auto' }}>
+          NO SHOW DIRECTORY HERE — THIS BUILD RUNS OFFLINE! YOU CAN STILL BUILD
+          AND WALK YOUR OWN SHOW FROM THE HOME SCREEN!
+        </LcdDialog>
+      ) : (
         <p style={{ ...t.note, fontSize: 16 }}>
           The shows directory needs a configured backend — this deployment runs in
           guest-only mode. You can still build and walk floor plans from the home screen.
         </p>
-      )}
+      ))}
 
       {isSupabaseConfigured && (
         <div
@@ -78,20 +144,19 @@ export default function ShowDirectory() {
             display: 'flex',
             flexWrap: 'wrap',
             alignItems: 'center',
-            gap: 18,
+            gap: lcd ? 14 : 18,
             marginBottom: 26,
           }}
         >
           <SearchBox width={280} />
-          <div>
-            <span style={filterLabelStyle(t)}>COUNTRY</span>
-            <select
+          {lcd ? (
+            <LcdSelectChip
+              label="COUNTRY"
               value={country}
-              onChange={(e) => {
-                setCountry(e.target.value);
+              onChange={(v) => {
+                setCountry(v);
                 setState('');
               }}
-              style={filterSelectStyle(t)}
             >
               <option value="">All countries</option>
               {COUNTRIES.map((c) => (
@@ -99,9 +164,41 @@ export default function ShowDirectory() {
                   {c.name}
                 </option>
               ))}
-            </select>
-          </div>
-          {regions.length > 0 && (
+            </LcdSelectChip>
+          ) : (
+            <div>
+              <span style={filterLabelStyle(t)}>COUNTRY</span>
+              <select
+                value={country}
+                onChange={(e) => {
+                  setCountry(e.target.value);
+                  setState('');
+                }}
+                style={filterSelectStyle(t)}
+              >
+                <option value="">All countries</option>
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {regions.length > 0 && (lcd ? (
+            <LcdSelectChip
+              label={country === 'CA' ? 'PROVINCE' : 'STATE'}
+              value={state}
+              onChange={setState}
+            >
+              <option value="">All</option>
+              {regions.map((r) => (
+                <option key={r.code} value={r.code}>
+                  {r.name}
+                </option>
+              ))}
+            </LcdSelectChip>
+          ) : (
             <div>
               <span style={filterLabelStyle(t)}>{country === 'CA' ? 'PROVINCE' : 'STATE'}</span>
               <select
@@ -117,15 +214,27 @@ export default function ShowDirectory() {
                 ))}
               </select>
             </div>
-          )}
+          ))}
         </div>
       )}
 
       {isSupabaseConfigured && shows === null && (
-        <p style={{ ...t.note, fontSize: 16 }}>Loading shows…</p>
+        <p style={{ ...t.note, fontSize: lcd ? 11 : 16 }}>Loading shows…</p>
       )}
 
-      {isSupabaseConfigured && shows !== null && shows.length === 0 && (
+      {isSupabaseConfigured && shows !== null && shows.length === 0 && (lcd ? (
+        <LcdDialog
+          cursor
+          style={{ maxWidth: 520, margin: '0 auto' }}
+          choices={filtered ? undefined : [
+            { label: 'WALK THE DEMO SHOW', onClick: () => navigate('/demo'), primary: true },
+          ]}
+        >
+          {filtered
+            ? 'NO SHOWS IN THIS AREA YET! TRY WIDENING THE SEARCH!'
+            : 'NO SHOWS PUBLISHED YET! WANT TO WALK THE DEMO SHOW?'}
+        </LcdDialog>
+      ) : (
         <>
           <p style={{ ...t.note, fontSize: 16 }}>
             {filtered
@@ -149,9 +258,84 @@ export default function ShowDirectory() {
             </p>
           )}
         </>
-      )}
+      ))}
 
-      {shows !== null && shows.length > 0 && (
+      {shows !== null && shows.length > 0 && (lcd ? (
+        // Handheld: the directory is a MENU — rows invert on hover/focus,
+        // meta reads "AUG 02 · SEATTLE · 50 BOOTHS · MAP OK!".
+        <div style={lcdMenuBox}>
+          {shows.map((s, i) => {
+            const upcoming = s.showDate !== null && s.showDate >= today;
+            const hot = hotRow === i;
+            const place = s.city || regionName(s.country, s.state);
+            const meta = [
+              lcdShowDate(s.showDate),
+              place,
+              `${s.boothCount} BOOTH${s.boothCount === 1 ? '' : 'S'}`,
+              s.planImageUrl ? 'MAP OK!' : 'NO MAP YET',
+            ]
+              .filter(Boolean)
+              .join(' · ');
+            return (
+              <Link
+                key={s.id}
+                href={`/show/${s.id}`}
+                onMouseEnter={() => setHotRow(i)}
+                onMouseLeave={() => setHotRow((c) => (c === i ? null : c))}
+                onFocus={() => setHotRow(i)}
+                onBlur={() => setHotRow((c) => (c === i ? null : c))}
+                style={{
+                  ...lcdMenuRow(hot),
+                  textDecoration: 'none',
+                  alignItems: 'flex-start',
+                  padding: '10px 12px',
+                }}
+              >
+                <LcdCursor active={hot} />
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span
+                    style={{
+                      display: 'block',
+                      fontWeight: 700,
+                      fontSize: 11,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {s.name}
+                    {upcoming && (
+                      <span
+                        style={{
+                          marginLeft: 8,
+                          padding: '0 5px',
+                          fontSize: 8.5,
+                          fontWeight: 700,
+                          border: `2px solid ${hot ? t.accentContrast : t.text}`,
+                          color: hot ? t.accentContrast : t.text,
+                        }}
+                      >
+                        UPCOMING
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    style={{
+                      display: 'block',
+                      marginTop: 3,
+                      fontSize: 9.5,
+                      fontWeight: 400,
+                      color: hot ? t.accentContrast : t.muted,
+                    }}
+                  >
+                    {meta}
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {shows.map((s) => {
             const upcoming = s.showDate !== null && s.showDate >= today;
@@ -258,7 +442,7 @@ export default function ShowDirectory() {
             );
           })}
         </div>
-      )}
+      ))}
     </PageShell>
   );
 }

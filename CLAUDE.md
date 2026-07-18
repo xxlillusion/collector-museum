@@ -860,6 +860,37 @@ parallel streams, additive-only changes since — never reshape existing signatu
   persistence, `tsc -b` green, zero console errors. Theme choice is per-browser
   (`vendor-museum:theme`); promoting a winner = keep its token block, delete the
   other two + the bar (or move choice to `profiles` to roam).
+- **"The Handheld" theme shipped** (2026-07-12, working tree; spec
+  `beta_huge_redesign/handoff/HANDHELD.md` — 1999 LCD-handheld nostalgia; built as
+  scaffold + SIX parallel same-tree agent streams on disjoint file sets — worktrees
+  were impossible because the theme system itself was uncommitted; merged build green
+  first try, browser-verified, zero console errors): 4th theme `handheld` in
+  themeKit + the floating bar (spec offered 4th-theme vs hard-cutover; 4th theme
+  chosen — all 39 consumers already read useTheme(), the t.id-branch idiom handles
+  layout divergence, the bar keeps the beta A/B). Key mechanics: **accent = ink,
+  accentContrast = screen**, so every accent-styled element auto-renders as the LCD
+  inversion idiom; first LIGHT theme — every stream swept its files for hard-coded
+  dark literals (rgba-black scrims, white text, colorScheme:'dark') and branched
+  them. `src/components/lcdKit.tsx` = frozen shared recipes (LCD palette,
+  lcdScreenFrame, LcdDialog/lcdDialogBox w/ choices + blinking ▼,
+  lcdMenuBox/lcdMenuRow/LcdCursor, lcdWell, lcdImg, lcdSoldStamp,
+  LCD_BLINK_CSS/LcdCss); Silkscreen 400/700 added to index.html fonts. Signature
+  surfaces: PageShell wraps every routed page in THE SCREEN FRAME; LandingScreen =
+  title screen (▶ NEW GAME/CONTINUE/DEMO menu); HomeScreen = greeting dialog +
+  menu-rail CTAs; auth = CONTINUE/NEW GAME framing; Account = OPTIONS + BAG—STORES
+  POCKET; VendorPage = shopkeeper greeting dialog + lcdSoldStamp tiles;
+  CollectorPage = COLLECTOR CARD hero (hashed ID No., initials avatar, badge stars
+  from card-count thresholds); 404 = "A WILD 404 APPEARED!"; 3D overlays (#6g) =
+  HALL MAP panel w/ square ink dots + ◆ diamond marker (a CHILD element so the
+  per-frame tracker transform stays untouched), dialog-box F-prompt, LCD placards —
+  canvases stay photoreal, InspectOverlay card stays full-res/unfiltered on purpose.
+  Rules held: refined/night/lobby byte-identical (every change
+  `t.id === 'handheld'`-gated); 2D plan editor keeps true colors (t.planFilter
+  still never touches it); QR print sheet stays white; window.confirm→LcdDialog
+  swaps only where logic allowed (import-my-collection kept confirm — mid-async).
+  FloatingThemeBar: goes light-LCD when handheld is active + flexWrap below ~420px
+  (4 chips overflowed 375px). Promoting handheld to the real design = keep its
+  token block + lcdKit, delete the other theme blocks + the bar.
 - Candidate next steps (discussed, not built): booth labels on tables;
   bundle code-splitting (~1.4MB); deploy setup (any static host).
 - Museum-side known gaps: east/west walls unused by card layout (overflow silently

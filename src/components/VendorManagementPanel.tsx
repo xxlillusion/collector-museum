@@ -8,6 +8,7 @@ import type { VendorSummary } from '../lib/useVendors';
 import type { InventoryStatus, SavedPlanRecord } from '../lib/db';
 import { useTheme, withAlpha } from './themeKit';
 import type { Theme } from './themeKit';
+import { LCD, PIXEL_FONT, LcdDialog, lcdImg, lcdMenuBox, lcdMenuRow, lcdSoldStamp, lcdWell } from './lcdKit';
 
 // Per-vendor management panels (banner / shows attended / inventory) shared
 // by the sandbox Vendor Registry (VendorsScreen) and the account MY STORES
@@ -37,7 +38,7 @@ export const rowInputStyle = (t: Theme): React.CSSProperties => ({
   ...t.input,
   display: 'inline-block',
   width: 'auto',
-  fontSize: 13.5,
+  fontSize: t.id === 'handheld' ? 11 : 13.5,
   padding: '9px 11px',
 });
 
@@ -64,23 +65,44 @@ export const smallPrimaryDisabledStyle = (t: Theme): React.CSSProperties => ({
   letterSpacing: '0.1em',
 });
 
-/** Floating ✕ over images (banner / inventory tiles). */
-const removeBadgeStyle = (t: Theme): React.CSSProperties => ({
-  position: 'absolute',
-  top: 6,
-  right: 6,
-  background: 'rgba(0,0,0,0.75)',
-  color: t.text,
-  border: `${t.borderWidth}px solid ${t.border}`,
-  borderRadius: '50%',
-  width: 22,
-  height: 22,
-  cursor: 'pointer',
-  fontSize: 11,
-  lineHeight: '20px',
-  textAlign: 'center',
-  padding: 0,
-});
+/** Floating ✕ over images (banner / inventory tiles). The handheld theme
+ *  swaps the translucent dark circle (invisible on the light LCD surface)
+ *  for a square ink block — inversion, never hue. */
+const removeBadgeStyle = (t: Theme): React.CSSProperties => t.id === 'handheld'
+  ? {
+      position: 'absolute',
+      top: 6,
+      right: 6,
+      background: LCD.ink,
+      color: LCD.screen,
+      border: 'none',
+      borderRadius: 0,
+      width: 20,
+      height: 20,
+      cursor: 'pointer',
+      fontSize: 10,
+      fontWeight: 700,
+      fontFamily: PIXEL_FONT,
+      lineHeight: '20px',
+      textAlign: 'center',
+      padding: 0,
+    }
+  : {
+      position: 'absolute',
+      top: 6,
+      right: 6,
+      background: 'rgba(0,0,0,0.75)',
+      color: t.text,
+      border: `${t.borderWidth}px solid ${t.border}`,
+      borderRadius: '50%',
+      width: 22,
+      height: 22,
+      cursor: 'pointer',
+      fontSize: 11,
+      lineHeight: '20px',
+      textAlign: 'center',
+      padding: 0,
+    };
 
 /** Caption input with debounced persist so typing doesn't hammer the store. */
 function CaptionInput({
@@ -114,7 +136,7 @@ function CaptionInput({
       placeholder="Add a caption…"
       value={value}
       onChange={(e) => handleChange(e.target.value)}
-      style={{ ...t.input, padding: '7px 9px', fontSize: 12, fontStyle: value ? 'normal' : 'italic' }}
+      style={{ ...t.input, padding: '7px 9px', fontSize: t.id === 'handheld' ? 10.5 : 12, fontStyle: t.id === 'handheld' ? 'normal' : value ? 'normal' : 'italic' }}
     />
   );
 }
@@ -205,7 +227,7 @@ function SaleFields({
         placeholder="Condition (NM, PSA 9…)"
         value={condition}
         onChange={(e) => queueCondition(e.target.value)}
-        style={{ ...saleInput, marginTop: '6px', fontStyle: condition ? 'normal' : 'italic' }}
+        style={{ ...saleInput, marginTop: '6px', fontStyle: t.id === 'handheld' ? 'normal' : condition ? 'normal' : 'italic' }}
       />
     </>
   );
@@ -222,6 +244,7 @@ export default function VendorManagementPanel({
 }: VendorManagementPanelProps) {
   const provider = useProvider();
   const t = useTheme();
+  const lcd = t.id === 'handheld';
   const rowInput = rowInputStyle(t);
   const smallGhost = smallGhostStyle(t);
   const smallPrimary = smallPrimaryStyle(t);
@@ -352,7 +375,11 @@ export default function VendorManagementPanel({
         </div>
         <div
           onClick={() => bannerInputRef.current?.click()}
-          style={{
+          style={lcd ? {
+            ...lcdWell,
+            position: 'relative', cursor: 'pointer', padding: vendor.bannerUrl ? '8px' : '22px',
+            textAlign: 'center', maxWidth: '420px',
+          } : {
             position: 'relative', borderRadius: t.radius,
             border: `${t.borderWidth}px ${vendor.bannerUrl ? 'solid' : 'dashed'} ${t.border}`,
             background: t.bg, cursor: 'pointer', padding: vendor.bannerUrl ? '8px' : '22px',
@@ -364,7 +391,7 @@ export default function VendorManagementPanel({
               <img
                 src={vendor.bannerUrl}
                 alt={`${vendor.name} banner`}
-                style={{ width: '100%', maxHeight: '110px', objectFit: 'contain', display: 'block' }}
+                style={{ width: '100%', maxHeight: '110px', objectFit: 'contain', display: 'block', ...(lcd ? lcdImg : {}) }}
               />
               <button
                 onClick={(e) => { e.stopPropagation(); onRemoveBanner(); }}
@@ -375,8 +402,8 @@ export default function VendorManagementPanel({
               </button>
             </>
           ) : (
-            <div style={{ fontFamily: contentFont, fontSize: '13px', color: t.muted }}>
-              Add a banner image — click to browse
+            <div style={{ fontFamily: contentFont, fontSize: lcd ? '10px' : '13px', color: t.muted, ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.06em', lineHeight: 1.9 } : {}) }}>
+              {lcd ? 'HANG A BANNER? CLICK TO PICK AN IMAGE!' : 'Add a banner image — click to browse'}
             </div>
           )}
           <input
@@ -400,11 +427,46 @@ export default function VendorManagementPanel({
           Past shows from saved floor plans they're assigned in appear automatically.
         </div>
         {shows.length === 0 && (
-          <p style={{ ...t.note, margin: '0 0 12px', fontSize: 13 }}>
-            None yet.
-          </p>
+          lcd ? (
+            <LcdDialog style={{ maxWidth: 420, marginBottom: 12 }}>
+              NO SHOWS ON THE RECORD YET!
+            </LcdDialog>
+          ) : (
+            <p style={{ ...t.note, margin: '0 0 12px', fontSize: 13 }}>
+              None yet.
+            </p>
+          )
         )}
-        {shows.map((s) => (
+        {lcd && shows.length > 0 ? (
+          <div style={lcdMenuBox}>
+            {shows.map((s, i) => (
+              <div
+                key={s.id}
+                style={{
+                  ...lcdMenuRow(false),
+                  gap: 10,
+                  ...(i === shows.length - 1 ? { borderBottom: 'none' } : {}),
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {s.name}
+                </span>
+                <span style={{ color: t.muted, fontSize: 9.5, whiteSpace: 'nowrap' }}>{s.date}</span>
+                {s.source === 'plan' ? (
+                  <span style={t.chip}>FLOOR PLAN</span>
+                ) : (
+                  <button
+                    onClick={() => onRemoveManualShow(s.id)}
+                    title="Remove"
+                    style={{ ...smallGhost, padding: '3px 8px', fontSize: 10 }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : shows.map((s) => (
           <div
             key={s.id}
             style={{
@@ -450,7 +512,7 @@ export default function VendorManagementPanel({
             disabled={!showName.trim() || !showDate}
             style={showName.trim() && showDate ? smallPrimary : smallPrimaryDisabled}
           >
-            ADD SHOW
+            {lcd ? '▶ ADD SHOW' : 'ADD SHOW'}
           </button>
         </div>
       </div>
@@ -463,18 +525,27 @@ export default function VendorManagementPanel({
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
           onClick={() => inventoryInputRef.current?.click()}
-          style={{
+          style={lcd ? {
+            border: `3px dashed ${LCD.ink}`,
+            borderRadius: 0, padding: '22px', textAlign: 'center', cursor: 'pointer',
+            background: dragging ? LCD.mid : t.bg,
+            transition: 'none', marginBottom: '14px',
+          } : {
             border: `${t.borderWidth}px dashed ${dragging ? t.accent : t.border}`,
             borderRadius: '4px', padding: '22px', textAlign: 'center', cursor: 'pointer',
             background: dragging ? withAlpha(t.accent, 0.08) : t.bg,
             transition: 'all 0.2s', marginBottom: '14px',
           }}
         >
-          <div style={{ fontFamily: contentFont, fontSize: '13.5px' }}>
-            {uploading ? 'Cataloguing inventory…' : 'Add inventory images'}
+          <div style={{ fontFamily: contentFont, fontSize: lcd ? '10.5px' : '13.5px', ...(lcd ? { fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em' } : {}) }}>
+            {uploading
+              ? (lcd ? 'FILING CARDS…' : 'Cataloguing inventory…')
+              : (lcd ? 'ADD CARDS TO THE BINDER!' : 'Add inventory images')}
           </div>
-          <div style={{ fontSize: '11.5px', color: t.muted, marginTop: '6px', letterSpacing: '0.05em' }}>
-            Drop images here, or click to browse — each can carry a caption
+          <div style={{ fontSize: lcd ? '9.5px' : '11.5px', color: t.muted, marginTop: '6px', letterSpacing: '0.05em', ...(lcd ? { textTransform: 'uppercase' as const } : {}) }}>
+            {lcd
+              ? 'DROP IMAGES HERE OR CLICK TO BROWSE — EACH CAN CARRY A CAPTION!'
+              : 'Drop images here, or click to browse — each can carry a caption'}
           </div>
           <input
             ref={inventoryInputRef}
@@ -501,18 +572,18 @@ export default function VendorManagementPanel({
               IMPORT MY COLLECTION ({collectionCount})
             </button>
             {importProgress ? (
-              <span style={{ fontFamily: t.fontMono, fontSize: '12.5px', color: t.accent, letterSpacing: '0.04em' }}>
+              <span style={{ fontFamily: t.fontMono, fontSize: lcd ? '10px' : '12.5px', color: t.accent, letterSpacing: '0.04em', ...(lcd ? { textTransform: 'uppercase' as const, fontWeight: 700 } : {}) }}>
                 {importProgress}
               </span>
             ) : (
-              <span style={{ ...t.note, fontSize: 11.5 }}>
+              <span style={{ ...t.note, fontSize: lcd ? 9.5 : 11.5 }}>
                 A one-time copy — captions from card names.
               </span>
             )}
           </div>
         )}
         {importError && (
-          <p style={{ ...t.errorText, margin: '0 0 18px' }}>{importError}</p>
+          <p style={{ ...t.errorText, margin: '0 0 18px' }}>{lcd ? '! ' : ''}{importError}</p>
         )}
 
         {/* Paste-from-spreadsheet bulk editing (captions / prices / status) */}
@@ -528,21 +599,42 @@ export default function VendorManagementPanel({
         )}
 
         {inventory.items.length === 0 && !inventory.loading && (
-          <p style={{ ...t.note, margin: 0, fontSize: 13 }}>
-            No inventory yet.
-          </p>
+          lcd ? (
+            <LcdDialog
+              choices={[{ label: 'ADD CARDS', primary: true, onClick: () => inventoryInputRef.current?.click() }]}
+            >
+              THE BINDER IS EMPTY! ADD YOUR FIRST CARD?
+            </LcdDialog>
+          ) : (
+            <p style={{ ...t.note, margin: 0, fontSize: 13 }}>
+              No inventory yet.
+            </p>
+          )
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '18px' }}>
-          {inventory.items.map((item) => (
-            <figure key={item.id} style={{ margin: 0, position: 'relative' }}>
+          {inventory.items.map((item) => {
+            // Handheld only: sold items dim to half saturation under an
+            // inverted SOLD! stamp (states via inversion, never hue).
+            const lcdSold = lcd && item.status === 'sold';
+            const tileImg = (
               <img
                 src={item.imageUrl}
                 alt={item.caption || 'Inventory item'}
                 style={{
                   width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block',
                   ...t.cardFrame,
+                  ...(lcdSold ? { filter: 'saturate(0.5)' } : {}),
                 }}
               />
+            );
+            return (
+            <figure key={item.id} style={{ margin: 0, position: 'relative' }}>
+              {lcdSold ? (
+                <div style={{ position: 'relative' }}>
+                  {tileImg}
+                  <div style={lcdSoldStamp}>SOLD!</div>
+                </div>
+              ) : tileImg}
               <button
                 onClick={() => { inventory.removeItem(item.id).then(onInventoryChanged); }}
                 title="Remove item"
@@ -553,7 +645,10 @@ export default function VendorManagementPanel({
               {(interestCounts.get(item.id) ?? 0) > 0 && (
                 <div
                   title="Visitors who tapped “I'm interested” on this item"
-                  style={{
+                  style={lcd ? {
+                    ...t.chip,
+                    position: 'absolute', top: 6, left: 6,
+                  } : {
                     position: 'absolute', top: 6, left: 6,
                     background: 'rgba(0,0,0,0.75)', color: t.accent,
                     border: `${t.borderWidth}px solid ${t.border}`, borderRadius: '10px',
@@ -580,7 +675,8 @@ export default function VendorManagementPanel({
                 </span>
               </label>
             </figure>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

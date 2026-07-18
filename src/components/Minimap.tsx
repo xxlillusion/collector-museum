@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useTheme, withAlpha } from './themeKit';
+import { LCD, PIXEL_FONT } from './lcdKit';
 
 // Minimap = two pieces sharing one marker ref, zero React state per frame:
 // a DOM overlay (the plan image + marker div, HUD pattern, outside the
@@ -61,6 +62,10 @@ export function Minimap({
   // keeps every legacy literal pixel-identical (boothDot '' → gold fallback).
   const t = useTheme();
   const themed = t.id !== 'refined';
+  // 'handheld': HALL MAP panel — hard ink frame, offset shadow, square ink
+  // booth pixels, inverted name chips, ink-diamond player marker. The plan's
+  // LCD filter flows in through t.planFilter on the img (never re-applied).
+  const lcd = t.id === 'handheld';
   const dotColor = t.boothDot || '#d4af37';
   // Hovered booth dot → vendor-name label (index into boothMarkers).
   const [hovered, setHovered] = useState<number | null>(null);
@@ -86,15 +91,21 @@ export function Minimap({
         height: `${mapH}px`,
         pointerEvents: 'none',
         zIndex: 10,
-        borderRadius: '6px',
+        borderRadius: lcd ? 0 : '6px',
         overflow: 'hidden',
-        border: themed
-          ? `${t.borderWidth}px solid ${t.border}`
-          : '1px solid rgba(255,255,255,0.25)',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
+        border: lcd
+          ? `3px solid ${LCD.ink}`
+          : themed
+            ? `${t.borderWidth}px solid ${t.border}`
+            : '1px solid rgba(255,255,255,0.25)',
+        boxShadow: lcd ? `4px 4px 0 ${LCD.shadowB}` : '0 2px 12px rgba(0,0,0,0.5)',
+        // Opaque screen backing under handheld — LCD panels never show the
+        // photoreal canvas through them (the 0.75 img opacity washes toward
+        // screen-green instead of toward the 3D scene).
+        background: lcd ? LCD.screen : undefined,
         transform: `scale(${scale})`,
         transformOrigin: 'top right',
-        transition: 'transform 0.25s ease',
+        transition: lcd ? 'none' : 'transform 0.25s ease',
       }}
     >
       <img
@@ -103,6 +114,32 @@ export function Minimap({
         draggable={false}
         style={{ width: '100%', height: '100%', display: 'block', opacity: 0.75, filter: t.planFilter }}
       />
+      {/* Tiny HALL MAP header strip — overlays the top edge of the plan so
+          the map geometry (dot/label/marker math against mapH) is untouched. */}
+      {lcd && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 14,
+            background: LCD.ink,
+            color: LCD.screen,
+            fontFamily: PIXEL_FONT,
+            fontSize: 8,
+            fontWeight: 700,
+            letterSpacing: '0.14em',
+            lineHeight: '14px',
+            paddingLeft: 6,
+            textTransform: 'uppercase',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        >
+          HALL MAP
+        </div>
+      )}
       {/* Assigned booth dots: highlighted (directory pick) pulses, starred
           (route planning) glows steadily, the rest are small gold points */}
       {(boothMarkers ?? []).map((b, i) => {
@@ -120,16 +157,22 @@ export function Minimap({
               top: b.v * mapH - size / 2,
               width: size,
               height: size,
-              borderRadius: '50%',
-              background: active || starredDot
-                ? (themed ? dotColor : '#ffd75e')
-                : (themed ? withAlpha(dotColor, 0.85) : 'rgba(212,175,55,0.85)'),
+              // Handheld: square ink pixels, no circles, no glow — states are
+              // size (starred bigger) and the pulse animation (highlight).
+              borderRadius: lcd ? 0 : '50%',
+              background: lcd
+                ? LCD.ink
+                : active || starredDot
+                  ? (themed ? dotColor : '#ffd75e')
+                  : (themed ? withAlpha(dotColor, 0.85) : 'rgba(212,175,55,0.85)'),
               // Glow keeps its size ramp in every theme — only the color swaps.
-              boxShadow: active
-                ? (themed ? `0 0 8px 2px ${withAlpha(dotColor, 0.9)}` : '0 0 8px 2px rgba(255,215,94,0.9)')
-                : starredDot
-                  ? (themed ? `0 0 6px 1px ${withAlpha(dotColor, 0.75)}` : '0 0 6px 1px rgba(255,215,94,0.75)')
-                  : 'none',
+              boxShadow: lcd
+                ? 'none'
+                : active
+                  ? (themed ? `0 0 8px 2px ${withAlpha(dotColor, 0.9)}` : '0 0 8px 2px rgba(255,215,94,0.9)')
+                  : starredDot
+                    ? (themed ? `0 0 6px 1px ${withAlpha(dotColor, 0.75)}` : '0 0 6px 1px rgba(255,215,94,0.75)')
+                    : 'none',
               animation: active ? 'minimapPulse 1.2s ease-in-out infinite' : 'none',
               pointerEvents: 'auto', // hover label; container stays none
               cursor: 'default',
@@ -144,14 +187,15 @@ export function Minimap({
             left: Math.min(Math.max(hoveredMarker.u * MAP_W, 34), MAP_W - 34),
             top: Math.max(hoveredMarker.v * mapH - 22, 2),
             transform: 'translateX(-50%)',
-            background: 'rgba(8,6,4,0.92)',
-            color: t.text,
-            border: `1px solid ${withAlpha(t.accent, 0.4)}`,
-            fontSize: 10,
+            background: lcd ? LCD.ink : 'rgba(8,6,4,0.92)',
+            color: lcd ? LCD.screen : t.text,
+            border: lcd ? 'none' : `1px solid ${withAlpha(t.accent, 0.4)}`,
+            fontSize: lcd ? 9 : 10,
             fontFamily: t.fontMono,
             letterSpacing: '0.06em',
             padding: '2px 7px',
-            borderRadius: 4,
+            borderRadius: lcd ? 0 : 4,
+            textTransform: lcd ? 'uppercase' : undefined,
             whiteSpace: 'nowrap',
             maxWidth: MAP_W - 16,
             overflow: 'hidden',
@@ -170,13 +214,14 @@ export function Minimap({
             left: Math.min(Math.max(labelAnchor.u * MAP_W, 34), MAP_W - 34),
             top: Math.max(labelAnchor.v * mapH - 20, 2),
             transform: 'translateX(-50%)',
-            background: 'rgba(0,0,0,0.8)',
-            color: themed ? dotColor : '#ffd75e',
-            fontSize: 10,
+            background: lcd ? LCD.ink : 'rgba(0,0,0,0.8)',
+            color: lcd ? LCD.screen : themed ? dotColor : '#ffd75e',
+            fontSize: lcd ? 9 : 10,
             fontFamily: t.fontMono,
             letterSpacing: '0.06em',
             padding: '2px 7px',
-            borderRadius: 4,
+            borderRadius: lcd ? 0 : 4,
+            textTransform: lcd ? 'uppercase' : undefined,
             whiteSpace: 'nowrap',
             maxWidth: MAP_W - 16,
             overflow: 'hidden',
@@ -195,14 +240,16 @@ export function Minimap({
           top: 2,
           right: 2,
           pointerEvents: 'auto',
-          background: 'rgba(8,6,4,0.72)',
-          color: 'rgba(255,255,255,0.85)',
-          border: '1px solid rgba(255,255,255,0.25)',
-          borderRadius: 4,
+          background: lcd ? LCD.screen : 'rgba(8,6,4,0.72)',
+          color: lcd ? LCD.ink : 'rgba(255,255,255,0.85)',
+          border: lcd ? `2px solid ${LCD.ink}` : '1px solid rgba(255,255,255,0.25)',
+          borderRadius: lcd ? 0 : 4,
           width: 20,
           height: 20,
+          boxSizing: lcd ? 'border-box' : undefined,
           fontSize: 12,
-          lineHeight: '18px',
+          fontWeight: lcd ? 700 : undefined,
+          lineHeight: lcd ? '15px' : '18px',
           textAlign: 'center',
           padding: 0,
           cursor: 'pointer',
@@ -215,7 +262,11 @@ export function Minimap({
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.45); }
       }`}</style>
-      {/* Up-pointing red triangle; tracker rotates it by −yaw */}
+      {/* Up-pointing red triangle; tracker rotates it by −yaw. Handheld swaps
+          the triangle for an ink diamond (screen outline) drawn on a CHILD
+          element centered on the parent's transform origin — the tracked div
+          keeps its exact geometry/origin so MinimapTracker's translate+rotate
+          composes untouched. */}
       <div
         ref={markerRef}
         style={{
@@ -224,14 +275,34 @@ export function Minimap({
           left: 0,
           width: 0,
           height: 0,
-          borderLeft: `${MARKER / 2}px solid transparent`,
-          borderRight: `${MARKER / 2}px solid transparent`,
-          borderBottom: `${MARKER}px solid #ff2d1a`,
-          filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.8))',
+          ...(lcd
+            ? { zIndex: 2 }
+            : {
+                borderLeft: `${MARKER / 2}px solid transparent`,
+                borderRight: `${MARKER / 2}px solid transparent`,
+                borderBottom: `${MARKER}px solid #ff2d1a`,
+                filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.8))',
+              }),
           transformOrigin: `${MARKER / 2}px ${MARKER * 0.6}px`,
           willChange: 'transform',
         }}
-      />
+      >
+        {lcd && (
+          <div
+            style={{
+              position: 'absolute',
+              left: MARKER / 2 - 5,
+              top: MARKER * 0.6 - 5,
+              width: 10,
+              height: 10,
+              boxSizing: 'border-box',
+              background: LCD.ink,
+              border: `2px solid ${LCD.screen}`,
+              transform: 'rotate(45deg)',
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

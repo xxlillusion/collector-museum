@@ -7,32 +7,67 @@ import { useTheme } from '../../components/themeKit';
  * Static trust pages (UX Wave A). One file, four named exports; routes.tsx
  * maps each through React.lazy. Short, honest copy in the museum voice —
  * themed note-style body, small-caps side headings, nothing legalese.
+ * Handheld: prose sits in an ink-bordered panel, ink body text at dialog
+ * sizing, headings 12–13px 700, and the contact mailto becomes a ▶ row.
  */
 
 /** Per-theme prose styles — each page destructures what it uses. */
 function usePageStyles() {
   const t = useTheme();
-  const bodyStyle: CSSProperties = {
-    ...t.note,
-    fontSize: 15.5,
-    lineHeight: 1.8,
-    margin: '0 0 22px',
-  };
+  const lcd = t.id === 'handheld';
+  const bodyStyle: CSSProperties = lcd
+    ? {
+        fontFamily: t.fontBody,
+        fontSize: 10.5,
+        lineHeight: 2,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        color: t.text,
+        margin: '0 0 18px',
+      }
+    : {
+        ...t.note,
+        fontSize: 15.5,
+        lineHeight: 1.8,
+        margin: '0 0 22px',
+      };
   // Side headings share the panel-title recipe (small caps, letterspaced).
-  const headingStyle: CSSProperties = {
-    ...t.panelTitle,
-    margin: '34px 0 12px',
-  };
-  const emailLinkStyle: CSSProperties = {
-    color: t.accent,
-    textDecoration: 'none',
-    fontStyle: 'normal',
-  };
-  return { t, bodyStyle, headingStyle, emailLinkStyle };
+  const headingStyle: CSSProperties = lcd
+    ? {
+        ...t.panelTitle,
+        fontSize: 12.5,
+        margin: '28px 0 10px',
+      }
+    : {
+        ...t.panelTitle,
+        margin: '34px 0 12px',
+      };
+  const emailLinkStyle: CSSProperties = lcd
+    ? {
+        color: t.text,
+        textDecoration: 'underline',
+        fontStyle: 'normal',
+        fontWeight: 700,
+      }
+    : {
+        color: t.accent,
+        textDecoration: 'none',
+        fontStyle: 'normal',
+      };
+  return { t, lcd, bodyStyle, headingStyle, emailLinkStyle };
 }
 
 function Prose({ children }: { children: ReactNode }) {
-  return <div style={{ maxWidth: 620, margin: '0 auto' }}>{children}</div>;
+  const t = useTheme();
+  return (
+    <div style={{ maxWidth: 620, margin: '0 auto' }}>
+      {t.id === 'handheld' ? (
+        <div style={{ ...t.panelStyle, marginBottom: 0 }}>{children}</div>
+      ) : (
+        children
+      )}
+    </div>
+  );
 }
 
 export function AboutPage() {
@@ -145,7 +180,7 @@ export function TermsPage() {
 }
 
 export function ContactPage() {
-  const { t, bodyStyle, emailLinkStyle } = usePageStyles();
+  const { t, lcd, bodyStyle, emailLinkStyle } = usePageStyles();
   return (
     <PageShell eyebrow="THE MUSEUM" title="Contact">
       <Prose>
@@ -153,11 +188,23 @@ export function ContactPage() {
           Questions, bug reports, takedown requests, or a card show you think
           should be walkable — all of it goes to the same place:
         </p>
-        <p style={{ ...bodyStyle, textAlign: 'center', fontSize: 17 }}>
-          <a href="mailto:jason.a.dale2@gmail.com" style={emailLinkStyle}>
-            jason.a.dale2@gmail.com
-          </a>
-        </p>
+        {lcd ? (
+          // The mailto as a ▶ row — the LCD "press A" affordance.
+          <p style={{ ...bodyStyle, fontWeight: 700, fontSize: 11 }}>
+            <a
+              href="mailto:jason.a.dale2@gmail.com"
+              style={{ color: t.text, textDecoration: 'none' }}
+            >
+              ▶ JASON.A.DALE2@GMAIL.COM
+            </a>
+          </p>
+        ) : (
+          <p style={{ ...bodyStyle, textAlign: 'center', fontSize: 17 }}>
+            <a href="mailto:jason.a.dale2@gmail.com" style={emailLinkStyle}>
+              jason.a.dale2@gmail.com
+            </a>
+          </p>
+        )}
         <p style={bodyStyle}>
           Expect a human, not a helpdesk. Replies come when the human is awake,
           which is most of the time and never all of it.

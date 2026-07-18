@@ -8,14 +8,73 @@ import type { RegisteredVendorSummary } from '../../lib/publicVendors';
 import { COUNTRIES, regionOptions, formatLocation } from '../../lib/locations';
 import { filterSelectStyle, filterLabelStyle } from '../shows/ShowDirectory';
 import { useTheme } from '../../components/themeKit';
+import { LCD, LcdCursor, LcdDialog, lcdMenuBox, lcdMenuRow } from '../../components/lcdKit';
 
 // Public directory of registered vendors (/vendors) — owned by the public
 // browsing workstream (Stream C). Anon-safe: reads via lib/publicVendors.ts.
+
+// Handheld-only directory row — the LCD menu idiom: hover/focus inverts the
+// whole row (ink bg, screen text) with a leading ▶; never a hue shift.
+function LcdVendorRow({ vendor, last }: { vendor: RegisteredVendorSummary; last: boolean }) {
+  const [active, setActive] = useState(false);
+  const location = formatLocation({ country: vendor.country, state: vendor.state });
+  const areaServed = vendor.areaServed.trim();
+  const meta = [
+    location,
+    areaServed ? `SERVES ${areaServed}` : null,
+    `${vendor.inventoryCount} ITEM${vendor.inventoryCount === 1 ? '' : 'S'}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <Link
+      href={`/vendor/${vendor.id}`}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={() => setActive(false)}
+      style={{
+        ...lcdMenuRow(active),
+        textDecoration: 'none',
+        ...(last ? { borderBottom: 'none' } : {}),
+      }}
+    >
+      <LcdCursor active={active} />
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span
+          style={{
+            display: 'block',
+            fontWeight: 700,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {vendor.name}
+        </span>
+        <span
+          style={{
+            display: 'block',
+            marginTop: 2,
+            fontSize: 9.5,
+            fontWeight: 400,
+            letterSpacing: '0.06em',
+            color: active ? LCD.screen : LCD.muted,
+          }}
+        >
+          {meta}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
 export default function VendorDirectory() {
   const [vendors, setVendors] = useState<RegisteredVendorSummary[] | null>(null);
   const [country, setCountry] = useState('');
   const [state, setState] = useState('');
   const t = useTheme();
+  const lcd = t.id === 'handheld';
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -40,12 +99,18 @@ export default function VendorDirectory() {
 
   return (
     <PageShell title="Vendor Directory" eyebrow="REGISTERED VENDORS">
-      {!isSupabaseConfigured && (
-        <p style={{ ...t.note, fontSize: 16 }}>
-          The vendor directory needs a configured backend — this deployment runs in
-          guest-only mode.
-        </p>
-      )}
+      {!isSupabaseConfigured &&
+        (lcd ? (
+          <LcdDialog cursor>
+            ! NO LINK CABLE! THE VENDOR DIRECTORY NEEDS A CLOUD CONNECTION — THIS
+            MACHINE RUNS IN GUEST MODE.
+          </LcdDialog>
+        ) : (
+          <p style={{ ...t.note, fontSize: 16 }}>
+            The vendor directory needs a configured backend — this deployment runs in
+            guest-only mode.
+          </p>
+        ))}
 
       {isSupabaseConfigured && (
         <div
@@ -97,18 +162,53 @@ export default function VendorDirectory() {
       )}
 
       {isSupabaseConfigured && vendors === null && (
-        <p style={{ ...t.note, fontSize: 16 }}>Loading vendors…</p>
-      )}
-
-      {isSupabaseConfigured && vendors !== null && filtered.length === 0 && (
-        <p style={{ ...t.note, fontSize: 16 }}>
-          {filtering
-            ? 'No vendors in this area yet — try widening the search.'
-            : 'No registered vendors yet.'}
+        <p style={{ ...t.note, fontSize: lcd ? 11 : 16 }}>
+          {lcd ? 'LOOKING FOR VENDORS…' : 'Loading vendors…'}
         </p>
       )}
 
-      {filtered.length > 0 && (
+      {isSupabaseConfigured &&
+        vendors !== null &&
+        filtered.length === 0 &&
+        (lcd ? (
+          <LcdDialog
+            cursor={!filtering}
+            choices={
+              filtering
+                ? [
+                    {
+                      label: 'SHOW ALL AREAS',
+                      primary: true,
+                      onClick: () => {
+                        setCountry('');
+                        setState('');
+                      },
+                    },
+                  ]
+                : undefined
+            }
+          >
+            {filtering
+              ? 'NO VENDORS IN THIS AREA YET!'
+              : 'NO VENDORS HAVE SET UP SHOP YET! CHECK BACK SOON.'}
+          </LcdDialog>
+        ) : (
+          <p style={{ ...t.note, fontSize: 16 }}>
+            {filtering
+              ? 'No vendors in this area yet — try widening the search.'
+              : 'No registered vendors yet.'}
+          </p>
+        ))}
+
+      {filtered.length > 0 && lcd && (
+        <div style={lcdMenuBox}>
+          {filtered.map((v, i) => (
+            <LcdVendorRow key={v.id} vendor={v} last={i === filtered.length - 1} />
+          ))}
+        </div>
+      )}
+
+      {filtered.length > 0 && !lcd && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {filtered.map((v) => {
             const location = formatLocation({ country: v.country, state: v.state });

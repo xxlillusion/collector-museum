@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { useProgress } from '@react-three/drei';
 import { useTheme } from './themeKit';
+import { LCD, LcdDialog, LcdCss } from './lcdKit';
 
 // Helpers shared by Scene (museum) and VendorScene (convention hall).
 
@@ -35,7 +36,28 @@ export function LoadingOverlay({ label = 'LIGHTING THE GALLERY…' }: { label?: 
   // 'refined' keeps the legacy literals pixel-identical (accent already
   // equals the old gold; bg/muted differ, so they branch).
   const themed = t.id !== 'refined';
+  const lcd = t.id === 'handheld';
   if (!active) return null;
+  // Handheld: full-screen LCD boot screen — shell-green desk, one game
+  // dialog box with a blinking ▼. Other themes keep the overlay below.
+  if (lcd) {
+    return (
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: LCD.shell,
+        zIndex: 50,
+      }}>
+        <LcdCss />
+        <LcdDialog cursor style={{ minWidth: 250, textAlign: 'center' }}>
+          NOW LOADING… {Math.round(progress)}%
+        </LcdDialog>
+      </div>
+    );
+  }
   return (
     <div style={{
       position: 'fixed',

@@ -4,6 +4,8 @@ import { useTheme } from './themeKit';
 
 // Museum-styled search entry: submits to /search?q=… (the SearchScreen owns
 // the actual querying). Lives on the landing page and both directories.
+// Handheld: the input flows LCD tokens (3px ink border, Silkscreen); the
+// submit button becomes a bold ▶ chip.
 export default function SearchBox({
   initialQuery = '',
   autoFocus = false,
@@ -17,6 +19,7 @@ export default function SearchBox({
   const [, navigate] = useLocation();
   const [q, setQ] = useState(initialQuery);
   const t = useTheme();
+  const lcd = t.id === 'handheld';
 
   const submit = () => {
     const trimmed = q.trim();
@@ -36,7 +39,7 @@ export default function SearchBox({
     >
       <input
         type="search"
-        placeholder="Search shows, vendors, cards…"
+        placeholder={lcd ? 'SEARCH SHOWS, VENDORS, CARDS…' : 'Search shows, vendors, cards…'}
         value={q}
         autoFocus={autoFocus}
         onChange={(e) => setQ(e.target.value)}
@@ -49,7 +52,17 @@ export default function SearchBox({
         onClick={submit}
         title="Search"
         aria-label="Search"
-        style={{
+        style={lcd ? {
+          background: t.panel,
+          border: `3px solid ${t.border}`,
+          borderRadius: 0,
+          color: q.trim() ? t.text : t.muted,
+          fontFamily: t.fontMono,
+          fontWeight: 700,
+          fontSize: 12,
+          padding: '0 12px',
+          cursor: 'pointer',
+        } : {
           background: 'transparent',
           border: `${t.borderWidth}px solid ${t.border}`,
           borderRadius: 2,
@@ -59,7 +72,7 @@ export default function SearchBox({
           cursor: 'pointer',
         }}
       >
-        ⌕
+        {lcd ? '▶' : '⌕'}
       </button>
     </div>
   );

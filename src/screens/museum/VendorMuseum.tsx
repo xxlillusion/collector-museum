@@ -7,6 +7,7 @@ import { useAuth } from '../../lib/auth';
 import { isWanted, toggleWant } from '../../lib/interestService';
 import { recordWalk } from '../../lib/visitService';
 import { useTheme } from '../../components/themeKit';
+import { LCD, PIXEL_FONT, LcdDialog, LcdCss } from '../../components/lcdKit';
 import type { CardWithUrl } from '../../lib/useCards';
 import type { InspectSale } from '../../components/InspectOverlay';
 
@@ -29,10 +30,31 @@ type LoadState =
     };
 
 /** Fullscreen interstitial shown while blobs download / Scene code loads.
- *  'refined' keeps the legacy literals pixel-identical; other themes branch. */
+ *  'refined' keeps the legacy literals pixel-identical; other themes branch;
+ *  'handheld' renders an LCD boot dialog on the shell-green desk. */
 function MuseumLoading({ text }: { text: string }) {
   const t = useTheme();
   const themed = t.id !== 'refined';
+  const lcd = t.id === 'handheld';
+  if (lcd) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: LCD.shell,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <LcdCss />
+        <LcdDialog cursor style={{ minWidth: 260, maxWidth: '86vw', textAlign: 'center' }}>
+          {text}
+        </LcdDialog>
+      </div>
+    );
+  }
   return (
     <div
       style={{
@@ -59,6 +81,7 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const t = useTheme();
   const themed = t.id !== 'refined';
+  const lcd = t.id === 'handheld';
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
 
@@ -171,15 +194,21 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
   if (state.status === 'unavailable') {
     return (
       <PageShell title="Vendor Museum">
-        <p style={{ fontSize: 17, lineHeight: 1.7, color: themed ? t.muted : '#b7ad98', fontStyle: 'italic' }}>
-          {state.note}
-        </p>
+        {lcd ? (
+          <LcdDialog style={{ maxWidth: 480 }}>{state.note}</LcdDialog>
+        ) : (
+          <p style={{ fontSize: 17, lineHeight: 1.7, color: themed ? t.muted : '#b7ad98', fontStyle: 'italic' }}>
+            {state.note}
+          </p>
+        )}
         <p style={{ marginTop: 24 }}>
           <Link
             href={`/vendor/${vendorId}`}
-            style={{ color: t.accent, textDecoration: 'none', fontSize: 14, letterSpacing: 1 }}
+            style={lcd
+              ? { color: t.accent, textDecoration: 'none', fontSize: 10.5, fontWeight: 700, fontFamily: PIXEL_FONT, letterSpacing: '0.06em', textTransform: 'uppercase' }
+              : { color: t.accent, textDecoration: 'none', fontSize: 14, letterSpacing: 1 }}
           >
-            ← Back to the vendor profile
+            {lcd ? '▶ BACK TO THE VENDOR PROFILE' : '← Back to the vendor profile'}
           </Link>
         </p>
       </PageShell>

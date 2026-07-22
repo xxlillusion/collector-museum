@@ -1,4 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { binderEligible, type DisplayPref } from './displayPref';
+import type { BoothLayoutConfig } from './boothLayout';
 
 export interface CardRecord {
   id: string;
@@ -18,6 +20,11 @@ export interface CardRecord {
   featured?: boolean;
   hangOrder?: number;
   onWalls?: boolean;
+  // 3D interactivity wave (same jsonb): walls/binder/both display choice
+  // (absent = 'both'; legacy onWalls false reads as 'binder') and the museum
+  // wall-slot pin ("N:0:3" — see lib/wallSlots.ts).
+  display?: DisplayPref;
+  wallSlot?: string;
 }
 
 /** The editable (non-image) fields of a card. */
@@ -33,6 +40,8 @@ export type CardPatch = Partial<
     | 'featured'
     | 'hangOrder'
     | 'onWalls'
+    | 'display'
+    | 'wallSlot'
   >
 >;
 
@@ -61,6 +70,15 @@ export interface SavedPlanRecord {
    * count toward a vendor's derived "shows attended".
    */
   showDate?: string;
+  /**
+   * Hall signage snapshot (F3) — the working signage config (JSON string) +
+   * optional uploaded images. Absent on pre-wave records and on cloud
+   * round-trips (upsertCloudPlan ignores them; cloud shows carry signage in
+   * their own column).
+   */
+  signageJson?: string;
+  signageHeaderBlob?: Blob;
+  signageBannerBlob?: Blob;
 }
 
 /** A manually added "show attended" entry on a vendor. */
@@ -86,6 +104,8 @@ export interface VendorRecord {
   contactEmail?: string;
   /** Handle without the @. */
   instagram?: string;
+  /** Per-store booth layout default (F4) — see lib/boothLayout.ts. */
+  boothLayout?: BoothLayoutConfig;
 }
 
 /** Sale status of an inventory item; absent on pre-0005 records = 'forSale'. */
@@ -107,6 +127,10 @@ export interface InventoryItemRecord {
   status?: InventoryStatus;
   /** Free text: "NM", "PSA 9", ... empty/absent = unstated. */
   condition?: string;
+  /** Walls/binder/both display choice (absent = 'both') — museum + hall. */
+  display?: DisplayPref;
+  /** Museum wall-slot pin for the vendor's own museum ("N:0:3"). */
+  wallSlot?: string;
 }
 
 interface MuseumDB extends DBSchema {
@@ -453,10 +477,21 @@ export async function countInventory(vendorId: string): Promise<number> {
   return db.countFromIndex('inventory', 'vendorId', vendorId);
 }
 
+/** Binder-eligible item count (display ≠ 'walls') — drives hall binder poses,
+ *  which must agree with the open binder's slice. */
+export async function countBinderInventory(vendorId: string): Promise<number> {
+  const db = await getDB();
+  const items = await db.getAllFromIndex('inventory', 'vendorId', vendorId);
+  return binderEligible(items).length;
+}
+
 export async function updateInventoryItem(
   id: string,
   patch: Partial<
-    Pick<InventoryItemRecord, 'caption' | 'visible' | 'price' | 'status' | 'condition'>
+    Pick<
+      InventoryItemRecord,
+      'caption' | 'visible' | 'price' | 'status' | 'condition' | 'display' | 'wallSlot'
+    >
   >,
 ): Promise<void> {
   const db = await getDB();
@@ -468,4 +503,69 @@ export async function updateInventoryItem(
 export async function deleteInventoryItem(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('inventory', id);
+}
+
+// Hall signage working slots (F3, sandbox) — the signage config as
+// JSON-in-Blob plus two optional uploaded images. Direct-db like the legacy
+// vendorBanner slots: this is drafting data, local by design (ShowEditorScreen
+// keeps cloud signage in its own form state; only the sandbox walk and
+// VendorSetupScreen read these). Cleared alongside the working plan.
+
+const HALL_SIGNAGE_CONFIG_KEY = 'hallSignage';
+const HALL_SIGNAGE_IMAGE_KEYS = {
+  header: 'hallSignageHeader',
+  banner: 'hallSignageBanner',
+} as const;
+export type HallSignageImageSlot = keyof typeof HALL_SIGNAGE_IMAGE_KEYS;
+
+export async function saveHallSignageConfig(config: unknown): Promise<void> {
+  const db = await getDB();
+  const blob = new Blob([JSON.stringify(config)], { type: 'application/json' });
+  await db.put('settings', { key: HALL_SIGNAGE_CONFIG_KEY, blob });
+}
+
+export async function getHallSignageConfigBlob(): Promise<Blob | undefined> {
+  const db = await getDB();
+  const record = await db.get('settings', HALL_SIGNAGE_CONFIG_KEY);
+  return record?.blob;
+}
+
+export async function saveHallSignageImage(
+  slot: HallSignageImageSlot,
+  file: File,
+): Promise<Blob> {
+  const db = await getDB();
+  const blob = await downscaleImage(file);
+  await db.put('settings', { key: HALL_SIGNAGE_IMAGE_KEYS[slot], blob });
+  return blob;
+}
+
+/** Raw put — no re-downscale (saved-plan snapshot restore). */
+export async function putHallSignageImage(
+  slot: HallSignageImageSlot,
+  blob: Blob,
+): Promise<void> {
+  const db = await getDB();
+  await db.put('settings', { key: HALL_SIGNAGE_IMAGE_KEYS[slot], blob });
+}
+
+export async function getHallSignageImage(
+  slot: HallSignageImageSlot,
+): Promise<Blob | undefined> {
+  const db = await getDB();
+  const record = await db.get('settings', HALL_SIGNAGE_IMAGE_KEYS[slot]);
+  return record?.blob;
+}
+
+export async function deleteHallSignageImage(slot: HallSignageImageSlot): Promise<void> {
+  const db = await getDB();
+  await db.delete('settings', HALL_SIGNAGE_IMAGE_KEYS[slot]);
+}
+
+/** Clear every hall-signage slot (config + both images). */
+export async function deleteHallSignage(): Promise<void> {
+  const db = await getDB();
+  await db.delete('settings', HALL_SIGNAGE_CONFIG_KEY);
+  await db.delete('settings', HALL_SIGNAGE_IMAGE_KEYS.header);
+  await db.delete('settings', HALL_SIGNAGE_IMAGE_KEYS.banner);
 }

@@ -4,6 +4,7 @@ import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import { useAuth } from '../../lib/auth';
+import { wallEligible, binderEligible } from '../../lib/displayPref';
 import { isWanted, toggleWant } from '../../lib/interestService';
 import { recordWalk } from '../../lib/visitService';
 import { useTheme } from '../../components/themeKit';
@@ -24,9 +25,15 @@ type LoadState =
   | {
       status: 'ready';
       cards: CardWithUrl[];
+      /** Wall/binder membership (F2 display flag; untouched items = both). */
+      wallCards: CardWithUrl[];
+      binderCards: CardWithUrl[];
       captions: Map<string, string>;
       sales: Map<string, InspectSale>;
       idByUrl: Map<string, string>;
+      /** The owning account's profile id (null = unclaimed vendor page) —
+       *  the arrangement stream gates owner-arrange on it (F1). */
+      profileId: string | null;
     };
 
 /** Fullscreen interstitial shown while blobs download / Scene code loads.
@@ -150,6 +157,8 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
               addedAt: index,
               imageUrl: item.imageUrl,
               aspect: item.aspect,
+              display: item.display,
+              wallSlot: item.wallSlot,
             };
           } catch {
             return null; // one missing image shouldn't sink the whole gallery
@@ -180,7 +189,16 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
       // Anonymous walk counter — the public vendor museum actually opens
       // (never the sandbox/own museum). Fire-and-forget, day-deduped.
       recordWalk('vendor', vendorId);
-      setState({ status: 'ready', cards, captions, sales, idByUrl });
+      setState({
+        status: 'ready',
+        cards,
+        wallCards: wallEligible(cards),
+        binderCards: binderEligible(cards),
+        captions,
+        sales,
+        idByUrl,
+        profileId: profile.profileId,
+      });
     })();
     return () => {
       cancelled = true;
@@ -220,12 +238,19 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
       <Suspense fallback={<MuseumLoading text="Hanging the collection…" />}>
         <Scene
           cards={state.cards}
+          wallCards={state.wallCards}
+          binderCards={state.binderCards}
           captions={state.captions}
           sales={state.sales}
           want={want}
           bannerUrl={null}
           onManage={() => navigate(`/vendor/${vendorId}`)}
           exitLabel="← Back to Vendor"
+          // TODO(stream A — F1 owner arrange): when session?.user.id matches
+          // state.profileId, pass `arrange` with an onSetSlot that persists
+          // via useProvider().updateInventoryItem(id, { wallSlot }) — the
+          // route sits inside the provider boundary, and the vendor-owner
+          // RLS already authorizes the write.
         />
       </Suspense>
     </div>

@@ -11,6 +11,7 @@ import type { InspectSale } from './InspectOverlay';
 import type { InventoryItemRecord } from '../lib/db';
 import type { TablePlacement } from '../lib/vendorPlan';
 import type { CardWithUrl } from '../lib/useCards';
+import type { BoothLayoutConfig } from '../lib/boothLayout';
 
 /**
  * Inventory reads come in as a prop, not from the data-provider context —
@@ -208,8 +209,13 @@ function OpenHallBinder({
 
 interface VendorHallBindersProps {
   tables: TablePlacement[];
-  /** Vendor id → inventory item count (0 / absent = no binders). */
+  /** Vendor id → BINDER-ELIGIBLE item count (0 / absent = no binders).
+   *  Hosts pass binderCount ?? inventoryCount so poses match slices (F2). */
   inventoryCounts: Map<string, number>;
+  /** Per-store booth layout defaults (F4) — vendor id → config; a missing
+   *  entry renders the classic arrangement. Accepted at scaffold time; the
+   *  booth stream threads it through computeBinderPoses + the open slice. */
+  boothLayouts?: Map<string, BoothLayoutConfig>;
   fetchInventory: FetchInventory;
   /** true while the InspectOverlay is up — ignore keys/clicks. */
   suspended: boolean;

@@ -17,6 +17,9 @@ interface HUDProps {
   uploadLabel?: string;
   /** Hall only: opens the vendor directory (button top-left, M shortcut). */
   onDirectory?: () => void;
+  /** Museum only (F1): the arrange-walls toggle (button + R shortcut hint).
+   *  Accepted at scaffold time; the arrangement stream renders it. */
+  arrange?: { active: boolean; onToggle: () => void };
 }
 
 export default function HUD({

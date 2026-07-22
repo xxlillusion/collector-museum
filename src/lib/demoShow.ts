@@ -13,6 +13,7 @@
 import type { VendorPlanMeta } from './vendorPlan';
 import type { InventoryItemRecord } from './db';
 import type { VendorSummary } from './useVendors';
+import type { HallSignageConfig } from './hallSignage';
 
 import planImageUrl from '../assets/demo/floorplan.webp';
 import emberdrake from '../assets/demo/cards/emberdrake.webp';
@@ -56,6 +57,8 @@ export interface DemoManifest {
   planMeta: VendorPlanMeta;
   vendors: DemoVendor[];
   items: DemoItem[];
+  /** Hall signage (F3) — proves the pipeline account-free. */
+  signage?: HallSignageConfig;
 }
 
 const EMBER = 'demo-vendor-ember';

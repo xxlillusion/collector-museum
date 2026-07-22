@@ -8,6 +8,8 @@ import type {
   VendorShowEntry,
 } from '../db';
 import { downscaleImage } from '../db';
+import { isDisplayPref } from '../displayPref';
+import { normalizeBoothLayout } from '../boothLayout';
 import { localProvider } from './local';
 import { supabase } from '../supabase';
 import {
@@ -52,6 +54,8 @@ interface CollectionRow {
  *  their real types through the same jsonb. */
 const CARD_META_KEYS = ['setName', 'cardNumber', 'year', 'grade', 'notes'] as const;
 const CARD_CURATION_KEYS = ['featured', 'hangOrder', 'onWalls'] as const;
+// 3D-interactivity wave: display walls/binder/both + the wall-slot pin.
+const CARD_LAYOUT_KEYS = ['display', 'wallSlot'] as const;
 
 function cardMetaFromRow(metadata: Record<string, unknown> | null): Partial<CardRecord> {
   const out: Partial<CardRecord> = {};
@@ -65,6 +69,10 @@ function cardMetaFromRow(metadata: Record<string, unknown> | null): Partial<Card
   if (typeof hangOrder === 'number' && Number.isFinite(hangOrder)) out.hangOrder = hangOrder;
   const onWalls = metadata?.onWalls;
   if (typeof onWalls === 'boolean') out.onWalls = onWalls;
+  const display = metadata?.display;
+  if (isDisplayPref(display)) out.display = display;
+  const wallSlot = metadata?.wallSlot;
+  if (typeof wallSlot === 'string' && wallSlot) out.wallSlot = wallSlot;
   return out;
 }
 
@@ -81,6 +89,8 @@ function cardMetaToJson(
     out.hangOrder = card.hangOrder;
   }
   if (typeof card.onWalls === 'boolean') out.onWalls = card.onWalls;
+  if (card.display && isDisplayPref(card.display)) out.display = card.display;
+  if (typeof card.wallSlot === 'string' && card.wallSlot) out.wallSlot = card.wallSlot;
   return out;
 }
 
@@ -92,6 +102,7 @@ interface VendorRow {
   website: string;
   contact_email: string;
   instagram: string;
+  booth_layout: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -107,6 +118,8 @@ interface InventoryRow {
   price: number | null;
   status: InventoryStatus;
   condition: string;
+  display_pref: 'walls' | 'binder' | 'both' | null;
+  wall_slot: string | null;
 }
 
 interface ShowRow {
@@ -209,6 +222,9 @@ export async function upsertCloudVendor(userId: string, record: VendorRecord): P
       website: record.website ?? '',
       contact_email: record.contactEmail ?? '',
       instagram: record.instagram ?? '',
+      // 0008 column — sent only when the record carries a value, so pre-0008
+      // imports of untouched records keep working.
+      ...(record.boothLayout !== undefined ? { booth_layout: record.boothLayout } : {}),
       created_at: iso(record.createdAt),
       updated_at: iso(record.updatedAt),
     });
@@ -243,6 +259,9 @@ export async function upsertCloudInventoryItem(
       price: item.price ?? null,
       status: item.status ?? 'forSale',
       condition: item.condition ?? '',
+      // 0008 columns — only-when-defined (same rule as booth_layout above).
+      ...(item.display !== undefined ? { display_pref: item.display } : {}),
+      ...(item.wallSlot !== undefined ? { wall_slot: item.wallSlot } : {}),
     });
   if (error) throw new Error(`save inventory item: ${error.message}`);
 }
@@ -305,6 +324,11 @@ export async function upsertCloudPlan(userId: string, record: SavedPlanRecord): 
 
 // ------------------------------------------------------------------ provider
 
+// Pre-0008 fallback: filtering on display_pref 400s until the column exists.
+// Latch once per session and serve plain counts — zero repeat console noise;
+// applying the migration lights the filtered counts up on next load.
+let binderCountUnavailable = false;
+
 export function makeRemoteProvider(userId: string): DataProvider {
   return {
     kind: 'remote',
@@ -345,7 +369,9 @@ export function makeRemoteProvider(userId: string): DataProvider {
       if (patch.name !== undefined) row.name = patch.name;
       // metadata is written whole (read-modify-write) so cleared fields drop out
       const metaTouched =
-        CARD_META_KEYS.some((k) => k in patch) || CARD_CURATION_KEYS.some((k) => k in patch);
+        CARD_META_KEYS.some((k) => k in patch) ||
+        CARD_CURATION_KEYS.some((k) => k in patch) ||
+        CARD_LAYOUT_KEYS.some((k) => k in patch);
       if (metaTouched) {
         const { data } = await db()
           .from('collections')
@@ -459,7 +485,7 @@ export function makeRemoteProvider(userId: string): DataProvider {
       const { data, error } = await db()
         .from('vendors')
         .select(
-          'id,name,banner_path,manual_shows,website,contact_email,instagram,created_at,updated_at',
+          'id,name,banner_path,manual_shows,website,contact_email,instagram,booth_layout,created_at,updated_at',
         )
         .eq('owner_id', userId)
         .order('created_at', { ascending: true });
@@ -477,6 +503,8 @@ export function makeRemoteProvider(userId: string): DataProvider {
             contactEmail: row.contact_email || undefined,
             instagram: row.instagram || undefined,
           };
+          const boothLayout = normalizeBoothLayout(row.booth_layout);
+          if (boothLayout) record.boothLayout = boothLayout;
           if (row.banner_path) {
             const blob = await downloadImageIfExists('banners', row.banner_path);
             if (blob) record.bannerBlob = blob;
@@ -492,6 +520,8 @@ export function makeRemoteProvider(userId: string): DataProvider {
       if (patch.website !== undefined) row.website = patch.website;
       if (patch.contactEmail !== undefined) row.contact_email = patch.contactEmail;
       if (patch.instagram !== undefined) row.instagram = patch.instagram;
+      // `in` check: an explicit { boothLayout: undefined } clears the config.
+      if ('boothLayout' in patch) row.booth_layout = patch.boothLayout ?? null;
       // bannerBlob is managed by set/removeVendorBannerBlob (Storage-backed).
       const { error } = await db().from('vendors').update(row).eq('id', id);
       if (error) throw new Error(`update vendor: ${error.message}`);
@@ -545,7 +575,9 @@ export function makeRemoteProvider(userId: string): DataProvider {
     getInventoryItems: async (vendorId) => {
       const { data, error } = await db()
         .from('inventory_items')
-        .select('id,vendor_id,image_path,caption,visible,aspect,added_at,price,status,condition')
+        .select(
+          'id,vendor_id,image_path,caption,visible,aspect,added_at,price,status,condition,display_pref,wall_slot',
+        )
         .eq('vendor_id', vendorId)
         .order('added_at', { ascending: true });
       if (error) throw new Error(`load inventory: ${error.message}`);
@@ -563,11 +595,30 @@ export function makeRemoteProvider(userId: string): DataProvider {
             price: row.price ?? undefined,
             status: row.status,
             condition: row.condition || undefined,
+            display: row.display_pref ?? undefined,
+            wallSlot: row.wall_slot ?? undefined,
           }),
         ),
       );
     },
     countInventory: async (vendorId) => {
+      const { count, error } = await db()
+        .from('inventory_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('vendor_id', vendorId);
+      if (error) throw new Error(`count inventory: ${error.message}`);
+      return count ?? 0;
+    },
+    countBinderInventory: async (vendorId) => {
+      if (!binderCountUnavailable) {
+        const { count, error } = await db()
+          .from('inventory_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('vendor_id', vendorId)
+          .neq('display_pref', 'walls');
+        if (!error) return count ?? 0;
+        binderCountUnavailable = true;
+      }
       const { count, error } = await db()
         .from('inventory_items')
         .select('id', { count: 'exact', head: true })
@@ -583,6 +634,8 @@ export function makeRemoteProvider(userId: string): DataProvider {
       if ('price' in patch) row.price = patch.price ?? null;
       if (patch.status !== undefined) row.status = patch.status;
       if ('condition' in patch) row.condition = patch.condition ?? '';
+      if ('display' in patch) row.display_pref = patch.display ?? 'both';
+      if ('wallSlot' in patch) row.wall_slot = patch.wallSlot ?? null;
       if (Object.keys(row).length === 0) return;
       const { error } = await db().from('inventory_items').update(row).eq('id', id);
       if (error) throw new Error(`update inventory item: ${error.message}`);

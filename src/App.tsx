@@ -7,8 +7,11 @@ import { useCards } from './lib/useCards';
 import type { CardWithUrl } from './lib/useCards';
 import { cardDetailsLine, hasCardMeta } from './lib/cardMeta';
 import { orderForWalls } from './lib/wallOrder';
+import { wallEligible, binderEligible } from './lib/displayPref';
 import type { InspectSale } from './components/InspectOverlay';
 import { useBanner } from './lib/useBanner';
+import { useHallSignage } from './lib/useHallSignage';
+import { resolveSignage } from './lib/hallSignage';
 import { useVendorPlan } from './lib/useVendorPlan';
 import { useVendorBanners } from './lib/useVendorBanners';
 import { useSavedPlans } from './lib/useSavedPlans';
@@ -133,14 +136,21 @@ function MuseumApp({
       addedAt: i.addedAt,
       imageUrl: i.imageUrl,
       aspect: i.aspect,
+      display: i.display,
+      wallSlot: i.wallSlot,
     }));
   }, [galleryVendor, galleryInventory.items, cards]);
 
-  // Curated wall order for the user's own cards — featured first, manual
-  // hangOrder, hidden excluded. The 3D binder keeps the full collection
-  // (`cards` above); the walls are the curated exhibit. Vendor inventory
-  // hangs uncurated, so the vendor path passes no wallCards.
-  const ownWallCards = useMemo(() => orderForWalls(cards), [cards]);
+  // Wall/binder lists (F2 display flag + curation). Walls: curated order for
+  // own cards, plain wall-eligible order for vendor inventory. Binder: every
+  // binder-eligible item. Untouched data (no display set) passes through both
+  // filters whole, reproducing the pre-wave behavior exactly.
+  const ownWallCards = useMemo(() => orderForWalls(wallEligible(cards)), [cards]);
+  const galleryWallCards = useMemo(
+    () => (galleryVendor ? wallEligible(galleryCards) : ownWallCards),
+    [galleryVendor, galleryCards, ownWallCards],
+  );
+  const galleryBinderCards = useMemo(() => binderEligible(galleryCards), [galleryCards]);
 
   // Captions under inspected works — vendor inventory captions, or the card's
   // name once the owner has filled in any placard metadata (unedited uploads
@@ -182,40 +192,67 @@ function MuseumApp({
     return map;
   }, [galleryVendor, galleryInventory.items]);
 
+  // Hall signage working slots (F3) — belong to the current plan like the
+  // legacy banner slots: replacing/clearing the plan clears the signage.
+  const hallSignage = useHallSignage();
+  const { clearAll: clearHallSignage, reload: reloadHallSignage } = hallSignage;
+
   // Legacy per-box banner slots belong to the current plan image — replacing
   // or clearing the plan drops them all
   const { setPlan, clearPlan } = vendorPlan;
   const { clearAll: clearVendorBanners, reload: reloadVendorBanners } = vendorBanners;
   const handleSetPlan = useCallback(async (file: File) => {
     await clearVendorBanners();
+    await clearHallSignage();
     await setPlan(file);
-  }, [clearVendorBanners, setPlan]);
+  }, [clearVendorBanners, clearHallSignage, setPlan]);
   const handleClearPlan = useCallback(async () => {
     await clearVendorBanners();
+    await clearHallSignage();
     await clearPlan();
-  }, [clearVendorBanners, clearPlan]);
+  }, [clearVendorBanners, clearHallSignage, clearPlan]);
 
-  // Saved plan snapshots; loading one replaces the working slots, so both
-  // working-copy hooks reload afterwards
+  // Saved plan snapshots; loading one replaces the working slots, so every
+  // working-copy hook reloads afterwards
   const savedPlans = useSavedPlans();
   const { loadPlan } = savedPlans;
   const { reload: reloadVendorPlan } = vendorPlan;
   const handleLoadPlan = useCallback(async (id: string) => {
     await loadPlan(id);
-    await Promise.all([reloadVendorPlan(), reloadVendorBanners()]);
-  }, [loadPlan, reloadVendorPlan, reloadVendorBanners]);
+    await Promise.all([reloadVendorPlan(), reloadVendorBanners(), reloadHallSignage()]);
+  }, [loadPlan, reloadVendorPlan, reloadVendorBanners, reloadHallSignage]);
+
+  // The sandbox hall's resolved signage (defaults unless the user configured
+  // any of it in the setup screen). No show name in the working slots — the
+  // default title stays 'CARD SHOW' until a title is set.
+  const sandboxSignage = useMemo(
+    () =>
+      resolveSignage(hallSignage.config, undefined, {
+        header: hallSignage.headerUrl ?? undefined,
+        banner: hallSignage.bannerUrl ?? undefined,
+      }),
+    [hallSignage.config, hallSignage.headerUrl, hallSignage.bannerUrl],
+  );
 
   if (view === 'gallery') {
     return (
       <Suspense fallback={<ChunkFallback />}>
         <Scene
           cards={galleryCards}
-          wallCards={galleryVendor ? undefined : ownWallCards}
+          wallCards={galleryWallCards}
+          binderCards={galleryBinderCards}
           captions={galleryCaptions}
           details={galleryDetails}
           sales={gallerySales}
           bannerUrl={bannerUrl}
           onManage={() => setView('home')}
+          // In-3D wall arrangement (F1) — own cards persist via updateCard's
+          // metadata jsonb; a selected local store persists per item.
+          arrange={
+            galleryVendor
+              ? { onSetSlot: (id, slot) => galleryInventory.setWallSlot(id, slot) }
+              : { onSetSlot: (id, slot) => updateCard(id, { wallSlot: slot ?? undefined }) }
+          }
           // Own-cards walls only — vendor inventory has no card editor
           onAddDetails={
             galleryVendor
@@ -269,7 +306,12 @@ function MuseumApp({
         onSavePlan={savedPlans.saveCurrentPlan}
         onLoadPlan={handleLoadPlan}
         onDeletePlan={savedPlans.deletePlan}
-        onGenerate={() => setView('vendorWalk')}
+        onGenerate={async () => {
+          // The setup screen edits the signage slots through its own hook
+          // instance — refresh ours so the walk renders what was just saved.
+          await reloadHallSignage();
+          setView('vendorWalk');
+        }}
         onBack={() => setView('home')}
       />
       </Suspense>
@@ -285,6 +327,7 @@ function MuseumApp({
           bannerUrl={bannerUrl}
           vendorBannerUrls={vendorBanners.bannerUrls}
           vendors={vendors.vendors}
+          signage={sandboxSignage}
           fetchInventory={provider.getInventoryItems}
           onBack={() => setView('vendorSetup')}
         />

@@ -1,7 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 // Legacy per-box banner slots are local-only forever (pre-vendor-entity
-// plans) — they bypass the provider on purpose.
-import { putVendorBanner, deleteAllVendorBanners } from './db';
+// plans) — they bypass the provider on purpose. The hall-signage working
+// slots are direct-db for the same reason (sandbox drafting data).
+import {
+  putVendorBanner,
+  deleteAllVendorBanners,
+  getHallSignageConfigBlob,
+  getHallSignageImage,
+  saveHallSignageConfig,
+  putHallSignageImage,
+  deleteHallSignage,
+} from './db';
 import type { SavedPlanRecord } from './db';
 import { useProvider } from './provider/context';
 import { exportPlanFile, parsePlanFile, planFileFilename } from './planFile';
@@ -42,10 +51,14 @@ export function useSavedPlans() {
   }, [refresh]);
 
   const saveCurrentPlan = useCallback(async (name: string, showDate?: string) => {
-    const [planBlob, metaBlob] = await Promise.all([
-      provider.getFloorPlan(),
-      provider.getPlanMetaBlob(),
-    ]);
+    const [planBlob, metaBlob, signageBlob, signageHeader, signageBanner] =
+      await Promise.all([
+        provider.getFloorPlan(),
+        provider.getPlanMetaBlob(),
+        getHallSignageConfigBlob(),
+        getHallSignageImage('header'),
+        getHallSignageImage('banner'),
+      ]);
     if (!planBlob || !metaBlob) return;
     const metaJson = await metaBlob.text();
     const now = Date.now();
@@ -59,6 +72,11 @@ export function useSavedPlans() {
       banners: [], // vendor banners live on VendorRecord now, resolved live
     };
     if (showDate) record.showDate = showDate;
+    // Hall signage snapshot (F3) — cloud savePlanRecord (upsertCloudPlan)
+    // simply ignores these fields; cloud shows carry signage in their column.
+    if (signageBlob) record.signageJson = await signageBlob.text();
+    if (signageHeader) record.signageHeaderBlob = signageHeader;
+    if (signageBanner) record.signageBannerBlob = signageBanner;
     await provider.savePlanRecord(record);
     await notifyPlansChanged();
   }, [provider]);
@@ -70,6 +88,18 @@ export function useSavedPlans() {
     await provider.savePlanMeta(JSON.parse(record.metaJson));
     await deleteAllVendorBanners();
     for (const b of record.banners) await putVendorBanner(b.id, b.blob);
+    // Restore the hall-signage slots (absent on the record = clear — a plan
+    // saved without signage loads without signage). Corrupt JSON just clears.
+    await deleteHallSignage();
+    if (record.signageJson) {
+      try {
+        await saveHallSignageConfig(JSON.parse(record.signageJson));
+      } catch {
+        /* corrupt snapshot — defaults */
+      }
+    }
+    if (record.signageHeaderBlob) await putHallSignageImage('header', record.signageHeaderBlob);
+    if (record.signageBannerBlob) await putHallSignageImage('banner', record.signageBannerBlob);
   }, [provider, savedPlans]);
 
   const deletePlan = useCallback(async (id: string) => {

@@ -31,12 +31,25 @@ const MAX_CONTENT_W = 2.1;       // widest image content allowed (panoramas)
 const FRAME_GAP = 0.45;          // horizontal gap between frame edges
 const WALL_MARGIN = 1.2;         // keep-clear zone at wall ends
 
+/** In-3D wall arrangement (F1) — the host's persistence callback. Slot ids
+ *  come from lib/wallSlots.ts ("N:0:3"); null unpins. */
+export interface SceneArrange {
+  onSetSlot: (id: string, slotId: string | null) => Promise<void>;
+}
+
 interface SceneProps {
   cards: CardWithUrl[];
   /** What hangs on the walls (curated order — featured first, manual order,
-   *  hidden excluded). Defaults to `cards`; the binder always pages the full
-   *  `cards` list, so curation never shrinks the browsable collection. */
+   *  hidden excluded). Defaults to `cards`. */
   wallCards?: CardWithUrl[];
+  /** What the table binder pages (F2 display flag) — defaults to `cards`.
+   *  Hosts pass binderEligible(...) so 'walls'-only items stay off the
+   *  binder; untouched collections pass through whole. */
+  binderCards?: CardWithUrl[];
+  /** Present = this viewer may arrange the walls in 3D (own museum only —
+   *  public wrappers omit it). Accepted at scaffold time; the arrangement
+   *  stream wires the interaction (HUD toggle, slot markers, pick/place). */
+  arrange?: SceneArrange;
   /** imageUrl → caption, shown in the inspect overlay (vendor inventory). */
   captions?: Map<string, string>;
   /** imageUrl → details line (card metadata: set · number · year · grade). */
@@ -235,7 +248,7 @@ function WallSpot({ fx, fz, tx, tz, yaw }: SpotPlacement) {
   );
 }
 
-export default function Scene({ cards, wallCards, captions, details, sales, want, bannerUrl, onManage, onAddDetails, exitLabel }: SceneProps) {
+export default function Scene({ cards, wallCards, binderCards, captions, details, sales, want, bannerUrl, onManage, onAddDetails, exitLabel }: SceneProps) {
   const [locked, setLocked] = useState(false);
   // What's inspected: an ordered url list (wall order for frame clicks, the
   // full collection for binder clicks) + the current index — ‹ › / arrows
@@ -249,8 +262,10 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
   // driver kills the WebGL context (black canvas, DOM still alive).
   const [glKey, setGlKey] = useState(0);
 
-  // Curated wall order when provided; the binder below keeps the full list.
+  // Curated wall order when provided; the binder pages binderCards (default:
+  // the full list — F2 display filtering happens in the hosts).
   const wallSource = wallCards ?? cards;
+  const binderSource = binderCards ?? cards;
   const layout = useMemo(() => computeLayout(wallSource), [wallSource]);
 
   // One spotlight per cluster of nearby frames, per wall. Spots exist only
@@ -322,9 +337,9 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
 
   // Url lists the overlay pages through: wall clicks page the hang order
   // (the exact array computeLayout consumed, including any overflow that
-  // didn't fit on the walls); binder clicks page the full collection.
+  // didn't fit on the walls); binder clicks page the binder's list.
   const wallUrls = useMemo(() => wallSource.map((c) => c.imageUrl), [wallSource]);
-  const binderUrls = useMemo(() => cards.map((c) => c.imageUrl), [cards]);
+  const binderUrls = useMemo(() => binderSource.map((c) => c.imageUrl), [binderSource]);
 
   const openInspect = (list: string[], url: string) => {
     const index = Math.max(0, list.indexOf(url));
@@ -434,7 +449,7 @@ export default function Scene({ cards, wallCards, captions, details, sales, want
 
           <Table bannerUrl={bannerUrl} />
           <Binder
-            cards={cards}
+            cards={binderSource}
             open={binderOpen}
             suspended={inspect !== null}
             onOpenRequest={handleBinderOpen}

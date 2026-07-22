@@ -3,6 +3,7 @@ import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { TABLE } from './Room';
 import type { TablePlacement } from '../lib/vendorPlan';
+import type { ResolvedHallSignage } from '../lib/hallSignage';
 import {
   getAtmosphereAssets,
   getEntranceGeometries,
@@ -25,6 +26,10 @@ export interface HallAtmosphereProps {
   height: number;
   /** All table placements — positions/yaw/stretch for decoration anchoring. */
   tables: TablePlacement[];
+  /** Organizer signage (F3): title/subtitle/theme/uploaded textures. Absent =
+   *  classic defaults. Accepted at scaffold time; the signage stream keys the
+   *  asset cache on it (signageCacheKey) and parameterizes the canvases. */
+  signage?: ResolvedHallSignage;
 }
 
 const CARPET_FIELD = '#4e1616'; // deep show-red, darker than the tablecloth

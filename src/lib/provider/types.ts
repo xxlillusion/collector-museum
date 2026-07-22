@@ -69,10 +69,16 @@ export interface DataProvider {
   saveInventoryItem(vendorId: string, file: File): Promise<InventoryItemRecord>;
   getInventoryItems(vendorId: string): Promise<InventoryItemRecord[]>;
   countInventory(vendorId: string): Promise<number>;
+  /** Binder-eligible count (display ≠ 'walls'). Hall binder poses and the
+   *  open binder's slice must agree on this number (F2/F4 wave). */
+  countBinderInventory(vendorId: string): Promise<number>;
   updateInventoryItem(
     id: string,
     patch: Partial<
-      Pick<InventoryItemRecord, 'caption' | 'visible' | 'price' | 'status' | 'condition'>
+      Pick<
+        InventoryItemRecord,
+        'caption' | 'visible' | 'price' | 'status' | 'condition' | 'display' | 'wallSlot'
+      >
     >,
   ): Promise<void>;
   deleteInventoryItem(id: string): Promise<void>;

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo } from 'react';
 import { useLocation } from 'wouter';
 import { demoManifest, demoVendorSummaries, fetchDemoInventory } from '../../lib/demoShow';
+import { resolveSignage } from '../../lib/hallSignage';
 import { useTheme } from '../../components/themeKit';
 import { LCD, PIXEL_FONT } from '../../components/lcdKit';
 
@@ -24,6 +25,9 @@ export default function DemoShowScreen() {
   const lcd = t.id === 'handheld';
   const [, navigate] = useLocation();
   const vendors = useMemo(demoVendorSummaries, []);
+  // Bundled signage (F3) — the manifest's config through the same resolver
+  // every real show uses; absent manifest signage = classic defaults.
+  const signage = useMemo(() => resolveSignage(demoManifest.signage), []);
 
   return (
     <>
@@ -34,6 +38,7 @@ export default function DemoShowScreen() {
           bannerUrl={null}
           vendorBannerUrls={EMPTY_BANNERS}
           vendors={vendors}
+          signage={signage}
           fetchInventory={fetchDemoInventory}
           onBack={() => navigate('/')}
           exitLabel="← Leave"

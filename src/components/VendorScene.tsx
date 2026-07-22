@@ -34,6 +34,8 @@ import { TABLE } from './Room';
 import { planToLayout } from '../lib/vendorPlan';
 import type { VendorPlanMeta, TablePlacement } from '../lib/vendorPlan';
 import type { VendorSummary } from '../lib/useVendors';
+import type { ResolvedHallSignage } from '../lib/hallSignage';
+import type { BoothLayoutConfig } from '../lib/boothLayout';
 import { isWanted, toggleWant } from '../lib/interestService';
 import { useAuth } from '../lib/auth';
 
@@ -43,6 +45,9 @@ interface VendorSceneProps {
   bannerUrl: string | null;
   vendorBannerUrls: Map<string, string>;
   vendors: VendorSummary[];
+  /** Resolved hall signage (F3) — absent renders the classic defaults.
+   *  Hosts call resolveSignage(config, showName, urls). */
+  signage?: ResolvedHallSignage;
   /** Inventory reads for the hall binders — threaded as a prop because React
    *  context does not cross the R3F Canvas root (see VendorHallBinders). */
   fetchInventory: FetchInventory;
@@ -182,7 +187,7 @@ function tableColliders(tables: TablePlacement[]): Collider[] {
   });
 }
 
-export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, fetchInventory, starredVendorIds, onToggleStar, linkVendors, onBack, exitLabel }: VendorSceneProps) {
+export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBannerUrls, vendors, signage, fetchInventory, starredVendorIds, onToggleStar, linkVendors, onBack, exitLabel }: VendorSceneProps) {
   const [locked, setLocked] = useState(false);
   const [binderOpen, setBinderOpen] = useState(false);
   const [binderPrompt, setBinderPrompt] = useState(false);
@@ -213,10 +218,20 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
     for (const v of vendors) map.set(v.id, { name: v.name, bannerUrl: v.bannerUrl });
     return map;
   }, [vendors]);
+  // Binder poses and the open binder's slice must agree on this count —
+  // binderCount excludes walls-only items (F2); pre-0008 summaries fall back
+  // to the total and behave exactly as before.
   const inventoryCounts = useMemo(
-    () => new Map(vendors.map((v) => [v.id, v.inventoryCount])),
+    () => new Map(vendors.map((v) => [v.id, v.binderCount ?? v.inventoryCount])),
     [vendors],
   );
+  // Per-store booth layout defaults (F4) — absent vendors render the classic
+  // arrangement (VendorHallBinders treats a missing entry as defaults).
+  const boothLayouts = useMemo(() => {
+    const map = new Map<string, BoothLayoutConfig>();
+    for (const v of vendors) if (v.boothLayout) map.set(v.id, v.boothLayout);
+    return map;
+  }, [vendors]);
 
   // Assigned booth centers in plan-image UV (dangling vendor ids skipped) +
   // the directory list derived from the same rects.
@@ -243,7 +258,8 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
         id: v.id,
         name: v.name,
         boothCount: boothCounts.get(v.id)!,
-        inventoryCount: v.inventoryCount,
+        // What's actually browsable in-hall (binder-eligible when known).
+        inventoryCount: v.binderCount ?? v.inventoryCount,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [vendors, boothMarkers]);
@@ -442,6 +458,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
           <VendorHallBinders
             tables={tables}
             inventoryCounts={inventoryCounts}
+            boothLayouts={boothLayouts}
             fetchInventory={fetchInventory}
             suspended={!!inspect || directoryOpen}
             onPromptChange={setBinderPrompt}
@@ -454,6 +471,7 @@ export default function VendorScene({ planMeta, planUrl, bannerUrl, vendorBanner
             depth={hall.depth}
             height={hall.height}
             tables={tables}
+            signage={signage}
           />
 
           {/* One shadow-casting light for the whole hall — skylight banks.

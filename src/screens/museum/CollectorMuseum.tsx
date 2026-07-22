@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import { cardDetailsLine, hasCardMeta } from '../../lib/cardMeta';
 import { orderForWalls } from '../../lib/wallOrder';
+import { wallEligible, binderEligible } from '../../lib/displayPref';
 import { recordWalk } from '../../lib/visitService';
 import { useTheme } from '../../components/themeKit';
 import { LCD, PIXEL_FONT, LcdDialog, LcdCss } from '../../components/lcdKit';
@@ -23,9 +24,11 @@ type LoadState =
   | {
       status: 'ready';
       cards: CardWithUrl[];
-      /** Curated wall order (featured / hangOrder / onWalls from the owner's
-       *  metadata) — the binder keeps the full `cards` list. */
+      /** Curated wall order (featured / hangOrder / display / onWalls from
+       *  the owner's metadata). */
       wallCards: CardWithUrl[];
+      /** Binder membership (display ≠ 'walls') — F2. */
+      binderCards: CardWithUrl[];
       captions: Map<string, string>;
       details: Map<string, string>;
     };
@@ -135,6 +138,8 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
               featured: item.featured,
               hangOrder: item.hangOrder,
               onWalls: item.onWalls,
+              display: item.display,
+              wallSlot: item.wallSlot,
             };
           } catch {
             return null; // one missing image shouldn't sink the whole gallery
@@ -163,7 +168,14 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
       // Anonymous walk counter — the public collector museum actually opens
       // (never the sandbox/own museum). Fire-and-forget, day-deduped.
       recordWalk('collector', profileId);
-      setState({ status: 'ready', cards, wallCards: orderForWalls(cards), captions, details });
+      setState({
+        status: 'ready',
+        cards,
+        wallCards: orderForWalls(wallEligible(cards)),
+        binderCards: binderEligible(cards),
+        captions,
+        details,
+      });
     })();
     return () => {
       cancelled = true;
@@ -204,6 +216,7 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
         <Scene
           cards={state.cards}
           wallCards={state.wallCards}
+          binderCards={state.binderCards}
           captions={state.captions}
           details={state.details}
           bannerUrl={null}

@@ -19,6 +19,9 @@ interface CardFrameProps {
   /** Image content height in world units */
   height: number;
   onClick: () => void;
+  /** Arrange mode (F1): render the held-frame glow (the hover emissive,
+   *  promoted). Accepted at scaffold time; the arrangement stream wires it. */
+  selected?: boolean;
 }
 
 interface FramedCardProps {

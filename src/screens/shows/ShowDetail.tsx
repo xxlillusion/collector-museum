@@ -6,6 +6,8 @@ import ShareButton from '../../components/ShareButton';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getShowForWalk } from '../../lib/publicShows';
 import type { ShowWalkData } from '../../lib/publicShows';
+import { resolveSignage } from '../../lib/hallSignage';
+import { publicImageUrl } from '../../lib/supabaseImages';
 import { getStarredVendors, toggleStarredVendor } from '../../lib/starredVendors';
 import { recordWalk, fetchWalks } from '../../lib/visitService';
 import { useAuth } from '../../lib/auth';
@@ -449,6 +451,16 @@ export default function ShowDetail({ showId }: { showId: string }) {
           bannerUrl={null}
           vendorBannerUrls={EMPTY_BANNERS}
           vendors={show.vendors}
+          // Organizer signage (F3): defaults derive from the show's name —
+          // uploaded images resolve to CDN URLs from the paths in the config.
+          signage={resolveSignage(show.signage, show.name, {
+            header: show.signage?.headerImagePath
+              ? publicImageUrl('plans', show.signage.headerImagePath)
+              : undefined,
+            banner: show.signage?.bannerImagePath
+              ? publicImageUrl('plans', show.signage.bannerImagePath)
+              : undefined,
+          })}
           fetchInventory={show.fetchInventory}
           starredVendorIds={starred}
           onToggleStar={handleToggleStar}

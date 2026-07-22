@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { publicImageUrl } from './supabaseImages';
 import type { CardMetaFields } from './cardMeta';
+import { isDisplayPref, type DisplayPref } from './displayPref';
 
 /**
  * Anon-safe public reads for collector profile pages (`/collector/:id`) and
@@ -26,6 +27,9 @@ export interface PublicCollectorItem {
   featured?: boolean;
   hangOrder?: number;
   onWalls?: boolean;
+  // 3D display wave (same jsonb): walls/binder/both + the wall-slot pin.
+  display?: DisplayPref;
+  wallSlot?: string;
 }
 
 export interface PublicCollectorProfile {
@@ -99,6 +103,10 @@ export async function getPublicCollectorProfile(
           if (typeof hangOrder === 'number') item.hangOrder = hangOrder;
           const onWalls = row.metadata?.['onWalls'];
           if (typeof onWalls === 'boolean') item.onWalls = onWalls;
+          const display = row.metadata?.['display'];
+          if (isDisplayPref(display)) item.display = display;
+          const wallSlot = row.metadata?.['wallSlot'];
+          if (typeof wallSlot === 'string' && wallSlot) item.wallSlot = wallSlot;
           return item;
         });
       }

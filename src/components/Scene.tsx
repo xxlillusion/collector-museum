@@ -12,7 +12,16 @@ import InspectOverlay from './InspectOverlay';
 import type { InspectSale } from './InspectOverlay';
 import Table from './Table';
 import Binder from './Binder';
+import WallSlotMarkers from './WallSlotMarkers';
 import { ShadowRefresh, LoadingOverlay } from './sceneCommon';
+import {
+  buildSlotGrid,
+  parseSlotId,
+  makeSlotId,
+  resolveSlotLayout,
+  spanFor,
+  sizeForAspect,
+} from '../lib/wallSlots';
 import {
   MUSEUM_EXPOSURE,
   MUSEUM_WALL_SPOT,
@@ -248,8 +257,12 @@ function WallSpot({ fx, fz, tx, tz, yaw }: SpotPlacement) {
   );
 }
 
-export default function Scene({ cards, wallCards, binderCards, captions, details, sales, want, bannerUrl, onManage, onAddDetails, exitLabel }: SceneProps) {
+export default function Scene({ cards, wallCards, binderCards, arrange, captions, details, sales, want, bannerUrl, onManage, onAddDetails, exitLabel }: SceneProps) {
   const [locked, setLocked] = useState(false);
+  // In-3D wall arrangement (F1) — only reachable when the host passed
+  // `arrange`. holdingId = the picked-up frame awaiting a slot click.
+  const [arrangeMode, setArrangeMode] = useState(false);
+  const [holdingId, setHoldingId] = useState<string | null>(null);
   // What's inspected: an ordered url list (wall order for frame clicks, the
   // full collection for binder clicks) + the current index — ‹ › / arrows
   // page within the list. The current url keys every caption/sale lookup.
@@ -266,7 +279,63 @@ export default function Scene({ cards, wallCards, binderCards, captions, details
   // the full list — F2 display filtering happens in the hosts).
   const wallSource = wallCards ?? cards;
   const binderSource = binderCards ?? cards;
-  const layout = useMemo(() => computeLayout(wallSource), [wallSource]);
+
+  // Slot grid for the room (F1). ROOM is read lazily inside the memo — a
+  // module-level access would trip the Room↔GalleryControls TDZ (gotcha 9).
+  const grid = useMemo(() => buildSlotGrid(ROOM), []);
+
+  // The regression bar: slot layout engages ONLY while arranging or when a
+  // card carries a valid pin — untouched collections run computeLayout
+  // byte-identical to the packed layout.
+  const hasValidPin = useMemo(
+    () => wallSource.some((c) => c.wallSlot && parseSlotId(grid, c.wallSlot) !== null),
+    [wallSource, grid],
+  );
+  const slotLayout = useMemo(
+    () =>
+      arrangeMode || hasValidPin
+        ? resolveSlotLayout(
+            wallSource.map((c) => ({ id: c.id, aspect: c.aspect, wallSlot: c.wallSlot })),
+            grid,
+          )
+        : null,
+    [arrangeMode, hasValidPin, wallSource, grid],
+  );
+
+  const layout = useMemo<CardPlacement[]>(() => {
+    if (!slotLayout) return computeLayout(wallSource);
+    const byId = new Map(wallSource.map((c) => [c.id, c]));
+    return slotLayout.placements.flatMap((p) => {
+      const card = byId.get(p.itemId);
+      return card
+        ? [{ position: p.position, rotation: p.rotation, width: p.width, height: p.height, card }]
+        : [];
+    });
+  }, [slotLayout, wallSource]);
+
+  // Cell id → occupant item id (span-2 claims both cells) — feeds the slot
+  // markers and the place/swap validation.
+  const occupancy = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!slotLayout) return map;
+    for (const p of slotLayout.placements) {
+      map.set(p.slotId, p.itemId);
+      if (p.span === 2) {
+        const parsed = parseSlotId(grid, p.slotId);
+        if (parsed) map.set(makeSlotId(parsed.wall, parsed.row, parsed.col + 1), p.itemId);
+      }
+    }
+    return map;
+  }, [slotLayout, grid]);
+
+  // While arranging, the spots memo consumes the placements captured at mode
+  // entry (frames re-slot live, but a placement-driven cluster change would
+  // alter the light count — gotcha 11: every material recompiles). Exit
+  // clears the ref, recomputing once from the live layout.
+  const frozenSpotsLayoutRef = useRef<CardPlacement[] | null>(null);
+  const spotsLayout = arrangeMode && frozenSpotsLayoutRef.current
+    ? frozenSpotsLayoutRef.current
+    : layout;
 
   // One spotlight per cluster of nearby frames, per wall. Spots exist only
   // for walls that actually hold frames — a collection that fits on N+S
@@ -276,7 +345,7 @@ export default function Scene({ cards, wallCards, binderCards, captions, details
     // rotY identifies the wall (exact constants from computeLayout); the
     // cluster axis is the wall's packing axis: x for N/S, z for E/W.
     const byWall = new Map<number, number[]>();
-    for (const p of layout) {
+    for (const p of spotsLayout) {
       const rotY = p.rotation[1];
       if (!byWall.has(rotY)) byWall.set(rotY, []);
       byWall.get(rotY)!.push(
@@ -315,7 +384,7 @@ export default function Scene({ cards, wallCards, binderCards, captions, details
       }
     }
     return result;
-  }, [layout]);
+  }, [spotsLayout]);
 
   const glCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -336,9 +405,23 @@ export default function Scene({ cards, wallCards, binderCards, captions, details
   };
 
   // Url lists the overlay pages through: wall clicks page the hang order
-  // (the exact array computeLayout consumed, including any overflow that
-  // didn't fit on the walls); binder clicks page the binder's list.
-  const wallUrls = useMemo(() => wallSource.map((c) => c.imageUrl), [wallSource]);
+  // (base mode: the exact array computeLayout consumed, including overflow
+  // that didn't fit; slot mode: the placements' reading order — pins may
+  // reorder the room — with overflow appended); binder clicks page the
+  // binder's list.
+  const wallUrls = useMemo(() => {
+    if (!slotLayout) return wallSource.map((c) => c.imageUrl);
+    const byId = new Map(wallSource.map((c) => [c.id, c]));
+    const urls = slotLayout.placements.flatMap((p) => {
+      const card = byId.get(p.itemId);
+      return card ? [card.imageUrl] : [];
+    });
+    for (const id of slotLayout.overflow) {
+      const card = byId.get(id);
+      if (card) urls.push(card.imageUrl);
+    }
+    return urls;
+  }, [slotLayout, wallSource]);
   const binderUrls = useMemo(() => binderSource.map((c) => c.imageUrl), [binderSource]);
 
   const openInspect = (list: string[], url: string) => {
@@ -348,8 +431,113 @@ export default function Scene({ cards, wallCards, binderCards, captions, details
     if (want) setInspectWanted(want.isWanted(list[index]));
   };
 
-  const handleFrameClick = (url: string) => openInspect(wallUrls, url);
+  // Arrange mode repurposes frame clicks: pick up / release / switch the
+  // held frame instead of inspecting.
+  const handleFrameClick = (card: CardWithUrl) => {
+    if (arrangeMode) {
+      setHoldingId(holdingId === card.id ? null : card.id);
+      return;
+    }
+    openInspect(wallUrls, card.imageUrl);
+  };
   const handleBinderInspect = (url: string) => openInspect(binderUrls, url);
+
+  // ------------------------------------------------------------- arrange (F1)
+  // Mode entry/exit — HUD button or R. Side effects (spot freeze, hold
+  // clear) live OUTSIDE state updaters (StrictMode double-invokes updaters).
+  const toggleArrange = () => {
+    if (!arrange) return;
+    frozenSpotsLayoutRef.current = arrangeMode ? null : layout;
+    setHoldingId(null);
+    setArrangeMode(!arrangeMode);
+  };
+
+  // Latest-value refs so the window listeners below subscribe once (the
+  // `arrange` prop is a fresh object every host render).
+  const toggleArrangeRef = useRef(toggleArrange);
+  toggleArrangeRef.current = toggleArrange;
+  const arrangeModeRef = useRef(arrangeMode);
+  arrangeModeRef.current = arrangeMode;
+  const holdingIdRef = useRef(holdingId);
+  holdingIdRef.current = holdingId;
+  const binderOpenRef = useRef(binderOpen);
+  binderOpenRef.current = binderOpen;
+  const inspectOpenRef = useRef(inspect !== null);
+  inspectOpenRef.current = inspect !== null;
+  const hasArrange = arrange !== undefined;
+
+  useEffect(() => {
+    if (!hasArrange) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'KeyR' && !binderOpenRef.current && !inspectOpenRef.current) {
+        toggleArrangeRef.current();
+      } else if (e.code === 'Escape' && holdingIdRef.current) {
+        // Esc also drops pointer lock (browser-level) — the mode itself
+        // survives, only the hold cancels.
+        setHoldingId(null);
+      }
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button === 2 && arrangeModeRef.current && holdingIdRef.current) {
+        setHoldingId(null);
+      }
+    };
+    const onContextMenu = (e: Event) => {
+      if (arrangeModeRef.current) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('contextmenu', onContextMenu);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('contextmenu', onContextMenu);
+    };
+  }, [hasArrange]);
+
+  // Held card's frame footprint — sizes the markers' ghost preview.
+  const holdingInfo = useMemo(() => {
+    const card = holdingId ? wallSource.find((c) => c.id === holdingId) : null;
+    if (!card) return null;
+    const { w, h } = sizeForAspect(card.aspect);
+    return { span: spanFor(card.aspect), w: w + FRAME_EXTRA, h: h + FRAME_EXTRA };
+  }, [holdingId, wallSource]);
+
+  /** Place (or swap into) the clicked slot. Persistence is sequential —
+   *  remote metadata writes are read-modify-write, so ordering stays
+   *  deterministic for the resolver's earlier-in-order-wins rule. */
+  const handleSlotClick = async (slotId: string) => {
+    if (!arrange || !holdingId || !slotLayout) return;
+    const held = wallSource.find((c) => c.id === holdingId);
+    if (!held) return;
+    const span = spanFor(held.aspect);
+    const parsed = parseSlotId(grid, slotId);
+    if (!parsed) return;
+    const cells = [slotId];
+    if (span === 2) {
+      const right = makeSlotId(parsed.wall, parsed.row, parsed.col + 1);
+      if (!parseSlotId(grid, right)) return; // no right neighbour — illegal
+      cells.push(right);
+    }
+    // Target cells must be free or belong to exactly one swap partner.
+    const partners = new Set<string>();
+    for (const cell of cells) {
+      const occupant = occupancy.get(cell);
+      if (occupant && occupant !== holdingId) partners.add(occupant);
+    }
+    if (partners.size > 1) return; // would displace two frames — no-op
+    // The held frame is always placed (you picked it off a wall), so its
+    // resolved slot is concrete even when it was auto-filled.
+    const heldCurrent = slotLayout.placements.find((p) => p.itemId === holdingId)?.slotId ?? null;
+    const partner = partners.size === 1 ? [...partners].at(0)! : null;
+    setHoldingId(null);
+    try {
+      if (partner) await arrange.onSetSlot(partner, heldCurrent);
+      await arrange.onSetSlot(holdingId, slotId);
+    } catch {
+      // persistence failed — hosts re-render from their own truth
+    }
+  };
 
   // ‹ › / arrow keys — wraps at both ends (matches the hall).
   const navigateInspect = (dir: -1 | 1) => {
@@ -451,7 +639,7 @@ export default function Scene({ cards, wallCards, binderCards, captions, details
           <Binder
             cards={binderSource}
             open={binderOpen}
-            suspended={inspect !== null}
+            suspended={inspect !== null || arrangeMode}
             onOpenRequest={handleBinderOpen}
             onPromptChange={setBinderPrompt}
             onInspect={handleBinderInspect}
@@ -466,9 +654,22 @@ export default function Scene({ cards, wallCards, binderCards, captions, details
               width={width}
               height={height}
               imageUrl={card.imageUrl}
-              onClick={() => handleFrameClick(card.imageUrl)}
+              selected={arrangeMode && holdingId === card.id}
+              onClick={() => handleFrameClick(card)}
             />
           ))}
+
+          {/* Slot fittings — mounted whenever this viewer may arrange, so the
+              warmup shaders compile at load, not on the first R press */}
+          {arrange && (
+            <WallSlotMarkers
+              grid={grid}
+              occupancy={occupancy}
+              active={arrangeMode}
+              holding={holdingInfo}
+              onSlotClick={handleSlotClick}
+            />
+          )}
 
           {spots.map((spot) => (
             <WallSpot
@@ -522,9 +723,20 @@ export default function Scene({ cards, wallCards, binderCards, captions, details
         locked={locked}
         onUpload={onManage}
         {...(exitLabel ? { uploadLabel: exitLabel } : {})}
-        binderPrompt={binderPrompt && locked && !binderOpen}
+        binderPrompt={binderPrompt && locked && !binderOpen && !arrangeMode}
         binderOpen={binderOpen}
         overlayOpen={inspect !== null}
+        arrange={
+          arrange
+            ? {
+                active: arrangeMode,
+                onToggle: toggleArrange,
+                slotsUsed: occupancy.size,
+                slotsTotal: grid.totalSlots,
+                binderCount: binderSource.length,
+              }
+            : undefined
+        }
       />
       <MobileControls hidden={binderOpen} />
 

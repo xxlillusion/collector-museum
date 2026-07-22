@@ -4,6 +4,7 @@ import PageShell from '../PageShell';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicVendorProfile } from '../../lib/publicVendors';
 import { useAuth } from '../../lib/auth';
+import { useProvider } from '../../lib/provider/context';
 import { wallEligible, binderEligible } from '../../lib/displayPref';
 import { isWanted, toggleWant } from '../../lib/interestService';
 import { recordWalk } from '../../lib/visitService';
@@ -91,6 +92,40 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
   const lcd = t.id === 'handheld';
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
+
+  // Owner arrange (F1): the signed-in account behind this vendor page may
+  // re-hang the walls in 3D. Persists through the provider seam (the route
+  // sits inside the provider boundary; vendor-owner RLS authorizes the
+  // write) and patches the one-shot fetch optimistically — without the local
+  // patch the move would never render.
+  const provider = useProvider();
+  const profileId = state.status === 'ready' ? state.profileId : null;
+  const isOwner = Boolean(userId && profileId && userId === profileId);
+  const arrange = useMemo(
+    () =>
+      isOwner
+        ? {
+            onSetSlot: async (id: string, slot: string | null) => {
+              // Pure updater — the provider write stays outside it
+              // (StrictMode double-invokes updaters).
+              setState((prev) => {
+                if (prev.status !== 'ready') return prev;
+                const cards = prev.cards.map((c) =>
+                  c.id === id ? { ...c, wallSlot: slot ?? undefined } : c,
+                );
+                return {
+                  ...prev,
+                  cards,
+                  wallCards: wallEligible(cards),
+                  binderCards: binderEligible(cards),
+                };
+              });
+              await provider.updateInventoryItem(id, { wallSlot: slot ?? undefined });
+            },
+          }
+        : undefined,
+    [isOwner, provider],
+  );
 
   // Scene's want prop is url-keyed; map back to item ids here.
   const idByUrl = state.status === 'ready' ? state.idByUrl : null;
@@ -246,11 +281,7 @@ export default function VendorMuseum({ vendorId }: { vendorId: string }) {
           bannerUrl={null}
           onManage={() => navigate(`/vendor/${vendorId}`)}
           exitLabel="← Back to Vendor"
-          // TODO(stream A — F1 owner arrange): when session?.user.id matches
-          // state.profileId, pass `arrange` with an onSetSlot that persists
-          // via useProvider().updateInventoryItem(id, { wallSlot }) — the
-          // route sits inside the provider boundary, and the vendor-owner
-          // RLS already authorizes the write.
+          arrange={arrange}
         />
       </Suspense>
     </div>

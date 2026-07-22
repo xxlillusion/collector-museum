@@ -19,7 +19,11 @@ import type { VendorSummary } from '../../lib/useVendors';
 import { useProvider } from '../../lib/provider/context';
 // Legacy per-box banner slots belong to the working plan image — seeding or
 // replacing it wipes them, exactly like App.tsx's handleSetPlan wrapper.
-import { deleteAllVendorBanners } from '../../lib/db';
+import { deleteAllVendorBanners, downscaleImage } from '../../lib/db';
+import { uploadImage, removeImage, publicImageUrl } from '../../lib/supabaseImages';
+import { isDefaultSignage } from '../../lib/hallSignage';
+import type { HallSignageConfig } from '../../lib/hallSignage';
+import HallSignageEditor from '../../components/HallSignageEditor';
 import type { PlanWorkbenchHandle, PlanWorkbenchState } from '../../components/PlanWorkbench';
 import { useTheme, withAlpha } from '../../components/themeKit';
 import { LCD, LcdCursor, LcdDialog, lcdMenuBox, lcdMenuRow } from '../../components/lcdKit';
@@ -27,6 +31,36 @@ import { LCD, LcdCursor, LcdDialog, lcdMenuBox, lcdMenuRow } from '../../compone
 // The workbench carries the detection pipeline + plan editor — lazy so the
 // organizer list / gate pages never pull that chunk.
 const PlanWorkbench = lazy(() => import('../../components/PlanWorkbench'));
+
+/**
+ * Reconcile one signage image slot against Storage (F3). Storage rules:
+ * never upsert; remove-then-upload; owner-uid path prefix; versioned
+ * filename dodges the CDN cache on the public URL. Returns the path the
+ * saved config should carry (undefined = baked default).
+ */
+async function syncSignageImage(args: {
+  slot: 'header' | 'banner';
+  organizerId: string;
+  showId: string;
+  /** The path currently stored on the cloud show (edit mode), if any. */
+  oldPath: string | undefined;
+  picked: File | null;
+  removed: boolean;
+}): Promise<string | undefined> {
+  const { slot, organizerId, showId, oldPath, picked, removed } = args;
+  if (picked) {
+    if (oldPath) await removeImage('plans', oldPath);
+    const blob = await downscaleImage(picked);
+    const path = `${organizerId}/${showId}/signage-${slot}-${Date.now()}.webp`;
+    await uploadImage('plans', path, blob);
+    return path;
+  }
+  if (removed) {
+    if (oldPath) await removeImage('plans', oldPath);
+    return undefined;
+  }
+  return oldPath;
+}
 
 /**
  * Organizer-only show create (/organizer/show/new) and edit
@@ -75,6 +109,50 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   const [hours, setHours] = useState('');
   const [admission, setAdmission] = useState('');
   const [externalUrl, setExternalUrl] = useState('');
+
+  // ---- hall signage (F3): config in form state (seeded from the cloud show
+  // in edit mode); newly-picked images upload on submit. The ref mirrors the
+  // config for handleSubmit — the editor commits text on BLUR, and the same
+  // click that submits would otherwise read the pre-blur closure value.
+  const [signageConfig, setSignageConfig] = useState<HallSignageConfig>({});
+  const signageConfigRef = useRef<HallSignageConfig>({});
+  const applySignageConfig = useCallback((next: HallSignageConfig) => {
+    signageConfigRef.current = next;
+    setSignageConfig(next);
+  }, []);
+  const [signageFiles, setSignageFiles] = useState<{ header: File | null; banner: File | null }>({ header: null, banner: null });
+  const signageFilesRef = useRef(signageFiles);
+  signageFilesRef.current = signageFiles;
+  const [signageRemoved, setSignageRemoved] = useState<{ header: boolean; banner: boolean }>({ header: false, banner: false });
+  const signageRemovedRef = useRef(signageRemoved);
+  signageRemovedRef.current = signageRemoved;
+  // Object URLs for picked files (revoked on replace/clear/unmount)
+  const [signagePreviews, setSignagePreviews] = useState<{ header: string | null; banner: string | null }>({ header: null, banner: null });
+  const signagePreviewsRef = useRef(signagePreviews);
+  signagePreviewsRef.current = signagePreviews;
+  useEffect(() => () => {
+    const p = signagePreviewsRef.current;
+    if (p.header) URL.revokeObjectURL(p.header);
+    if (p.banner) URL.revokeObjectURL(p.banner);
+  }, []);
+
+  // Object-URL side effects live OUTSIDE the state updaters (StrictMode
+  // double-invokes updaters — the revoke/create would run twice).
+  const pickSignageImage = useCallback((slot: 'header' | 'banner', file: File) => {
+    const prev = signagePreviewsRef.current[slot];
+    if (prev) URL.revokeObjectURL(prev);
+    const url = URL.createObjectURL(file);
+    setSignageFiles((p) => ({ ...p, [slot]: file }));
+    setSignagePreviews((p) => ({ ...p, [slot]: url }));
+    setSignageRemoved((p) => ({ ...p, [slot]: false }));
+  }, []);
+  const clearSignageImage = useCallback((slot: 'header' | 'banner') => {
+    const prev = signagePreviewsRef.current[slot];
+    if (prev) URL.revokeObjectURL(prev);
+    setSignageFiles((p) => ({ ...p, [slot]: null }));
+    setSignagePreviews((p) => ({ ...p, [slot]: null }));
+    setSignageRemoved((p) => ({ ...p, [slot]: true }));
+  }, []);
 
   const [wb, setWb] = useState<PlanWorkbenchState>({ hasMeta: false, detecting: false, totalTables: 0 });
   const [busy, setBusy] = useState(false);
@@ -181,7 +259,8 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     setHours(show.hours);
     setAdmission(show.admission);
     setExternalUrl(show.externalUrl);
-  }, [show]);
+    applySignageConfig(show.signage ?? {});
+  }, [show, applySignageConfig]);
 
   // No sandbox draft = nothing to clobber; skip the confirmation step.
   useEffect(() => {
@@ -250,7 +329,30 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         admission: admission.trim(),
         externalUrl: externalUrl.trim(),
       };
+      // Signage form state via refs — the editor commits text on blur, which
+      // fires on THIS submit click after handleSubmit's closure was captured.
+      const sigBase: HallSignageConfig = { ...signageConfigRef.current };
+      delete sigBase.headerImagePath;
+      delete sigBase.bannerImagePath;
+      const sigFiles = signageFilesRef.current;
+      const sigRemoved = signageRemovedRef.current;
+
       if (isEdit && showId) {
+        // Images sync BEFORE the row write so the saved config only ever
+        // points at objects that exist.
+        const headerPath = await syncSignageImage({
+          slot: 'header', organizerId: userId, showId,
+          oldPath: show?.signage?.headerImagePath,
+          picked: sigFiles.header, removed: sigRemoved.header,
+        });
+        const bannerPath = await syncSignageImage({
+          slot: 'banner', organizerId: userId, showId,
+          oldPath: show?.signage?.bannerImagePath,
+          picked: sigFiles.banner, removed: sigRemoved.banner,
+        });
+        const sigOut: HallSignageConfig = { ...sigBase };
+        if (headerPath) sigOut.headerImagePath = headerPath;
+        if (bannerPath) sigOut.bannerImagePath = bannerPath;
         await updateShow({
           showId,
           organizerId: userId,
@@ -259,9 +361,24 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           ...location,
           meta,
           planBlob: imageReplaced ? blob : undefined,
+          signage: sigOut, // always present in edit — {} resets to defaults
         });
+        // Keep local state consistent for a second save in this session
+        // (oldPath bookkeeping + picked-file reset; previews were object
+        // URLs for the now-uploaded files).
+        setShow((s) => (s ? { ...s, signage: sigOut } : s));
+        applySignageConfig(sigOut);
+        if (signagePreviewsRef.current.header) URL.revokeObjectURL(signagePreviewsRef.current.header!);
+        if (signagePreviewsRef.current.banner) URL.revokeObjectURL(signagePreviewsRef.current.banner!);
+        setSignagePreviews({ header: null, banner: null });
+        setSignageFiles({ header: null, banner: null });
+        setSignageRemoved({ header: false, banner: false });
         setSavedNote(true);
       } else {
+        // Create: the row must exist before images can upload under its id
+        // (owner-uid/showId path prefix), so publish carries the text config
+        // and a second updateShow attaches the uploaded paths.
+        const hasSigImages = Boolean(sigFiles.header || sigFiles.banner);
         const id = await publishShow({
           organizerId: userId,
           name: trimmed,
@@ -270,7 +387,31 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           planBlob: blob,
           meta,
           published: publishNow,
+          signage: isDefaultSignage(sigBase) && !hasSigImages ? undefined : sigBase,
         });
+        if (hasSigImages) {
+          const headerPath = await syncSignageImage({
+            slot: 'header', organizerId: userId, showId: id,
+            oldPath: undefined, picked: sigFiles.header, removed: false,
+          });
+          const bannerPath = await syncSignageImage({
+            slot: 'banner', organizerId: userId, showId: id,
+            oldPath: undefined, picked: sigFiles.banner, removed: false,
+          });
+          const sigOut: HallSignageConfig = { ...sigBase };
+          if (headerPath) sigOut.headerImagePath = headerPath;
+          if (bannerPath) sigOut.bannerImagePath = bannerPath;
+          // Same args minus planBlob — booths rewrite wholesale (idempotent).
+          await updateShow({
+            showId: id,
+            organizerId: userId,
+            name: trimmed,
+            showDate: showDate || undefined,
+            ...location,
+            meta,
+            signage: sigOut,
+          });
+        }
         setCreatedId(id);
       }
     } catch (e) {
@@ -278,7 +419,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     } finally {
       setBusy(false);
     }
-  }, [userId, busy, name, showDate, country, stateCode, city, venueName, address, hours, admission, externalUrl, isEdit, showId, imageReplaced, publishNow, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
+  }, [userId, busy, name, showDate, country, stateCode, city, venueName, address, hours, admission, externalUrl, isEdit, showId, show, imageReplaced, publishNow, applySignageConfig, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
 
   const title = isEdit ? 'Edit Show' : 'Create a Show';
   const regions = regionOptions(country);
@@ -698,6 +839,37 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
             style={{ ...t.input, width: 280 }}
           />
         </div>
+      </div>
+
+      {/* Hall signage & branding (F3) — how the generated 3D hall is dressed */}
+      <div style={{ marginBottom: 30 }}>
+        <div style={{ ...t.label, ...(lcd ? { fontSize: 12, fontWeight: 700, color: t.text } : {}) }}>
+          SIGNAGE &amp; BRANDING
+        </div>
+        <div style={{ ...t.note, fontSize: lcd ? 9.5 : 12.5, margin: '0 0 14px' }}>
+          Dresses the walkable 3D hall — leave everything empty and the hall
+          uses your show's name in classic gold.
+        </div>
+        <HallSignageEditor
+          value={signageConfig}
+          onChange={applySignageConfig}
+          header={{
+            url: signagePreviews.header
+              ?? (!signageRemoved.header && show?.signage?.headerImagePath
+                ? publicImageUrl('plans', show.signage.headerImagePath)
+                : null),
+            onPick: (f) => pickSignageImage('header', f),
+            onClear: () => clearSignageImage('header'),
+          }}
+          banner={{
+            url: signagePreviews.banner
+              ?? (!signageRemoved.banner && show?.signage?.bannerImagePath
+                ? publicImageUrl('plans', show.signage.bannerImagePath)
+                : null),
+            onPick: (f) => pickSignageImage('banner', f),
+            onClear: () => clearSignageImage('banner'),
+          }}
+        />
       </div>
 
       {/* Floor plan workbench — detect, fix up, assign vendors */}

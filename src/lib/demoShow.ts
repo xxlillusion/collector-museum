@@ -182,6 +182,14 @@ export const demoManifest: DemoManifest = {
     { id: 'demo-item-rune-tortoise', vendorId: MINT, image: runeTortoise, aspect: CARD_ASPECT,
       caption: 'Rune Tortoise — slow and inevitable', price: 18, status: 'forSale', condition: 'LP' },
   ],
+  // Organizer signage (F3) — a custom title + non-default theme proves the
+  // pipeline end-to-end, account-free: title on the header AND the entrance
+  // sign, subtitle words on the hanging banners, crimson pennant strings.
+  signage: {
+    title: 'EMBERVALE CARD EXPO',
+    subtitle: 'BUY · SELL · TRADE',
+    theme: 'crimson',
+  },
 };
 
 /** The manifest's vendors as the VendorSummary shape VendorScene consumes

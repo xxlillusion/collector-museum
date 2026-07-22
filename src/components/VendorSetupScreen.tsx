@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import PlanWorkbench, { secondaryButton } from './PlanWorkbench';
+import HallSignageEditor from './HallSignageEditor';
 import { useTheme, withAlpha } from './themeKit';
 import { LCD, LcdCss, LcdDialog, lcdMenuBox, lcdMenuRow, lcdScreenFrame } from './lcdKit';
 import type { PlanWorkbenchHandle, PlanWorkbenchState } from './PlanWorkbench';
@@ -8,6 +9,7 @@ import type { VendorPlanMeta } from '../lib/vendorPlan';
 import type { SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
 import { useSavedPlans } from '../lib/useSavedPlans';
+import { useHallSignage } from '../lib/useHallSignage';
 
 interface VendorSetupScreenProps {
   planUrl: string | null;
@@ -105,11 +107,47 @@ export default function VendorSetupScreen({
     }
   }, [importPlanFile]);
 
+  // Hall signage working slots (F3) — this screen's own hook instance edits
+  // them; App's GENERATE-time reload picks the writes up for the walk. Plan
+  // load/replace/clear mutate the slots elsewhere (App's wrappers +
+  // useSavedPlans restore), so those paths reload this instance too.
+  const hallSignage = useHallSignage();
+  const { reload: reloadSignage, saveConfig: saveSignageConfig,
+    setImage: setSignageImage, clearImage: clearSignageImage } = hallSignage;
+  const [signageOpen, setSignageOpen] = useState(false);
+  // In-flight signage writes, chained so GENERATE can await the lot — a
+  // title blur commit races the same click that generates otherwise.
+  const signageWrites = useRef<Promise<unknown>>(Promise.resolve());
+  const trackSignageWrite = useCallback((p: Promise<unknown>) => {
+    signageWrites.current = signageWrites.current.then(() => p).catch(() => {});
+  }, []);
+
+  const handleSetPlan = useCallback(async (file: File) => {
+    await onSetPlan(file); // App's wrapper clears the signage slots with the plan
+    await reloadSignage();
+  }, [onSetPlan, reloadSignage]);
+
+  const handleClearPlan = useCallback(async () => {
+    await onClearPlan();
+    await reloadSignage();
+  }, [onClearPlan, reloadSignage]);
+
+  const handleLoadPlan = useCallback(async (id: string) => {
+    await onLoadPlan(id); // snapshot restore rewrites the signage slots
+    await reloadSignage();
+  }, [onLoadPlan, reloadSignage]);
+
+  const handleGenerate = useCallback(async () => {
+    await signageWrites.current; // flush blur-commit saves before the walk reads
+    onGenerate();
+  }, [onGenerate]);
+
   const handleSavePlan = useCallback(async () => {
     const name = savingName?.trim();
     if (!name) return;
     // Flush any pending debounced edit so the snapshot is current
     await workbenchRef.current?.flushPendingMeta();
+    await signageWrites.current; // signage rides the snapshot too
     await onSavePlan(name, savingDate || undefined);
     setSavingName(null);
     setSavingDate('');
@@ -233,15 +271,15 @@ export default function VendorSetupScreen({
         planUrl={planUrl}
         planMeta={planMeta}
         getPlanBlob={getPlanBlob}
-        onSetPlan={onSetPlan}
+        onSetPlan={handleSetPlan}
         onSaveMeta={onSaveMeta}
-        onClearPlan={onClearPlan}
+        onClearPlan={handleClearPlan}
         vendors={vendors}
         onAddVendor={onAddVendor}
         onStateChange={setWb}
         actions={({ totalTables }) => (
           <button
-            onClick={onGenerate}
+            onClick={handleGenerate}
             disabled={totalTables === 0}
             style={isR
               ? {
@@ -266,6 +304,53 @@ export default function VendorSetupScreen({
           </button>
         )}
       />
+
+      {/* Hall signage (F3) — title / theme / banner art for the generated
+          hall. Lives with the working plan (saved plans snapshot it; plan
+          replace/clear wipes it), hence the same gating as Save. */}
+      {wb.hasMeta && !wb.detecting && (
+        <div style={{ width: '100%', maxWidth: '900px', marginTop: '36px' }}>
+          <button
+            onClick={() => setSignageOpen((o) => !o)}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              color: isR ? '#888' : lcd ? t.text : t.muted,
+              fontSize: lcd ? '12px' : '13px',
+              fontWeight: lcd ? 700 : undefined,
+              letterSpacing: lcd ? '0.08em' : '0.12em',
+              fontFamily: isR ? 'Georgia, serif' : t.fontMono,
+            }}
+          >
+            {signageOpen ? '▾' : '▸'} HALL SIGNAGE
+          </button>
+          {signageOpen && !hallSignage.loading && (
+            <div style={{ marginTop: '14px' }}>
+              <div style={{ ...t.note, fontSize: lcd ? 9.5 : 12, marginBottom: '14px' }}>
+                Dresses the generated hall — saved with this browser's working
+                plan and inside saved plans.
+              </div>
+              <HallSignageEditor
+                value={hallSignage.config ?? {}}
+                onChange={(next) => trackSignageWrite(saveSignageConfig(next))}
+                header={{
+                  url: hallSignage.headerUrl,
+                  onPick: (f) => trackSignageWrite(setSignageImage('header', f)),
+                  onClear: () => trackSignageWrite(clearSignageImage('header')),
+                }}
+                banner={{
+                  url: hallSignage.bannerUrl,
+                  onPick: (f) => trackSignageWrite(setSignageImage('banner', f)),
+                  onClear: () => trackSignageWrite(clearSignageImage('banner')),
+                }}
+                titlePlaceholder="CARD SHOW"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Always rendered — the import affordance must be reachable even in a
           fresh browser with no working plan and nothing saved yet. */}
@@ -361,7 +446,7 @@ export default function VendorSetupScreen({
                   </button>
                   <button
                     onClick={() => {
-                      if (!wb.hasMeta) onLoadPlan(p.id);
+                      if (!wb.hasMeta) handleLoadPlan(p.id);
                       else setPendingLoadId(p.id);
                     }}
                     style={lcdChip}
@@ -407,7 +492,7 @@ export default function VendorSetupScreen({
               <button
                 onClick={() => {
                   if (!wb.hasMeta || window.confirm(`Load “${p.name}”? The current working plan will be replaced.`)) {
-                    onLoadPlan(p.id);
+                    handleLoadPlan(p.id);
                   }
                 }}
                 style={{ ...secondaryBtn, padding: '6px 14px', fontSize: '13px' }}
@@ -430,7 +515,7 @@ export default function VendorSetupScreen({
               style={{ margin: '10px 0' }}
               choices={[
                 { label: 'NO', primary: true, onClick: () => setPendingLoadId(null) },
-                { label: 'YES', onClick: () => { setPendingLoadId(null); onLoadPlan(pendingLoad.id); } },
+                { label: 'YES', onClick: () => { setPendingLoadId(null); handleLoadPlan(pendingLoad.id); } },
               ]}
             >
               LOAD {pendingLoad.name}? THE CURRENT WORKING PLAN WILL BE REPLACED!

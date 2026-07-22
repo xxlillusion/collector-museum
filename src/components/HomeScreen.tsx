@@ -3,7 +3,9 @@ import { Link, useLocation } from 'wouter';
 import { useAuth } from '../lib/auth';
 import { useMyProfile } from '../lib/useMyProfile';
 import { cardDetailsLine } from '../lib/cardMeta';
-import { orderForWalls, hiddenFromWalls } from '../lib/wallOrder';
+import { orderForWalls } from '../lib/wallOrder';
+import { effectiveDisplay, wallEligible } from '../lib/displayPref';
+import type { DisplayPref } from '../lib/displayPref';
 import type { CardWithUrl } from '../lib/useCards';
 import type { CardPatch, SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
@@ -165,13 +167,29 @@ export default function HomeScreen({
     setEditingCardId(autoEditCardId);
     onAutoEditConsumed?.();
   }, [autoEditCardId, onAutoEditConsumed]);
-  // Curate-the-walls mode: tiles show in wall order with ★ / ‹ › / HIDE
-  // controls instead of the ✎/✕ pair
+  // Curate-the-walls mode: tiles show in wall order with ★ / ‹ › /
+  // WALLS·BINDER·BOTH controls instead of the ✎/✕ pair
   const [curating, setCurating] = useState(false);
 
-  // Wall order (featured first, hangOrder, addedAt) and the hidden remainder
-  const wallCards = useMemo(() => orderForWalls(cards), [cards]);
-  const offWallCards = useMemo(() => hiddenFromWalls(cards), [cards]);
+  // Wall order (featured first, hangOrder, addedAt) over the wall-eligible
+  // cards — the same composition the 3D walls consume (App:
+  // orderForWalls(wallEligible(...))). "Off the walls" = display 'binder'
+  // (legacy onWalls:false reads the same via effectiveDisplay).
+  const wallCards = useMemo(() => orderForWalls(wallEligible(cards)), [cards]);
+  const offWallCards = useMemo(
+    () => cards.filter((c) => effectiveDisplay(c) === 'binder'),
+    [cards],
+  );
+
+  /** The display three-way (F2). Writing a preference also clears the
+   *  deprecated onWalls flag: orderForWalls still reads it, and a stale
+   *  `onWalls:false` under `display:'walls'` would drop the card from every
+   *  wall composition while the new flag says it hangs. */
+  const setDisplay = useCallback(
+    (id: string, display: DisplayPref) =>
+      onUpdateCard(id, { display, onWalls: undefined }),
+    [onUpdateCard],
+  );
 
   /** Swap two adjacent on-wall cards. If any on-wall card still lacks a
    *  hangOrder, first materialize hangOrder = index for ALL of them in the
@@ -587,7 +605,7 @@ export default function HomeScreen({
             }}>
               {curating ? (
                 <span style={{ ...t.note, fontSize: lcd ? '9.5px' : '12px', lineHeight: undefined }}>
-                  ★ featured works hang first · ‹ › set the order · hidden works stay in the binder
+                  ★ featured works hang first · ‹ › set the order · WALLS / BINDER / BOTH choose where each work shows
                 </span>
               ) : <span />}
               <button
@@ -717,13 +735,44 @@ export default function HomeScreen({
                         </button>
                       </>
                     )}
-                    <button
-                      onClick={() => onUpdateCard(card.id, { onWalls: card.onWalls === false })}
-                      title={hidden ? 'Hang this work on the walls' : 'Take off the walls (stays in the binder)'}
-                      style={{ ...curateBtnStyle, letterSpacing: '0.08em', fontSize: lcd ? '10px' : '9.5px' }}
-                    >
-                      {hidden ? 'SHOW' : 'HIDE'}
-                    </button>
+                    {/* Where this work shows (F2): walls only, binder only,
+                        or both. Reads via effectiveDisplay so legacy hidden
+                        cards light up BINDER. */}
+                    <span style={{ display: 'flex', gap: '2px' }}>
+                      {(
+                        [
+                          ['walls', 'WALLS', 'Hangs on the walls only — skips the binder'],
+                          ['binder', 'BINDER', 'Binder only — comes off the walls'],
+                          ['both', 'BOTH', 'Hangs on the walls and pages in the binder'],
+                        ] as const
+                      ).map(([pref, label, title]) => {
+                        const active = effectiveDisplay(card) === pref;
+                        return (
+                          <button
+                            key={pref}
+                            onClick={() => setDisplay(card.id, pref)}
+                            title={title}
+                            style={{
+                              ...curateBtnStyle,
+                              minWidth: 0,
+                              padding: '0 5px',
+                              letterSpacing: '0.06em',
+                              fontSize: lcd ? '9px' : '8.5px',
+                              color: active ? t.accent : t.muted,
+                              ...(active
+                                ? { border: `${t.borderWidth}px solid ${t.accent}` }
+                                : {}),
+                              // Handheld active state = inversion (accent is ink).
+                              ...(lcd && active
+                                ? { background: LCD.ink, color: LCD.screen }
+                                : {}),
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </span>
                   </div>
                 )}
                 <figcaption style={{

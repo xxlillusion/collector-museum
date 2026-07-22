@@ -18,8 +18,16 @@ interface HUDProps {
   /** Hall only: opens the vendor directory (button top-left, M shortcut). */
   onDirectory?: () => void;
   /** Museum only (F1): the arrange-walls toggle (button + R shortcut hint).
-   *  Accepted at scaffold time; the arrangement stream renders it. */
-  arrange?: { active: boolean; onToggle: () => void };
+   *  The counter fields feed the while-arranging status pill. */
+  arrange?: {
+    active: boolean;
+    onToggle: () => void;
+    /** Occupied slot cells / total in the room. */
+    slotsUsed?: number;
+    slotsTotal?: number;
+    /** How many works page in the table binder. */
+    binderCount?: number;
+  };
 }
 
 export default function HUD({
@@ -30,6 +38,7 @@ export default function HUD({
   overlayOpen = false,
   uploadLabel = '⬆ Manage Cards',
   onDirectory,
+  arrange,
 }: HUDProps) {
   const t = useTheme();
   // 'refined' keeps the legacy literals below pixel-identical (the HUD was
@@ -125,7 +134,9 @@ export default function HUD({
       {!overlayOpen && (isTouchDevice ? (
         !binderOpen && (
           <div style={{ ...pillStyle, bottom: '132px', maxWidth: 'calc(100vw - 24px)' }}>
-            Joystick to move · Drag to look · Tap a card or the binder
+            {arrange?.active
+              ? <>Tap a frame, then tap a glowing slot</>
+              : <>Joystick to move · Drag to look · Tap a card or the binder</>}
           </div>
         )
       ) : binderOpen ? (
@@ -134,12 +145,25 @@ export default function HUD({
         <div style={{ ...pillStyle, bottom: '56px', ...(lcd ? null : { fontSize: '14px', padding: '10px 22px' }) }}>
           ← → flip pages &nbsp;·&nbsp; Click a card to inspect &nbsp;·&nbsp; F or Esc to close
         </div>
+      ) : arrange?.active ? (
+        // Arrange mode replaces the walk hints wholesale (locked or not).
+        <div style={{ ...pillStyle, bottom: '56px', ...(lcd ? null : { fontSize: '14px', padding: '10px 22px' }) }}>
+          Click a frame to pick it up &nbsp;·&nbsp; click a glowing slot to hang &nbsp;·&nbsp; R to finish
+        </div>
       ) : !locked && (
         <div style={{ ...pillStyle, bottom: '56px', ...(lcd ? null : { fontSize: '15px', letterSpacing: '0.03em', padding: '10px 22px' }) }}>
           Click to explore &nbsp;·&nbsp; WASD to move &nbsp;·&nbsp; Mouse to look &nbsp;·&nbsp; Esc to unlock
           {onDirectory && <> &nbsp;·&nbsp; M for vendors</>}
         </div>
       ))}
+
+      {/* Slot inventory while arranging — top center, clear of both corners */}
+      {arrange?.active && !binderOpen && !overlayOpen && (
+        <div style={{ ...pillStyle, top: '16px' }}>
+          {arrange.slotsUsed ?? 0} of {arrange.slotsTotal ?? 0} slots
+          &nbsp;·&nbsp; {arrange.binderCount ?? 0} in the binder
+        </div>
+      )}
 
       {/* Binder proximity prompt — handheld renders THE game dialog box at
           the bottom instead (display-only: F/tap handling lives in the scene;
@@ -229,6 +253,30 @@ export default function HUD({
           }}
         >
           {uploadLabel}
+        </button>
+      )}
+
+      {/* Arrange-walls toggle (museum only — the hall owns top-left with the
+          directory button instead, and never passes `arrange`) */}
+      {arrange && !binderOpen && (
+        <button
+          onClick={arrange.onToggle}
+          style={{
+            position: 'absolute',
+            top: '16px',
+            left: '16px',
+            pointerEvents: 'auto',
+            ...chromeBtn,
+            ...(arrange.active
+              ? lcd
+                ? { background: LCD.ink, color: LCD.screen }
+                : themed
+                  ? { border: `${t.borderWidth}px solid ${t.accent}`, color: t.accent }
+                  : { border: '1px solid rgba(255,220,150,0.75)', color: '#ffe6bd' }
+              : {}),
+          }}
+        >
+          {arrange.active ? '✓ Done' : '⌂ Arrange Walls'}
         </button>
       )}
 

@@ -2,11 +2,14 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
-import Binder, { BinderMaterialWarmup, CARDS_PER_SHEET } from './Binder';
+import Binder, { BinderMaterialWarmup, CARDS_PER_SHEET, COVER_H } from './Binder';
 import { getBinderShellAssets } from './binderShellAssets';
+import { BINDER_FOOTPRINT_DEPTH, spreadOffX } from './BoothLayoutEditor';
 import { CLOTH_TOP_Y } from './tableGeometry';
 import { TABLE } from './Room';
 import { prefetchSleeveTexture } from '../lib/sleeveTextures';
+import { arrangementOf, itemsPerBinderOf, placementZOffset } from '../lib/boothLayout';
+import { binderEligible } from '../lib/displayPref';
 import type { InspectSale } from './InspectOverlay';
 import type { InventoryItemRecord } from '../lib/db';
 import type { TablePlacement } from '../lib/vendorPlan';
@@ -43,28 +46,48 @@ export interface InspectPayload {
 // hides its instance and mounts the real museum Binder in its place with the
 // vendor's inventory slice, loading textures lazily around the open spread.
 
-/** 10 pages × 9 pockets — one binder holds 90 items; overflow starts a new one. */
+/** Default binder capacity (10 faces × 9 pockets). Per-store configs may pick
+ *  smaller binders (36/54 — lib/boothLayout.ts); the pose math reads
+ *  itemsPerBinderOf(layout) and each BinderPose records the value it used. */
 export const ITEMS_PER_BINDER = 90;
 
 const PROMPT_DISTANCE = 2.2;
 const PROMPT_GAZE = 0.86; // dot(cameraForward, toBinder) threshold — matches Binder
 
+// The DOM-side BoothLayoutEditor mirrors the closed shell's lie-flat footprint
+// as a literal (importing Binder there would pull three.js into the entry
+// chunk). Both sides feed placementZOffset the same number — catch drift loudly.
+if (BINDER_FOOTPRINT_DEPTH !== COVER_H) {
+  console.warn(
+    `BoothLayoutEditor BINDER_FOOTPRINT_DEPTH (${BINDER_FOOTPRINT_DEPTH}) drifted from Binder COVER_H (${COVER_H}) — booth previews no longer match the hall`,
+  );
+}
+
 export interface BinderPose {
   vendorId: string;
-  /** Which 90-item slice of the vendor's inventory this binder holds. */
+  /** Which slice of the vendor's binder-eligible inventory this binder holds. */
   binderIndex: number;
+  /** Slice size the poses were computed with (per-store config, default 90).
+   *  Downstream slicing MUST use this — never the ITEMS_PER_BINDER constant —
+   *  so the open binder's contents always match the shells on the tables. */
+  itemsPerBinder: number;
   position: [number, number, number];
   quaternion: THREE.Quaternion;
 }
 
 /**
- * One binder per 90 inventory items, spread across the booth's tables in
- * emission order; extras sit side by side on the last table. A vendor with
- * multiple booths gets the same binders at each booth.
+ * One binder per `itemsPerBinder` inventory items (per-store config, default
+ * 90), spread across the booth's tables in emission order; extras sit side by
+ * side on the last table. A vendor with multiple booths gets the same binders
+ * at each booth. Per-store layout configs also shift binders across the table
+ * depth ('front'/'back') and square up the casual skew ('aligned') — an absent
+ * config reproduces the pre-config algorithm exactly (center offset is exactly
+ * 0, 90 per binder, alternating skew).
  */
 export function computeBinderPoses(
   tables: TablePlacement[],
   inventoryCounts: Map<string, number>,
+  layouts?: Map<string, BoothLayoutConfig>,
 ): BinderPose[] {
   const booths = new Map<string, TablePlacement[]>();
   for (const t of tables) {
@@ -78,25 +101,26 @@ export function computeBinderPoses(
   for (const boothTables of booths.values()) {
     boothTables.sort((a, b) => a.indexInBooth - b.indexInBooth);
     const vendorId = boothTables[0].vendorId!;
+    const layout = layouts?.get(vendorId);
+    const itemsPerBinder = itemsPerBinderOf(layout);
+    const aligned = arrangementOf(layout) === 'aligned';
     const count = inventoryCounts.get(vendorId)!;
-    const binderCount = Math.ceil(count / ITEMS_PER_BINDER);
+    const binderCount = Math.ceil(count / itemsPerBinder);
     const lastIdx = boothTables.length - 1;
     const extrasOnLast = Math.max(1, binderCount - lastIdx);
 
     for (let i = 0; i < binderCount; i++) {
       const table = boothTables[Math.min(i, lastIdx)];
-      // Extras on the last table spread along its (stretched) long axis
-      let offX = 0;
-      if (i >= lastIdx && extrasOnLast > 1) {
-        const j = i - lastIdx;
-        const tableW = TABLE.topW * (table.sx ?? 1);
-        const pitch = Math.min(0.42, (tableW * 0.8) / extrasOnLast);
-        offX = (j - (extrasOnLast - 1) / 2) * pitch;
-      }
+      // Extras on the last table spread along its (stretched) long axis;
+      // the placement config shifts along the (stretched) depth, +Z = the
+      // aisle-facing front drape ('center' is exactly 0 — see regression note).
+      const offX = spreadOffX(i, lastIdx, extrasOnLast, TABLE.topW * (table.sx ?? 1));
+      const offZ = placementZOffset(layout, TABLE.topD * (table.sz ?? 1), BINDER_FOOTPRINT_DEPTH);
       // Same lie-flat pose as the museum binder, re-based from its
       // -X-facing table to this table's local frame (front = +Z), riding
-      // the table's yaw. Alternating skew keeps rows from looking stamped.
-      const skew = (i % 2 === 0 ? 1 : -1) * 0.1;
+      // the table's yaw. Alternating skew keeps rows from looking stamped;
+      // 'aligned' squares them up.
+      const skew = aligned ? 0 : (i % 2 === 0 ? 1 : -1) * 0.1;
       const quaternion = new THREE.Quaternion().setFromEuler(
         new THREE.Euler(-Math.PI / 2, table.rotationY + Math.PI / 2, Math.PI / 2 + skew, 'YXZ'),
       );
@@ -105,10 +129,11 @@ export function computeBinderPoses(
       poses.push({
         vendorId,
         binderIndex: i,
+        itemsPerBinder,
         position: [
-          table.position[0] + offX * cos,
+          table.position[0] + offX * cos + offZ * sin,
           CLOTH_TOP_Y + 0.03,
-          table.position[2] - offX * sin,
+          table.position[2] - offX * sin + offZ * cos,
         ],
         quaternion,
       });
@@ -152,10 +177,16 @@ function OpenHallBinder({
     };
   }, [fetchInventory, pose.vendorId]);
 
+  // Only binder-eligible items page here (display = 'walls' hangs in the
+  // vendor's museum instead) — the SAME filter behind countBinderInventory,
+  // so the shells' pose math and this slice always agree. Slice size comes
+  // from the pose (per-store config), never the ITEMS_PER_BINDER constant.
+  const eligible = useMemo(() => binderEligible(items), [items]);
+
   const cards = useMemo<CardWithUrl[]>(
     () =>
-      items
-        .slice(pose.binderIndex * ITEMS_PER_BINDER, (pose.binderIndex + 1) * ITEMS_PER_BINDER)
+      eligible
+        .slice(pose.binderIndex * pose.itemsPerBinder, (pose.binderIndex + 1) * pose.itemsPerBinder)
         .map((i) => ({
           id: i.id,
           name: i.caption,
@@ -164,22 +195,22 @@ function OpenHallBinder({
           imageUrl: i.imageUrl,
           aspect: i.aspect,
         })),
-    [items, pose.binderIndex],
+    [eligible, pose.binderIndex, pose.itemsPerBinder],
   );
 
   // The overlay payload: this binder's full slice in page order (same slice
   // as `cards` above), so the host can page prev/next without re-reading.
   const inspectItems = useMemo<InspectItem[]>(
     () =>
-      items
-        .slice(pose.binderIndex * ITEMS_PER_BINDER, (pose.binderIndex + 1) * ITEMS_PER_BINDER)
+      eligible
+        .slice(pose.binderIndex * pose.itemsPerBinder, (pose.binderIndex + 1) * pose.itemsPerBinder)
         .map((i) => ({
           url: i.imageUrl,
           caption: i.caption || undefined,
           sale: { price: i.price, status: i.status, condition: i.condition },
           itemId: i.id,
         })),
-    [items, pose.binderIndex],
+    [eligible, pose.binderIndex, pose.itemsPerBinder],
   );
   const indexByUrl = useMemo(
     () => new Map(inspectItems.map((it, idx) => [it.url, idx])),
@@ -213,8 +244,7 @@ interface VendorHallBindersProps {
    *  Hosts pass binderCount ?? inventoryCount so poses match slices (F2). */
   inventoryCounts: Map<string, number>;
   /** Per-store booth layout defaults (F4) — vendor id → config; a missing
-   *  entry renders the classic arrangement. Accepted at scaffold time; the
-   *  booth stream threads it through computeBinderPoses + the open slice. */
+   *  entry renders the classic arrangement (center, 90/binder, casual skew). */
   boothLayouts?: Map<string, BoothLayoutConfig>;
   fetchInventory: FetchInventory;
   /** true while the InspectOverlay is up — ignore keys/clicks. */
@@ -229,6 +259,7 @@ interface VendorHallBindersProps {
 export default function VendorHallBinders({
   tables,
   inventoryCounts,
+  boothLayouts,
   fetchInventory,
   suspended,
   onPromptChange,
@@ -237,8 +268,8 @@ export default function VendorHallBinders({
   onClosed,
 }: VendorHallBindersProps) {
   const poses = useMemo(
-    () => computeBinderPoses(tables, inventoryCounts),
-    [tables, inventoryCounts],
+    () => computeBinderPoses(tables, inventoryCounts, boothLayouts),
+    [tables, inventoryCounts, boothLayouts],
   );
   // Shared shell singletons (see binderShellAssets.ts) — stable references,
   // so the instanced meshes below are never recreated by a geo/mat change.
@@ -298,8 +329,10 @@ export default function VendorHallBinders({
     prefetchedRef.current.add(key);
     fetchInventory(pose.vendorId)
       .then((records) => {
-        const start = pose.binderIndex * ITEMS_PER_BINDER;
-        for (const r of records.slice(start, start + CARDS_PER_SHEET)) {
+        // Same eligibility filter + slice size as the open binder, so the
+        // warmed textures are the ones the first spread actually shows.
+        const start = pose.binderIndex * pose.itemsPerBinder;
+        for (const r of binderEligible(records).slice(start, start + CARDS_PER_SHEET)) {
           prefetchSleeveTexture(r.id, r.imageBlob);
         }
       })

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import BoothLayoutEditor, { Segmented } from './BoothLayoutEditor';
 import BulkInventoryPanel from './BulkInventoryPanel';
 import { useVendorInventory } from '../lib/useVendorInventory';
 import { fetchInterestCounts } from '../lib/interestService';
 import { useProvider } from '../lib/provider/context';
 import { deriveShowsAttended } from '../lib/vendorShows';
+import { effectiveDisplay } from '../lib/displayPref';
+import type { DisplayPref } from '../lib/displayPref';
 import type { VendorSummary } from '../lib/useVendors';
 import type { InventoryStatus, SavedPlanRecord } from '../lib/db';
 import { useTheme, withAlpha } from './themeKit';
@@ -103,6 +106,14 @@ const removeBadgeStyle = (t: Theme): React.CSSProperties => t.id === 'handheld'
       textAlign: 'center',
       padding: 0,
     };
+
+/** Per-item 3D display choice (F2) — where the item appears when the store's
+ *  own museum / a show hall renders: walls only, binders only, or both. */
+const DISPLAY_OPTIONS: readonly { value: DisplayPref; label: string }[] = [
+  { value: 'walls', label: 'Walls' },
+  { value: 'binder', label: 'Binder' },
+  { value: 'both', label: 'Both' },
+];
 
 /** Caption input with debounced persist so typing doesn't hammer the store. */
 function CaptionInput({
@@ -420,6 +431,9 @@ export default function VendorManagementPanel({
         </div>
       </div>
 
+      {/* Booth display (per-store binder layout defaults for every 3D show) */}
+      <BoothLayoutEditor vendor={vendor} onSaved={onInventoryChanged} />
+
       {/* Shows attended */}
       <div style={t.panelStyle}>
         <div style={t.panelTitle}>SHOWS ATTENDED</div>
@@ -663,17 +677,30 @@ export default function VendorManagementPanel({
                 <CaptionInput itemId={item.id} caption={item.caption} onSave={inventory.setCaption} />
               </div>
               <SaleFields item={item} syncKey={bulkVersion} onSave={inventory.setSale} />
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontSize: '11px', color: t.muted, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={item.visible}
-                  onChange={(e) => inventory.setVisible(item.id, e.target.checked)}
-                  style={{ accentColor: t.accent }}
-                />
-                <span title="Shown on your public profile and in show binders">
-                  Public
-                </span>
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: t.muted, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={item.visible}
+                    onChange={(e) => inventory.setVisible(item.id, e.target.checked)}
+                    style={{ accentColor: t.accent }}
+                  />
+                  <span title="Shown on your public profile and in show binders">
+                    Public
+                  </span>
+                </label>
+                <div style={{ marginLeft: 'auto' }}>
+                  <Segmented
+                    compact
+                    options={DISPLAY_OPTIONS}
+                    value={effectiveDisplay(item)}
+                    // Summaries carry binderCount (booth preview + hall poses)
+                    // — refresh them after the persist, like removeItem does.
+                    onChange={(v) => { inventory.setDisplay(item.id, v).then(onInventoryChanged); }}
+                    title="Where this item appears in 3D: museum walls, browsing binders, or both"
+                  />
+                </div>
+              </div>
             </figure>
             );
           })}

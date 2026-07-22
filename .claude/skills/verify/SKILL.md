@@ -123,3 +123,36 @@ card click → inspect (placard shows caption + price/condition when set),
 close → reopen (warm cache).
 signed-in (live Supabase): reuse the uxtest account in memory
 (project-uxtest-account) rather than minting new ones.
+
+## 2026-07-22 discoveries (3D-interactivity wave)
+
+- **Port = origin = data.** IndexedDB is per-port; a persistent Playwright
+  profile seeded on :5175 is EMPTY on :5176. Keep the same port across runs.
+  Killing `npm run dev` (the npm parent) can leave the **vite child alive,
+  holding the port and serving stale pre-edit code** — find it via
+  `Get-NetTCPConnection -LocalPort 5175` and kill that PID, then restart.
+- **Shared `.vite` cache corruption:** worktrees whose `node_modules` is a
+  junction to the main checkout share `node_modules/.vite`; their dev servers
+  re-optimize it under a long-running main server, which then serves
+  duplicated module instances — symptom: `R3F: Hooks can only be used within
+  the Canvas component!` on scene mount. Restart the main dev server.
+- **`window.confirm` guards** (saved-plan Load / Delete ✕, non-LCD themes):
+  headless auto-DISMISSES dialogs, so clicks silently no-op — install
+  `page.on('dialog', (d) => d.accept())` before driving those buttons.
+- Hidden file inputs (`#home-file-input`, `#plan-input`) need
+  `waitForSelector(..., { state: 'attached' })`; `setInputFiles` works on
+  them regardless. `#plan-input` only EXISTS before a plan upload — with a
+  persistent profile, gate on `#plan-input || /\d+ boxes/` instead.
+- **DOM screens scroll their own container** (html/body overflow hidden) —
+  `window.scrollBy` no-ops. Walk ancestors for `scrollHeight > clientHeight`
+  and adjust `scrollTop`. Scroll click targets to MID-viewport first: the
+  FloatingThemeBar owns the bottom-center strip (~y>855 at 900 viewport) and
+  swallows clicks.
+- Gallery lock: clicking canvas CENTER may hit a frame (opens inspect
+  instead of locking) — click low on the floor (~88% height).
+- Arrange mode (F1): R toggles; the "N of 48 slots" HUD pill is the DOM
+  signal that arrange is active. Wave state in IndexedDB for assertions:
+  cards/inventory `display` + `wallSlot`, vendors `boothLayout`, settings
+  `hallSignage`/`hallSignageHeader`/`hallSignageBanner`, SavedPlanRecord
+  `signageJson`. Smoke scripts should NORMALIZE these keys up front (delete
+  them in a readwrite transaction) so re-runs are deterministic.

@@ -911,8 +911,85 @@ parallel streams, additive-only changes since — never reshape existing signatu
   AT: SHOW (AUG 02) ▶" bottom bar replacing Sections I/II on lcd; a "▶ WALK
   IN 3D" chip joins the bar once the greeting is dismissed so walk access
   survives JUST BROWSE.
+- **3D Interactivity & Customization wave shipped** (2026-07-22, branch
+  `prototpyingLayouts`; scaffold commit 633ce91 + 3 parallel worktree streams merged
+  conflict-free; per-stream gates 18/18 + 6/6 + 38/38 PASS, merged seam smoke 11/11
+  PASS, zero console errors throughout): the 3D spaces become actionable — F1 in-3D
+  wall arrangement, F2 walls/binder/both display, F3 organizer hall signage, F4
+  per-store booth layout. **⚠ Apply migration `0008_display_slots_signage_layout.sql`
+  to the live project before deploying** (additive: inventory_items display_pref +
+  wall_slot, vendors booth_layout, shows signage — no RLS/storage changes; pre-0008
+  the extended selects 400 `/show/:id` walks + vendor museums, the 0005 failure
+  shape; sandbox + /demo + all CARD features are migration-free jsonb).
+  - **F1 wall arrangement** — `lib/wallSlots.ts`: 48-slot grid (N/S 8 cols × 2 rows
+    at y 3.15/1.5, E/W 4 × 2, pitch 2.2 m, slot ids "N:0:3"; wide cards span 2
+    slots), two-pass `resolveSlotLayout` (pins win in curation order, invalid pins
+    demote to auto-fill, never written back). Scene uses slot layout ONLY when
+    arranging or ≥1 valid pin exists — untouched collections render the legacy
+    packed layout pixel-identical. Arrange mode (R / HUD button, own museums only —
+    hosts pass `arrange.onSetSlot`): pick frame → glowing slots → place/swap (two
+    sequential awaited writes — jsonb RMW), Esc/right-click cancel, mobile
+    tap-tap, "N of 48 slots · M in the binder" HUD pill; inspect + binder
+    suppressed while arranging. `WallSlotMarkers.tsx` = 1 instanced brass-outline
+    mesh + invisible instanced hit planes (visible-material=false skips draws but
+    NOT raycasts; raycast guarded outside arrange so click-to-lock works) + ghost
+    outline + permanent 1 mm warmups (+2 arrange-visible draws, +2 warmup draws).
+    Spot-light set is frozen while arranging (recompute once at EXIT — gotcha 11).
+    Cards persist `wallSlot` via metadata jsonb; inventory via `wall_slot` column;
+    the vendor's own store museum arranges via the picker (App) and
+    `/museum/vendor/:id` (owner-gated on profileId, optimistic local patch).
+  - **F2 display flag** — `lib/displayPref.ts`: `display 'walls'|'binder'|'both'`
+    (absent = both; legacy `onWalls:false` reads as 'binder'). New UI writes
+    `display` AND clears `onWalls` (`onWalls: undefined`) — orderForWalls still
+    filters onWalls===false internally, so re-showing a legacy-hidden card must
+    clear the old flag. Scene gained `binderCards` (museum binder is no longer
+    hardwired to full `cards`); hosts pass `wallEligible`/`binderEligible` lists.
+    Registry tiles + HomeScreen curate mode carry WALLS/BINDER/BOTH three-ways.
+    Hall poses/slices agree via `VendorSummary.binderCount` (provider
+    `countBinderInventory`; remote = filtered head count with a one-shot pre-0008
+    fallback latch) — VendorScene passes `binderCount ?? inventoryCount`.
+  - **F3 hall signage** — `lib/hallSignage.ts` (config/themes/resolve;
+    `resolveSignage(config, showName)` defaults the header + ENTRANCE sign to the
+    SHOW'S NAME — 'CARD SHOW' only as last resort; 5 themes, classicGold =
+    today's palette). `getAtmosphereAssets(signage)` is now a `signageCacheKey`-
+    keyed LRU (cap 2, evicted textures/materials disposed); canvases parameterized
+    with shrink-to-fit + ellipsis; uploaded header/banner images swap map+
+    emissiveMap in place (crossOrigin anonymous; banner composited inside the
+    swallowtail silhouette); emissive conventions preserved. NEW pennant bunting:
+    1 instancedMesh, theme-colored, catenary sags — hall atmosphere budget is now
+    **8 draws** (the wave's one sanctioned +1). `HallSignageEditor.tsx` mounts in
+    ShowEditorScreen (SIGNAGE & BRANDING; images remove-then-upload versioned to
+    `plans/<organizerId>/<showId>/signage-<slot>-<ts>.webp`, plans-bucket policy
+    covers it; CREATE flow = publishShow → upload → second updateShow with paths —
+    an upload failure mid-create can strand a show, worth a live eyeball) and in
+    VendorSetupScreen (collapsible, over `useHallSignage()` slots — settings keys
+    hallSignage/hallSignageHeader/hallSignageBanner, direct-db like the legacy
+    banner slots, cleared with the plan, snapshotted into SavedPlanRecord
+    signageJson/signage*Blob, restored on load). `ShowWalkData.signage` +
+    `MyShowForEdit.signage`; demo show = 'EMBERVALE CARD EXPO' crimson.
+  - **F4 booth layout** — `lib/boothLayout.ts` on the VENDOR-OWNED row
+    (`vendors.booth_layout` jsonb / `VendorRecord.boothLayout`; booths are
+    organizer-owned under RLS AND delete+reinserted on every organizer save —
+    vendor config can never live there): placement front/center/back across the
+    table depth, itemsPerBinder 36/54/90 (smaller = MORE binders; never hides
+    items), arrangement casual/aligned. `computeBinderPoses(tables, counts,
+    layouts?)` — absent config = byte-identical legacy poses (numerically
+    regression-tested); `BinderPose.itemsPerBinder` keeps slices honest;
+    OpenHallBinder + prefetch slice `binderEligible(items)`. `BoothLayoutEditor`
+    ("BOOTH DISPLAY" section in VendorManagementPanel, both hosts free): SVG
+    preview computed by the REAL pose functions. ⚠ `BINDER_FOOTPRINT_DEPTH` +
+    `spreadOffX` live in BoothLayoutEditor and are imported BY VendorHallBinders
+    (that direction keeps three.js out of the entry chunk; a module-scope drift
+    warning guards against COVER_H divergence — `lib/boothLayout.ts` is the
+    natural home if ever refactored).
+  - Deferred to the next live session (apply 0008 first): publish show w/ signage
+    → anonymous walk renders it; booth_layout + display cloud round-trip via
+    /account?tab=stores; collector wallSlot cloud round-trip; VendorMuseum
+    owner-arrange against real RLS; ShowEditorScreen create-flow image-upload
+    failure path.
 - Candidate next steps (discussed, not built): booth labels on tables;
   bundle code-splitting (~1.4MB); deploy setup (any static host).
-- Museum-side known gaps: east/west walls unused by card layout (overflow silently
-  dropped); pre-downscale images in old IndexedDBs stay full-res until re-uploaded.
+- Museum-side known gaps: pre-downscale images in old IndexedDBs stay full-res
+  until re-uploaded. (East/west walls now carry cards via both the packed layout
+  and the slot grid.)
 

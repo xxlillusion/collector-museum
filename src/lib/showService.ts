@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { uploadImage, removeImage, downloadImageIfExists } from './supabaseImages';
 import type { VendorPlanMeta, VendorRect } from './vendorPlan';
 import { reconstructPlanMeta } from './publicShows';
+import { parseSignage, type HallSignageConfig } from './hallSignage';
 
 /**
  * Authed organizer operations on the cloud `shows` / `booths` tables.
@@ -36,6 +37,8 @@ export interface MyShowForEdit {
   admission: string;
   externalUrl: string;
   published: boolean;
+  /** Hall signage config (0008 jsonb) — null = defaults (show name). */
+  signage: HallSignageConfig | null;
   meta: VendorPlanMeta | null;
   planBlob: Blob | null;
 }
@@ -111,6 +114,8 @@ export async function publishShow(args: ShowLogistics & {
   city?: string;
   planBlob: Blob;
   meta: VendorPlanMeta;
+  /** Hall signage config (0008) — omitted/undefined writes null (defaults). */
+  signage?: HallSignageConfig;
   /** false = create hidden; the organizer publishes later from My Shows. */
   published?: boolean;
 }): Promise<string> {
@@ -127,6 +132,7 @@ export async function publishShow(args: ShowLogistics & {
       state: args.state ?? null,
       city: args.city ?? null,
       ...logisticsColumns(args),
+      signage: args.signage ?? null,
       plan_meta: planMeta,
       published: args.published ?? true,
     })
@@ -175,6 +181,8 @@ export async function updateShow(args: ShowLogistics & {
   city?: string;
   meta: VendorPlanMeta;
   planBlob?: Blob;
+  /** Present = write it (pass {} to reset to defaults); absent = untouched. */
+  signage?: HallSignageConfig;
 }): Promise<void> {
   const sb = client();
   const { rects, ...planMeta } = args.meta;
@@ -189,6 +197,7 @@ export async function updateShow(args: ShowLogistics & {
     plan_meta: planMeta,
     updated_at: new Date().toISOString(),
   };
+  if (args.signage !== undefined) patch.signage = args.signage;
 
   if (args.planBlob) {
     const { data: row } = await sb
@@ -228,7 +237,7 @@ export async function getMyShowForEdit(id: string): Promise<MyShowForEdit | null
   const { data, error } = await sb
     .from('shows')
     .select(
-      'id, name, show_date, country, state, city, venue_name, address, hours, admission, external_url, published, plan_image_path, plan_meta, booths(rect)',
+      'id, name, show_date, country, state, city, venue_name, address, hours, admission, external_url, signage, published, plan_image_path, plan_meta, booths(rect)',
     )
     .eq('id', id)
     .maybeSingle();
@@ -246,6 +255,7 @@ export async function getMyShowForEdit(id: string): Promise<MyShowForEdit | null
     hours: string;
     admission: string;
     external_url: string;
+    signage: unknown;
     published: boolean;
     plan_image_path: string | null;
     plan_meta: Record<string, unknown> | null;
@@ -275,6 +285,7 @@ export async function getMyShowForEdit(id: string): Promise<MyShowForEdit | null
     admission: show.admission ?? '',
     externalUrl: show.external_url ?? '',
     published: show.published,
+    signage: parseSignage(show.signage),
     meta,
     planBlob,
   };

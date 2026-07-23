@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { InventoryItemRecord } from './db';
+import type { DisplayPref } from './displayPref';
 import { useProvider } from './provider/context';
 
 export interface InventoryItemWithUrl extends InventoryItemRecord {
@@ -63,6 +64,21 @@ export function useVendorInventory(vendorId: string | null) {
     await provider.updateInventoryItem(id, { visible });
   }, [provider]);
 
+  /** Walls/binder/both display choice (F2) — same persist-and-patch shape. */
+  const setDisplay = useCallback(async (id: string, display: DisplayPref) => {
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, display } : i)));
+    await provider.updateInventoryItem(id, { display });
+  }, [provider]);
+
+  /** Museum wall-slot pin (F1) — null unpins ({ wallSlot: undefined } clears
+   *  the column remotely; the local record keeps a harmless undefined key). */
+  const setWallSlot = useCallback(async (id: string, wallSlot: string | null) => {
+    setItems((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, wallSlot: wallSlot ?? undefined } : i)),
+    );
+    await provider.updateInventoryItem(id, { wallSlot: wallSlot ?? undefined });
+  }, [provider]);
+
   /** Sale metadata (price / status / condition) — same persist-and-patch shape. */
   const setSale = useCallback(async (
     id: string,
@@ -100,5 +116,17 @@ export function useVendorInventory(vendorId: string | null) {
     await reload();
   }, [provider, reload]);
 
-  return { items, loading, reload, addItems, setCaption, setVisible, setSale, bulkUpdate, removeItem };
+  return {
+    items,
+    loading,
+    reload,
+    addItems,
+    setCaption,
+    setVisible,
+    setDisplay,
+    setWallSlot,
+    setSale,
+    bulkUpdate,
+    removeItem,
+  };
 }

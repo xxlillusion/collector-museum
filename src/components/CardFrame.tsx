@@ -19,6 +19,9 @@ interface CardFrameProps {
   /** Image content height in world units */
   height: number;
   onClick: () => void;
+  /** Arrange mode (F1): render the held-frame glow (the hover emissive,
+   *  promoted). Accepted at scaffold time; the arrangement stream wires it. */
+  selected?: boolean;
 }
 
 interface FramedCardProps {
@@ -26,9 +29,10 @@ interface FramedCardProps {
   width: number;
   height: number;
   onClick: () => void;
+  selected: boolean;
 }
 
-function FramedCard({ imageUrl, width, height, onClick }: FramedCardProps) {
+function FramedCard({ imageUrl, width, height, onClick, selected }: FramedCardProps) {
   const texture = useTexture(imageUrl);
   const [hovered, setHovered] = useState(false);
 
@@ -82,12 +86,14 @@ function FramedCard({ imageUrl, width, height, onClick }: FramedCardProps) {
         onPointerLeave={() => { setHovered(false); document.body.style.cursor = 'default'; }}
       >
         <planeGeometry args={[width, height]} />
+        {/* Held-for-arrange (selected) promotes the hover emissive — warmer
+            and stronger so the picked-up frame reads across the room */}
         <meshStandardMaterial
           map={texture}
           roughness={0.45}
           metalness={0.0}
-          emissive={hovered ? '#3a3220' : '#000000'}
-          emissiveIntensity={hovered ? 0.9 : 0}
+          emissive={selected ? '#8a6a2c' : hovered ? '#3a3220' : '#000000'}
+          emissiveIntensity={selected ? 1.5 : hovered ? 0.9 : 0}
         />
       </mesh>
 
@@ -110,10 +116,10 @@ function FramedCard({ imageUrl, width, height, onClick }: FramedCardProps) {
   );
 }
 
-export default function CardFrame({ position, rotation, imageUrl, width, height, onClick }: CardFrameProps) {
+export default function CardFrame({ position, rotation, imageUrl, width, height, onClick, selected = false }: CardFrameProps) {
   return (
     <group position={position} rotation={rotation}>
-      <FramedCard imageUrl={imageUrl} width={width} height={height} onClick={onClick} />
+      <FramedCard imageUrl={imageUrl} width={width} height={height} onClick={onClick} selected={selected} />
     </group>
   );
 }

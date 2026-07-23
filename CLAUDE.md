@@ -832,8 +832,164 @@ parallel streams, additive-only changes since — never reshape existing signatu
     PLANS section now always renders so a fresh browser can import first).
     `rects[].vendorId` rides the file; cross-registry imports render those unassigned
     (documented behavior). Typical export ≈ 262 kB.
+- **Design-review theme beta shipped** (2026-07-12, working tree — not yet committed):
+  the two Claude-Design themes are live and runtime-switchable. `src/components/
+  themeKit.tsx` = museumKit generalized (`ThemeProvider`/`useTheme()`; themes
+  `refined` — museumKit values verbatim, the default/control — plus `night` "Show
+  Floor · Night" and `lobby` "Charcoal Lobby"; token sheets in
+  `Vendor_museum_design_review/handoff/THEMES.md`). Provider wraps everything in
+  main.tsx (context still never crosses the Canvas roots); beta fonts (Barlow
+  Condensed/Archivo/DM Serif Display/IBM Plex Mono) load from Google Fonts in
+  index.html. Switchers: `FloatingThemeBar.tsx` (bottom-center pill on every page,
+  collapsible ◐ chip, hides under pointer lock, zIndex 90 — below InspectOverlay
+  100) + `ThemeSwitch` panel on Account→Profile. ALL 30 museumKit consumers migrated
+  to `useTheme()` (museumKit.tsx deprecated, zero imports remain); shared style
+  exports that themes now vary became functions of `t` (ShowDirectory filter styles,
+  auth styles, VendorManagementPanel/PlanWorkbench recipes). 3D DOM overlays (HUD,
+  Minimap, InspectOverlay placard, HallDirectory, LoadingOverlay) theme via
+  `t.id !== 'refined'` branches so **refined stays pixel-identical** (live-verified:
+  computed styles match legacy exactly); exceptions applied to all themes: HUD
+  desktop hint pills moved bottom 40→56 and the /demo placard moved bottom-right,
+  both to clear the floating bar. `t.planFilter` applies to the minimap + ShowDetail
+  preview ONLY — never the 2D plan editor (detection needs true colors). Handoff-kit
+  fix: the Theme interface declared `label` twice (display name vs field-label
+  recipe) — display name renamed `name`. Verified headless (Playwright + Browser
+  pane): 3 themes × landing/shows/sandbox-home/demo-hall, refined-control computed
+  styles exact, night marquee/glow/2px borders + red minimap dots + inverted plan,
+  lobby DM-Serif/oxblood + sepia plan + themed hall directory, localStorage
+  persistence, `tsc -b` green, zero console errors. Theme choice is per-browser
+  (`vendor-museum:theme`); promoting a winner = keep its token block, delete the
+  other two + the bar (or move choice to `profiles` to roam).
+- **"The Handheld" theme shipped** (2026-07-12, working tree; spec
+  `beta_huge_redesign/handoff/HANDHELD.md` — 1999 LCD-handheld nostalgia; built as
+  scaffold + SIX parallel same-tree agent streams on disjoint file sets — worktrees
+  were impossible because the theme system itself was uncommitted; merged build green
+  first try, browser-verified, zero console errors): 4th theme `handheld` in
+  themeKit + the floating bar (spec offered 4th-theme vs hard-cutover; 4th theme
+  chosen — all 39 consumers already read useTheme(), the t.id-branch idiom handles
+  layout divergence, the bar keeps the beta A/B). Key mechanics: **accent = ink,
+  accentContrast = screen**, so every accent-styled element auto-renders as the LCD
+  inversion idiom; first LIGHT theme — every stream swept its files for hard-coded
+  dark literals (rgba-black scrims, white text, colorScheme:'dark') and branched
+  them. `src/components/lcdKit.tsx` = frozen shared recipes (LCD palette,
+  lcdScreenFrame, LcdDialog/lcdDialogBox w/ choices + blinking ▼,
+  lcdMenuBox/lcdMenuRow/LcdCursor, lcdWell, lcdImg, lcdSoldStamp,
+  LCD_BLINK_CSS/LcdCss); Silkscreen 400/700 added to index.html fonts. Signature
+  surfaces: PageShell wraps every routed page in THE SCREEN FRAME; LandingScreen =
+  title screen (▶ NEW GAME/CONTINUE/DEMO menu); HomeScreen = greeting dialog +
+  menu-rail CTAs; auth = CONTINUE/NEW GAME framing; Account = OPTIONS + BAG—STORES
+  POCKET; VendorPage = shopkeeper greeting dialog + lcdSoldStamp tiles;
+  CollectorPage = COLLECTOR CARD hero (hashed ID No., initials avatar, badge stars
+  from card-count thresholds); 404 = "A WILD 404 APPEARED!"; 3D overlays (#6g) =
+  HALL MAP panel w/ square ink dots + ◆ diamond marker (a CHILD element so the
+  per-frame tracker transform stays untouched), dialog-box F-prompt, LCD placards —
+  canvases stay photoreal, InspectOverlay card stays full-res/unfiltered on purpose.
+  Rules held: refined/night/lobby byte-identical (every change
+  `t.id === 'handheld'`-gated); 2D plan editor keeps true colors (t.planFilter
+  still never touches it); QR print sheet stays white; window.confirm→LcdDialog
+  swaps only where logic allowed (import-my-collection kept confirm — mid-async).
+  FloatingThemeBar: goes light-LCD when handheld is active + flexWrap below ~420px
+  (4 chips overflowed 375px). Promoting handheld to the real design = keep its
+  token block + lcdKit, delete the other theme blocks + the bar.
+  **Mockup layout pass (2026-07-18, from the user's Claude-Design screens 6a–6d):**
+  PageShell's handheld header became the mockups' compact row — title LEFT +
+  nav right (◀ HOME · ♥ WANTS · inverted account chip) over the 4px double
+  rule, no eyebrow/masthead; new OPTIONAL `aside` prop (handheld-only)
+  replaces that nav with page meta — ShowDetail passes "AUG 15 · SACRAMENTO,
+  CA", VendorPage passes WEB ↗ / MAIL ✉ / @HANDLE chips; other themes ignore
+  it. LandingScreen = strict 3-row title menu (NEW GAME/CONTINUE/DEMO, inline
+  "— HINT" text, © line on top, motto-only footer — shows/vendors/sandbox
+  rows + search box + SiteFooter dropped on handheld only). ShowDirectory =
+  "AREA:" chip + right-edge WALK ▶/VIEW row actions + "N SHOWS FOUND…"
+  results dialog (UPCOMING chip dropped on lcd). ShowDetail = two-column flex
+  (plan + "■ = BOOTH · ★ = STARRED · PRESS ▶ TO WALK" legend + full-width
+  WALK button left; "— VENDORS (N) —" menu w/ bare counts + apply dialog
+  right; plan preview extracted to a shared `planPreview` var so marker math
+  never forks; classic body kept verbatim under `!lcd`). VendorPage = tiles
+  as framed panels (name + "$75 · NM" INSIDE, lcdImg not cardFrame on lcd),
+  9-per-page binder pagination ("PAGE X/Y ◀ ▶", lcd-only state) + "APPEARS
+  AT: SHOW (AUG 02) ▶" bottom bar replacing Sections I/II on lcd; a "▶ WALK
+  IN 3D" chip joins the bar once the greeting is dismissed so walk access
+  survives JUST BROWSE.
+- **3D Interactivity & Customization wave shipped** (2026-07-22, branch
+  `prototpyingLayouts`; scaffold commit 633ce91 + 3 parallel worktree streams merged
+  conflict-free; per-stream gates 18/18 + 6/6 + 38/38 PASS, merged seam smoke 11/11
+  PASS, zero console errors throughout): the 3D spaces become actionable — F1 in-3D
+  wall arrangement, F2 walls/binder/both display, F3 organizer hall signage, F4
+  per-store booth layout. **⚠ Apply migration `0008_display_slots_signage_layout.sql`
+  to the live project before deploying** (additive: inventory_items display_pref +
+  wall_slot, vendors booth_layout, shows signage — no RLS/storage changes; pre-0008
+  the extended selects 400 `/show/:id` walks + vendor museums, the 0005 failure
+  shape; sandbox + /demo + all CARD features are migration-free jsonb).
+  - **F1 wall arrangement** — `lib/wallSlots.ts`: 48-slot grid (N/S 8 cols × 2 rows
+    at y 3.15/1.5, E/W 4 × 2, pitch 2.2 m, slot ids "N:0:3"; wide cards span 2
+    slots), two-pass `resolveSlotLayout` (pins win in curation order, invalid pins
+    demote to auto-fill, never written back). Scene uses slot layout ONLY when
+    arranging or ≥1 valid pin exists — untouched collections render the legacy
+    packed layout pixel-identical. Arrange mode (R / HUD button, own museums only —
+    hosts pass `arrange.onSetSlot`): pick frame → glowing slots → place/swap (two
+    sequential awaited writes — jsonb RMW), Esc/right-click cancel, mobile
+    tap-tap, "N of 48 slots · M in the binder" HUD pill; inspect + binder
+    suppressed while arranging. `WallSlotMarkers.tsx` = 1 instanced brass-outline
+    mesh + invisible instanced hit planes (visible-material=false skips draws but
+    NOT raycasts; raycast guarded outside arrange so click-to-lock works) + ghost
+    outline + permanent 1 mm warmups (+2 arrange-visible draws, +2 warmup draws).
+    Spot-light set is frozen while arranging (recompute once at EXIT — gotcha 11).
+    Cards persist `wallSlot` via metadata jsonb; inventory via `wall_slot` column;
+    the vendor's own store museum arranges via the picker (App) and
+    `/museum/vendor/:id` (owner-gated on profileId, optimistic local patch).
+  - **F2 display flag** — `lib/displayPref.ts`: `display 'walls'|'binder'|'both'`
+    (absent = both; legacy `onWalls:false` reads as 'binder'). New UI writes
+    `display` AND clears `onWalls` (`onWalls: undefined`) — orderForWalls still
+    filters onWalls===false internally, so re-showing a legacy-hidden card must
+    clear the old flag. Scene gained `binderCards` (museum binder is no longer
+    hardwired to full `cards`); hosts pass `wallEligible`/`binderEligible` lists.
+    Registry tiles + HomeScreen curate mode carry WALLS/BINDER/BOTH three-ways.
+    Hall poses/slices agree via `VendorSummary.binderCount` (provider
+    `countBinderInventory`; remote = filtered head count with a one-shot pre-0008
+    fallback latch) — VendorScene passes `binderCount ?? inventoryCount`.
+  - **F3 hall signage** — `lib/hallSignage.ts` (config/themes/resolve;
+    `resolveSignage(config, showName)` defaults the header + ENTRANCE sign to the
+    SHOW'S NAME — 'CARD SHOW' only as last resort; 5 themes, classicGold =
+    today's palette). `getAtmosphereAssets(signage)` is now a `signageCacheKey`-
+    keyed LRU (cap 2, evicted textures/materials disposed); canvases parameterized
+    with shrink-to-fit + ellipsis; uploaded header/banner images swap map+
+    emissiveMap in place (crossOrigin anonymous; banner composited inside the
+    swallowtail silhouette); emissive conventions preserved. NEW pennant bunting:
+    1 instancedMesh, theme-colored, catenary sags — hall atmosphere budget is now
+    **8 draws** (the wave's one sanctioned +1). `HallSignageEditor.tsx` mounts in
+    ShowEditorScreen (SIGNAGE & BRANDING; images remove-then-upload versioned to
+    `plans/<organizerId>/<showId>/signage-<slot>-<ts>.webp`, plans-bucket policy
+    covers it; CREATE flow = publishShow → upload → second updateShow with paths —
+    an upload failure mid-create can strand a show, worth a live eyeball) and in
+    VendorSetupScreen (collapsible, over `useHallSignage()` slots — settings keys
+    hallSignage/hallSignageHeader/hallSignageBanner, direct-db like the legacy
+    banner slots, cleared with the plan, snapshotted into SavedPlanRecord
+    signageJson/signage*Blob, restored on load). `ShowWalkData.signage` +
+    `MyShowForEdit.signage`; demo show = 'EMBERVALE CARD EXPO' crimson.
+  - **F4 booth layout** — `lib/boothLayout.ts` on the VENDOR-OWNED row
+    (`vendors.booth_layout` jsonb / `VendorRecord.boothLayout`; booths are
+    organizer-owned under RLS AND delete+reinserted on every organizer save —
+    vendor config can never live there): placement front/center/back across the
+    table depth, itemsPerBinder 36/54/90 (smaller = MORE binders; never hides
+    items), arrangement casual/aligned. `computeBinderPoses(tables, counts,
+    layouts?)` — absent config = byte-identical legacy poses (numerically
+    regression-tested); `BinderPose.itemsPerBinder` keeps slices honest;
+    OpenHallBinder + prefetch slice `binderEligible(items)`. `BoothLayoutEditor`
+    ("BOOTH DISPLAY" section in VendorManagementPanel, both hosts free): SVG
+    preview computed by the REAL pose functions. ⚠ `BINDER_FOOTPRINT_DEPTH` +
+    `spreadOffX` live in BoothLayoutEditor and are imported BY VendorHallBinders
+    (that direction keeps three.js out of the entry chunk; a module-scope drift
+    warning guards against COVER_H divergence — `lib/boothLayout.ts` is the
+    natural home if ever refactored).
+  - Deferred to the next live session (apply 0008 first): publish show w/ signage
+    → anonymous walk renders it; booth_layout + display cloud round-trip via
+    /account?tab=stores; collector wallSlot cloud round-trip; VendorMuseum
+    owner-arrange against real RLS; ShowEditorScreen create-flow image-upload
+    failure path.
 - Candidate next steps (discussed, not built): booth labels on tables;
   bundle code-splitting (~1.4MB); deploy setup (any static host).
-- Museum-side known gaps: east/west walls unused by card layout (overflow silently
-  dropped); pre-downscale images in old IndexedDBs stay full-res until re-uploaded.
+- Museum-side known gaps: pre-downscale images in old IndexedDBs stay full-res
+  until re-uploaded. (East/west walls now carry cards via both the packed layout
+  and the slot grid.)
 

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'wouter';
+import type { CSSProperties } from 'react';
+import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
 import { getMyProfile } from '../../lib/profileService';
@@ -18,20 +19,48 @@ import type { VendorSummary } from '../../lib/useVendors';
 import { useProvider } from '../../lib/provider/context';
 // Legacy per-box banner slots belong to the working plan image — seeding or
 // replacing it wipes them, exactly like App.tsx's handleSetPlan wrapper.
-import { deleteAllVendorBanners } from '../../lib/db';
+import { deleteAllVendorBanners, downscaleImage } from '../../lib/db';
+import { uploadImage, removeImage, publicImageUrl } from '../../lib/supabaseImages';
+import { isDefaultSignage } from '../../lib/hallSignage';
+import type { HallSignageConfig } from '../../lib/hallSignage';
+import HallSignageEditor from '../../components/HallSignageEditor';
 import type { PlanWorkbenchHandle, PlanWorkbenchState } from '../../components/PlanWorkbench';
-import {
-  GOLD, MUTED, TEXT, SERIF,
-  noteStyle as kitNoteStyle, inputStyle, labelStyle, errorTextStyle,
-  primaryButtonStyle, primaryButtonDisabledStyle, ghostButtonStyle, subtleButtonStyle,
-} from '../../components/museumKit';
+import { useTheme, withAlpha } from '../../components/themeKit';
+import { LCD, LcdCursor, LcdDialog, lcdMenuBox, lcdMenuRow } from '../../components/lcdKit';
 
 // The workbench carries the detection pipeline + plan editor — lazy so the
 // organizer list / gate pages never pull that chunk.
 const PlanWorkbench = lazy(() => import('../../components/PlanWorkbench'));
 
-// Kit note, sized up for the gate / status pages.
-const noteStyle: React.CSSProperties = { ...kitNoteStyle, fontSize: 17, lineHeight: 1.7 };
+/**
+ * Reconcile one signage image slot against Storage (F3). Storage rules:
+ * never upsert; remove-then-upload; owner-uid path prefix; versioned
+ * filename dodges the CDN cache on the public URL. Returns the path the
+ * saved config should carry (undefined = baked default).
+ */
+async function syncSignageImage(args: {
+  slot: 'header' | 'banner';
+  organizerId: string;
+  showId: string;
+  /** The path currently stored on the cloud show (edit mode), if any. */
+  oldPath: string | undefined;
+  picked: File | null;
+  removed: boolean;
+}): Promise<string | undefined> {
+  const { slot, organizerId, showId, oldPath, picked, removed } = args;
+  if (picked) {
+    if (oldPath) await removeImage('plans', oldPath);
+    const blob = await downscaleImage(picked);
+    const path = `${organizerId}/${showId}/signage-${slot}-${Date.now()}.webp`;
+    await uploadImage('plans', path, blob);
+    return path;
+  }
+  if (removed) {
+    if (oldPath) await removeImage('plans', oldPath);
+    return undefined;
+  }
+  return oldPath;
+}
 
 /**
  * Organizer-only show create (/organizer/show/new) and edit
@@ -42,6 +71,14 @@ const noteStyle: React.CSSProperties = { ...kitNoteStyle, fontSize: 17, lineHeig
  */
 export default function ShowEditorScreen({ showId }: { showId?: string }) {
   const isEdit = Boolean(showId);
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
+  // Handheld dialogs navigate via choices (no inline Links inside them).
+  const [, navigate] = useLocation();
+  // Theme note, sized up for the gate / status pages.
+  const noteStyle: CSSProperties = { ...t.note, fontSize: lcd ? 11 : 17, lineHeight: lcd ? 1.9 : 1.7 };
+  /** Gate/status page link — same rendered values as before for non-handheld. */
+  const gateLinkStyle: CSSProperties = { color: t.accent, fontSize: lcd ? 11 : 15, fontFamily: t.fontMono, letterSpacing: '0.08em' };
   const { configured, session, loading: authLoading } = useAuth();
   const provider = useProvider();
   const vendorPlan = useVendorPlan();
@@ -72,6 +109,50 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   const [hours, setHours] = useState('');
   const [admission, setAdmission] = useState('');
   const [externalUrl, setExternalUrl] = useState('');
+
+  // ---- hall signage (F3): config in form state (seeded from the cloud show
+  // in edit mode); newly-picked images upload on submit. The ref mirrors the
+  // config for handleSubmit — the editor commits text on BLUR, and the same
+  // click that submits would otherwise read the pre-blur closure value.
+  const [signageConfig, setSignageConfig] = useState<HallSignageConfig>({});
+  const signageConfigRef = useRef<HallSignageConfig>({});
+  const applySignageConfig = useCallback((next: HallSignageConfig) => {
+    signageConfigRef.current = next;
+    setSignageConfig(next);
+  }, []);
+  const [signageFiles, setSignageFiles] = useState<{ header: File | null; banner: File | null }>({ header: null, banner: null });
+  const signageFilesRef = useRef(signageFiles);
+  signageFilesRef.current = signageFiles;
+  const [signageRemoved, setSignageRemoved] = useState<{ header: boolean; banner: boolean }>({ header: false, banner: false });
+  const signageRemovedRef = useRef(signageRemoved);
+  signageRemovedRef.current = signageRemoved;
+  // Object URLs for picked files (revoked on replace/clear/unmount)
+  const [signagePreviews, setSignagePreviews] = useState<{ header: string | null; banner: string | null }>({ header: null, banner: null });
+  const signagePreviewsRef = useRef(signagePreviews);
+  signagePreviewsRef.current = signagePreviews;
+  useEffect(() => () => {
+    const p = signagePreviewsRef.current;
+    if (p.header) URL.revokeObjectURL(p.header);
+    if (p.banner) URL.revokeObjectURL(p.banner);
+  }, []);
+
+  // Object-URL side effects live OUTSIDE the state updaters (StrictMode
+  // double-invokes updaters — the revoke/create would run twice).
+  const pickSignageImage = useCallback((slot: 'header' | 'banner', file: File) => {
+    const prev = signagePreviewsRef.current[slot];
+    if (prev) URL.revokeObjectURL(prev);
+    const url = URL.createObjectURL(file);
+    setSignageFiles((p) => ({ ...p, [slot]: file }));
+    setSignagePreviews((p) => ({ ...p, [slot]: url }));
+    setSignageRemoved((p) => ({ ...p, [slot]: false }));
+  }, []);
+  const clearSignageImage = useCallback((slot: 'header' | 'banner') => {
+    const prev = signagePreviewsRef.current[slot];
+    if (prev) URL.revokeObjectURL(prev);
+    setSignageFiles((p) => ({ ...p, [slot]: null }));
+    setSignagePreviews((p) => ({ ...p, [slot]: null }));
+    setSignageRemoved((p) => ({ ...p, [slot]: true }));
+  }, []);
 
   const [wb, setWb] = useState<PlanWorkbenchState>({ hasMeta: false, detecting: false, totalTables: 0 });
   const [busy, setBusy] = useState(false);
@@ -178,7 +259,8 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     setHours(show.hours);
     setAdmission(show.admission);
     setExternalUrl(show.externalUrl);
-  }, [show]);
+    applySignageConfig(show.signage ?? {});
+  }, [show, applySignageConfig]);
 
   // No sandbox draft = nothing to clobber; skip the confirmation step.
   useEffect(() => {
@@ -247,7 +329,30 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         admission: admission.trim(),
         externalUrl: externalUrl.trim(),
       };
+      // Signage form state via refs — the editor commits text on blur, which
+      // fires on THIS submit click after handleSubmit's closure was captured.
+      const sigBase: HallSignageConfig = { ...signageConfigRef.current };
+      delete sigBase.headerImagePath;
+      delete sigBase.bannerImagePath;
+      const sigFiles = signageFilesRef.current;
+      const sigRemoved = signageRemovedRef.current;
+
       if (isEdit && showId) {
+        // Images sync BEFORE the row write so the saved config only ever
+        // points at objects that exist.
+        const headerPath = await syncSignageImage({
+          slot: 'header', organizerId: userId, showId,
+          oldPath: show?.signage?.headerImagePath,
+          picked: sigFiles.header, removed: sigRemoved.header,
+        });
+        const bannerPath = await syncSignageImage({
+          slot: 'banner', organizerId: userId, showId,
+          oldPath: show?.signage?.bannerImagePath,
+          picked: sigFiles.banner, removed: sigRemoved.banner,
+        });
+        const sigOut: HallSignageConfig = { ...sigBase };
+        if (headerPath) sigOut.headerImagePath = headerPath;
+        if (bannerPath) sigOut.bannerImagePath = bannerPath;
         await updateShow({
           showId,
           organizerId: userId,
@@ -256,9 +361,24 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           ...location,
           meta,
           planBlob: imageReplaced ? blob : undefined,
+          signage: sigOut, // always present in edit — {} resets to defaults
         });
+        // Keep local state consistent for a second save in this session
+        // (oldPath bookkeeping + picked-file reset; previews were object
+        // URLs for the now-uploaded files).
+        setShow((s) => (s ? { ...s, signage: sigOut } : s));
+        applySignageConfig(sigOut);
+        if (signagePreviewsRef.current.header) URL.revokeObjectURL(signagePreviewsRef.current.header!);
+        if (signagePreviewsRef.current.banner) URL.revokeObjectURL(signagePreviewsRef.current.banner!);
+        setSignagePreviews({ header: null, banner: null });
+        setSignageFiles({ header: null, banner: null });
+        setSignageRemoved({ header: false, banner: false });
         setSavedNote(true);
       } else {
+        // Create: the row must exist before images can upload under its id
+        // (owner-uid/showId path prefix), so publish carries the text config
+        // and a second updateShow attaches the uploaded paths.
+        const hasSigImages = Boolean(sigFiles.header || sigFiles.banner);
         const id = await publishShow({
           organizerId: userId,
           name: trimmed,
@@ -267,7 +387,31 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           planBlob: blob,
           meta,
           published: publishNow,
+          signage: isDefaultSignage(sigBase) && !hasSigImages ? undefined : sigBase,
         });
+        if (hasSigImages) {
+          const headerPath = await syncSignageImage({
+            slot: 'header', organizerId: userId, showId: id,
+            oldPath: undefined, picked: sigFiles.header, removed: false,
+          });
+          const bannerPath = await syncSignageImage({
+            slot: 'banner', organizerId: userId, showId: id,
+            oldPath: undefined, picked: sigFiles.banner, removed: false,
+          });
+          const sigOut: HallSignageConfig = { ...sigBase };
+          if (headerPath) sigOut.headerImagePath = headerPath;
+          if (bannerPath) sigOut.bannerImagePath = bannerPath;
+          // Same args minus planBlob — booths rewrite wholesale (idempotent).
+          await updateShow({
+            showId: id,
+            organizerId: userId,
+            name: trimmed,
+            showDate: showDate || undefined,
+            ...location,
+            meta,
+            signage: sigOut,
+          });
+        }
         setCreatedId(id);
       }
     } catch (e) {
@@ -275,7 +419,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     } finally {
       setBusy(false);
     }
-  }, [userId, busy, name, showDate, country, stateCode, city, venueName, address, hours, admission, externalUrl, isEdit, showId, imageReplaced, publishNow, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
+  }, [userId, busy, name, showDate, country, stateCode, city, venueName, address, hours, admission, externalUrl, isEdit, showId, show, imageReplaced, publishNow, applySignageConfig, vendorPlan.planMeta, vendorPlan.getPlanBlob]);
 
   const title = isEdit ? 'Edit Show' : 'Create a Show';
   const regions = regionOptions(country);
@@ -303,7 +447,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>Sign in to create and manage card shows.</p>
         <p style={{ marginTop: 18 }}>
-          <Link href="/login" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>Sign in →</Link>
+          <Link href="/login" style={gateLinkStyle}>Sign in →</Link>
         </p>
       </PageShell>
     );
@@ -313,10 +457,10 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>
           Only organizers can create shows — enable the organizer designation on your{' '}
-          <Link href="/account" style={{ color: GOLD }}>Account page</Link> and come back.
+          <Link href="/account" style={{ color: t.accent }}>Account page</Link> and come back.
         </p>
         <p style={{ marginTop: 18 }}>
-          <Link href="/account" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>Go to my account →</Link>
+          <Link href="/account" style={gateLinkStyle}>Go to my account →</Link>
         </p>
       </PageShell>
     );
@@ -334,9 +478,9 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>That show doesn't exist (or isn't yours).</p>
-        {error && <p style={{ ...errorTextStyle, marginTop: 12 }}>{error}</p>}
+        {error && <p style={{ ...t.errorText, marginTop: 12 }}>{lcd ? '! ' : ''}{error}</p>}
         <p style={{ marginTop: 18 }}>
-          <Link href="/organizer" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>← Back to my shows</Link>
+          <Link href="/organizer" style={gateLinkStyle}>← Back to my shows</Link>
         </p>
       </PageShell>
     );
@@ -346,21 +490,40 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   if (createdId) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
-        <p style={{ ...noteStyle, fontStyle: 'normal', color: TEXT, fontFamily: SERIF }}>
-          {publishNow
-            ? 'Your show is live in the public directory.'
-            : 'Your show was created hidden — publish it from My Shows whenever it’s ready.'}
-        </p>
-        <p style={{ marginTop: 22, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          {publishNow && (
-            <Link href={`/show/${createdId}`} style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
-              View the show page →
-            </Link>
-          )}
-          <Link href="/organizer" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
-            My shows →
-          </Link>
-        </p>
+        {lcd ? (
+          <LcdDialog
+            cursor
+            style={{ maxWidth: 560 }}
+            choices={publishNow ? [
+              { label: 'VIEW SHOW', primary: true, onClick: () => navigate(`/show/${createdId}`) },
+              { label: 'BACK', onClick: () => navigate('/organizer') },
+            ] : [
+              { label: 'MY SHOWS', primary: true, onClick: () => navigate('/organizer') },
+            ]}
+          >
+            {publishNow
+              ? `${name.trim() || 'YOUR SHOW'} IS LIVE! SHARE IT WITH THE WORLD?`
+              : `${name.trim() || 'YOUR SHOW'} WAS CREATED HIDDEN! PUBLISH IT FROM MY SHOWS WHEN IT'S READY.`}
+          </LcdDialog>
+        ) : (
+          <>
+            <p style={{ ...noteStyle, fontStyle: 'normal', color: t.text }}>
+              {publishNow
+                ? 'Your show is live in the public directory.'
+                : 'Your show was created hidden — publish it from My Shows whenever it’s ready.'}
+            </p>
+            <p style={{ marginTop: 22, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              {publishNow && (
+                <Link href={`/show/${createdId}`} style={gateLinkStyle}>
+                  View the show page →
+                </Link>
+              )}
+              <Link href="/organizer" style={gateLinkStyle}>
+                My shows →
+              </Link>
+            </p>
+          </>
+        )}
       </PageShell>
     );
   }
@@ -369,42 +532,62 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   if (!confirmed) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
-        <p style={noteStyle}>
-          {isEdit
-            ? "Editing opens this show's floor plan in the plan workspace. If you have an unsaved plan in BUILD A SHOW, it will be replaced — save it as a plan first if you want to keep it."
-            : "A new show starts with a fresh floor plan in the plan workspace. You have an unsaved plan in BUILD A SHOW — starting fresh replaces it (save it as a plan first if you want to keep it), or use it as this show's floor plan."}
-        </p>
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 24, alignItems: 'center' }}>
-          {isEdit ? (
-            <button
-              onClick={() => setConfirmed(true)}
-              style={primaryButtonStyle}
-            >
-              CONTINUE →
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={async () => {
-                  await handleClearPlan();
-                  setConfirmed(true);
-                }}
-                style={primaryButtonStyle}
-              >
-                START FRESH →
-              </button>
-              <button
-                onClick={() => setConfirmed(true)}
-                style={ghostButtonStyle}
-              >
-                Use my BUILD A SHOW plan for this show
-              </button>
-            </>
-          )}
-          <Link href="/organizer" style={{ ...subtleButtonStyle, textDecoration: 'none', display: 'inline-block' }}>
-            Cancel
-          </Link>
-        </div>
+        {lcd ? (
+          <LcdDialog
+            style={{ maxWidth: 640 }}
+            choices={isEdit ? [
+              { label: 'CONTINUE', primary: true, onClick: () => setConfirmed(true) },
+              { label: 'CANCEL', onClick: () => navigate('/organizer') },
+            ] : [
+              { label: 'START FRESH', primary: true, onClick: () => { handleClearPlan().then(() => setConfirmed(true)); } },
+              { label: 'USE MY SANDBOX PLAN', onClick: () => setConfirmed(true) },
+              { label: 'CANCEL', onClick: () => navigate('/organizer') },
+            ]}
+          >
+            {isEdit
+              ? "EDITING OPENS THIS SHOW'S FLOOR PLAN IN THE WORKSPACE! AN UNSAVED PLAN IN BUILD A SHOW WILL BE REPLACED — SAVE IT AS A PLAN FIRST IF YOU WANT TO KEEP IT."
+              : 'A NEW SHOW STARTS WITH A FRESH FLOOR PLAN! YOU HAVE AN UNSAVED PLAN IN BUILD A SHOW — START FRESH, OR USE IT FOR THIS SHOW?'}
+          </LcdDialog>
+        ) : (
+          <>
+            <p style={noteStyle}>
+              {isEdit
+                ? "Editing opens this show's floor plan in the plan workspace. If you have an unsaved plan in BUILD A SHOW, it will be replaced — save it as a plan first if you want to keep it."
+                : "A new show starts with a fresh floor plan in the plan workspace. You have an unsaved plan in BUILD A SHOW — starting fresh replaces it (save it as a plan first if you want to keep it), or use it as this show's floor plan."}
+            </p>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 24, alignItems: 'center' }}>
+              {isEdit ? (
+                <button
+                  onClick={() => setConfirmed(true)}
+                  style={t.primaryButton}
+                >
+                  CONTINUE →
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={async () => {
+                      await handleClearPlan();
+                      setConfirmed(true);
+                    }}
+                    style={t.primaryButton}
+                  >
+                    START FRESH →
+                  </button>
+                  <button
+                    onClick={() => setConfirmed(true)}
+                    style={t.ghostButton}
+                  >
+                    Use my BUILD A SHOW plan for this show
+                  </button>
+                </>
+              )}
+              <Link href="/organizer" style={{ ...t.subtleButton, textDecoration: 'none', display: 'inline-block' }}>
+                Cancel
+              </Link>
+            </div>
+          </>
+        )}
       </PageShell>
     );
   }
@@ -413,7 +596,7 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
     return (
       <PageShell title={title} eyebrow="ORGANIZER TOOLS">
         <p style={noteStyle}>Preparing the floor plan editor…</p>
-        {error && <p style={{ ...errorTextStyle, marginTop: 12 }}>{error}</p>}
+        {error && <p style={{ ...t.errorText, marginTop: 12 }}>{lcd ? '! ' : ''}{error}</p>}
       </PageShell>
     );
   }
@@ -422,9 +605,9 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
   return (
     <PageShell title={title} eyebrow="ORGANIZER TOOLS" wide>
       {isEdit && show && !show.published && (
-        <p style={{ ...kitNoteStyle, fontSize: 14, marginBottom: 18 }}>
+        <p style={{ ...t.note, fontSize: lcd ? 10 : 14, marginBottom: 18 }}>
           This show is currently hidden — publish it from{' '}
-          <Link href="/organizer" style={{ color: GOLD }}>My Shows</Link> when it's ready.
+          <Link href="/organizer" style={{ color: t.accent, fontWeight: lcd ? 700 : undefined }}>My Shows</Link> when it's ready.
         </p>
       )}
 
@@ -432,34 +615,48 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           top of the per-booth assignment dropdown below. */}
       {isEdit && apps.length > 0 && (
         <div
-          style={{
-            border: `1px solid rgba(212,175,55,0.3)`,
+          style={lcd ? {
+            border: `3px solid ${LCD.ink}`,
+            borderRadius: 0,
+            background: t.panel,
+            padding: '14px 18px',
+            marginBottom: 26,
+          } : {
+            border: `${t.borderWidth}px solid ${withAlpha(t.accent, 0.3)}`,
             borderRadius: 4,
             padding: '14px 18px',
             marginBottom: 26,
           }}
         >
-          <div style={{ ...labelStyle, marginBottom: 6 }}>
+          <div style={{ ...t.label, marginBottom: 6, ...(lcd ? { fontSize: 12, fontWeight: 700, color: t.text } : {}) }}>
             BOOTH APPLICATIONS ({apps.filter((a) => a.status === 'pending').length} pending)
           </div>
-          {apps.map((a) => (
+          {apps.map((a, i) => (
             <div
               key={a.id}
-              style={{
+              style={lcd ? {
+                ...lcdMenuRow(false),
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+                padding: '9px 4px',
+                opacity: appBusyId === a.id ? 0.6 : 1,
+                ...(i === apps.length - 1 ? { borderBottom: 'none' } : {}),
+              } : {
                 display: 'flex',
                 alignItems: 'baseline',
                 gap: 14,
                 flexWrap: 'wrap',
                 padding: '9px 4px',
-                borderBottom: '1px solid rgba(212,175,55,0.12)',
+                borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
                 opacity: appBusyId === a.id ? 0.6 : 1,
               }}
             >
-              <span style={{ fontFamily: SERIF, fontSize: 15, color: TEXT, minWidth: 140 }}>
+              <span style={{ fontFamily: t.fontDisplay, fontSize: lcd ? 11 : 15, fontWeight: lcd ? 700 : undefined, color: t.text, minWidth: 140 }}>
                 {a.vendorName}
               </span>
               {a.message && (
-                <span style={{ ...kitNoteStyle, fontSize: 12.5, flex: 1, minWidth: 160 }}>
+                <span style={{ ...t.note, fontSize: lcd ? 9.5 : 12.5, flex: 1, minWidth: 160 }}>
                   “{a.message}”
                 </span>
               )}
@@ -468,26 +665,35 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
                   <button
                     onClick={() => handleApplication(a.id, 'approved')}
                     disabled={appBusyId === a.id}
-                    style={{ ...ghostButtonStyle, padding: '5px 14px', fontSize: 11 }}
+                    style={lcd
+                      ? { ...t.chip, fontSize: 10, cursor: 'pointer' }
+                      : { ...t.ghostButton, padding: '5px 14px', fontSize: 11 }}
                   >
-                    APPROVE
+                    {lcd ? '▶ APPROVE' : 'APPROVE'}
                   </button>
                   <button
                     onClick={() => handleApplication(a.id, 'declined')}
                     disabled={appBusyId === a.id}
-                    style={{ ...ghostButtonStyle, padding: '5px 14px', fontSize: 11, color: '#b0685c', borderColor: 'rgba(176,104,92,0.5)' }}
+                    style={lcd
+                      ? { ...t.chip, fontSize: 10, cursor: 'pointer', color: t.muted }
+                      : { ...t.ghostButton, padding: '5px 14px', fontSize: 11, color: '#b0685c', borderColor: 'rgba(176,104,92,0.5)' }}
                   >
                     DECLINE
                   </button>
                 </span>
               ) : (
                 <span
-                  style={{
+                  style={lcd ? {
+                    ...t.chip,
+                    ...(a.status === 'approved'
+                      ? { background: LCD.ink, color: LCD.screen }
+                      : { color: t.muted }),
+                  } : {
                     fontSize: 10.5,
                     letterSpacing: '0.18em',
-                    fontFamily: SERIF,
-                    color: a.status === 'approved' ? GOLD : MUTED,
-                    border: `1px solid ${a.status === 'approved' ? GOLD : 'rgba(255,255,255,0.15)'}`,
+                    fontFamily: t.fontMono,
+                    color: a.status === 'approved' ? t.accent : t.muted,
+                    border: `${t.borderWidth}px solid ${a.status === 'approved' ? t.accent : 'rgba(255,255,255,0.15)'}`,
                     borderRadius: 2,
                     padding: '3px 9px',
                   }}
@@ -497,8 +703,8 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
               )}
             </div>
           ))}
-          {appError && <p style={{ ...errorTextStyle, marginTop: 10 }}>{appError}</p>}
-          <p style={{ ...kitNoteStyle, fontSize: 12, marginTop: 10 }}>
+          {appError && <p style={{ ...t.errorText, marginTop: 10 }}>{lcd ? '! ' : ''}{appError}</p>}
+          <p style={{ ...t.note, fontSize: lcd ? 9.5 : 12, marginTop: 10 }}>
             Approving moves the store to the top of each booth's vendor dropdown — assign
             them to a booth below to place them on the floor.
           </p>
@@ -508,36 +714,36 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       {/* Show details */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
         <div>
-          <label htmlFor="show-editor-name" style={labelStyle}>SHOW NAME</label>
+          <label htmlFor="show-editor-name" style={t.label}>SHOW NAME</label>
           <input
             id="show-editor-name"
             type="text"
             placeholder="Show name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            style={{ ...inputStyle, width: 280 }}
+            style={{ ...t.input, width: 280 }}
           />
         </div>
         <div>
-          <label htmlFor="show-editor-date" style={labelStyle}>DATE</label>
+          <label htmlFor="show-editor-date" style={t.label}>DATE</label>
           <input
             id="show-editor-date"
             type="date"
             title="Show date (optional) — shown in the public directory"
             value={showDate}
             onChange={(e) => setShowDate(e.target.value)}
-            style={{ ...inputStyle, width: 180, color: showDate ? TEXT : '#777' }}
+            style={{ ...t.input, width: 180, color: showDate ? t.text : (lcd ? t.muted : '#777') }}
           />
         </div>
       </div>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 30 }}>
         <div>
-          <label htmlFor="show-editor-country" style={labelStyle}>COUNTRY</label>
+          <label htmlFor="show-editor-country" style={t.label}>COUNTRY</label>
           <select
             id="show-editor-country"
             value={country}
             onChange={(e) => { setCountry(e.target.value); setStateCode(''); }}
-            style={{ ...inputStyle, width: 200 }}
+            style={{ ...t.input, width: 200 }}
           >
             <option value="">— country —</option>
             {COUNTRIES.map((c) => (
@@ -547,12 +753,12 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
         </div>
         {regions.length > 0 && (
           <div>
-            <label htmlFor="show-editor-state" style={labelStyle}>STATE / PROVINCE</label>
+            <label htmlFor="show-editor-state" style={t.label}>STATE / PROVINCE</label>
             <select
               id="show-editor-state"
               value={stateCode}
               onChange={(e) => setStateCode(e.target.value)}
-              style={{ ...inputStyle, width: 200 }}
+              style={{ ...t.input, width: 200 }}
             >
               <option value="">— state / province —</option>
               {regions.map((r) => (
@@ -562,14 +768,14 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           </div>
         )}
         <div>
-          <label htmlFor="show-editor-city" style={labelStyle}>CITY</label>
+          <label htmlFor="show-editor-city" style={t.label}>CITY</label>
           <input
             id="show-editor-city"
             type="text"
             placeholder="City"
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            style={{ ...inputStyle, width: 220 }}
+            style={{ ...t.input, width: 220 }}
           />
         </div>
       </div>
@@ -577,62 +783,93 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       {/* Attendance logistics — everything a visitor needs to actually go */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
         <div>
-          <label htmlFor="show-editor-venue" style={labelStyle}>VENUE</label>
+          <label htmlFor="show-editor-venue" style={t.label}>VENUE</label>
           <input
             id="show-editor-venue"
             type="text"
             placeholder="Expo Center Hall B"
             value={venueName}
             onChange={(e) => setVenueName(e.target.value)}
-            style={{ ...inputStyle, width: 280 }}
+            style={{ ...t.input, width: 280 }}
           />
         </div>
         <div>
-          <label htmlFor="show-editor-address" style={labelStyle}>ADDRESS</label>
+          <label htmlFor="show-editor-address" style={t.label}>ADDRESS</label>
           <input
             id="show-editor-address"
             type="text"
             placeholder="123 Main St, Springfield"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            style={{ ...inputStyle, width: 340 }}
+            style={{ ...t.input, width: 340 }}
           />
         </div>
       </div>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 30 }}>
         <div>
-          <label htmlFor="show-editor-hours" style={labelStyle}>HOURS</label>
+          <label htmlFor="show-editor-hours" style={t.label}>HOURS</label>
           <input
             id="show-editor-hours"
             type="text"
             placeholder="Sat 9am – 4pm"
             value={hours}
             onChange={(e) => setHours(e.target.value)}
-            style={{ ...inputStyle, width: 200 }}
+            style={{ ...t.input, width: 200 }}
           />
         </div>
         <div>
-          <label htmlFor="show-editor-admission" style={labelStyle}>ADMISSION</label>
+          <label htmlFor="show-editor-admission" style={t.label}>ADMISSION</label>
           <input
             id="show-editor-admission"
             type="text"
             placeholder="$5 — kids free"
             value={admission}
             onChange={(e) => setAdmission(e.target.value)}
-            style={{ ...inputStyle, width: 200 }}
+            style={{ ...t.input, width: 200 }}
           />
         </div>
         <div>
-          <label htmlFor="show-editor-url" style={labelStyle}>SHOW WEBSITE / TICKETS (URL)</label>
+          <label htmlFor="show-editor-url" style={t.label}>SHOW WEBSITE / TICKETS (URL)</label>
           <input
             id="show-editor-url"
             type="url"
             placeholder="https://…"
             value={externalUrl}
             onChange={(e) => setExternalUrl(e.target.value)}
-            style={{ ...inputStyle, width: 280 }}
+            style={{ ...t.input, width: 280 }}
           />
         </div>
+      </div>
+
+      {/* Hall signage & branding (F3) — how the generated 3D hall is dressed */}
+      <div style={{ marginBottom: 30 }}>
+        <div style={{ ...t.label, ...(lcd ? { fontSize: 12, fontWeight: 700, color: t.text } : {}) }}>
+          SIGNAGE &amp; BRANDING
+        </div>
+        <div style={{ ...t.note, fontSize: lcd ? 9.5 : 12.5, margin: '0 0 14px' }}>
+          Dresses the walkable 3D hall — leave everything empty and the hall
+          uses your show's name in classic gold.
+        </div>
+        <HallSignageEditor
+          value={signageConfig}
+          onChange={applySignageConfig}
+          header={{
+            url: signagePreviews.header
+              ?? (!signageRemoved.header && show?.signage?.headerImagePath
+                ? publicImageUrl('plans', show.signage.headerImagePath)
+                : null),
+            onPick: (f) => pickSignageImage('header', f),
+            onClear: () => clearSignageImage('header'),
+          }}
+          banner={{
+            url: signagePreviews.banner
+              ?? (!signageRemoved.banner && show?.signage?.bannerImagePath
+                ? publicImageUrl('plans', show.signage.bannerImagePath)
+                : null),
+            onPick: (f) => pickSignageImage('banner', f),
+            onClear: () => clearSignageImage('banner'),
+          }}
+        />
       </div>
 
       {/* Floor plan workbench — detect, fix up, assign vendors */}
@@ -651,45 +888,102 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
       </Suspense>
 
       {error && (
-        <p style={{ ...errorTextStyle, margin: '18px 0 0' }}>{error}</p>
+        <p style={{ ...t.errorText, margin: '18px 0 0' }}>{lcd ? '! ' : ''}{error}</p>
       )}
       {savedNote && !error && (
-        <p style={{ color: GOLD, fontSize: 14, fontFamily: SERIF, margin: '18px 0 0' }}>
-          Changes saved.{' '}
-          {show?.published && (
-            <Link href={`/show/${showId}`} style={{ color: GOLD }}>View the show page →</Link>
-          )}
-        </p>
+        lcd ? (
+          <LcdDialog
+            cursor
+            style={{ marginTop: 18, maxWidth: 480 }}
+            choices={show?.published ? [
+              { label: 'VIEW SHOW', primary: true, onClick: () => navigate(`/show/${showId}`) },
+            ] : undefined}
+          >
+            SAVED! YOUR CHANGES ARE IN.
+          </LcdDialog>
+        ) : (
+          <p style={{ color: t.accent, fontSize: 14, fontFamily: t.fontMono, margin: '18px 0 0' }}>
+            Changes saved.{' '}
+            {show?.published && (
+              <Link href={`/show/${showId}`} style={{ color: t.accent }}>View the show page →</Link>
+            )}
+          </p>
+        )
       )}
 
       {!isEdit && (
         <div style={{ marginTop: 26 }}>
-          <span style={labelStyle}>VISIBILITY</span>
-          <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
-            {([
-              [true, 'Publish immediately', 'appears in the public directory right away'],
-              [false, 'Create hidden', 'publish it later from My Shows'],
-            ] as const).map(([value, label, sub]) => (
-              <label
-                key={label}
-                style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer' }}
-              >
-                <input
-                  type="radio"
-                  name="show-editor-visibility"
-                  checked={publishNow === value}
-                  onChange={() => setPublishNow(value)}
-                  style={{ accentColor: GOLD }}
-                />
-                <span style={{ fontFamily: SERIF, fontSize: 14.5, color: TEXT }}>
-                  {label}
-                  <span style={{ display: 'block', fontSize: 12, color: MUTED, fontStyle: 'italic', marginTop: 2 }}>
-                    {sub}
+          <span style={{ ...t.label, ...(lcd ? { fontSize: 12, fontWeight: 700, color: t.text, marginBottom: 8 } : {}) }}>VISIBILITY</span>
+          {lcd ? (
+            <div style={{ ...lcdMenuBox, maxWidth: 460 }}>
+              {([
+                [true, 'Publish immediately', 'appears in the public directory right away'],
+                [false, 'Create hidden', 'publish it later from My Shows'],
+              ] as const).map(([value, label, sub], i) => (
+                <div
+                  key={label}
+                  onClick={() => setPublishNow(value)}
+                  style={{
+                    ...lcdMenuRow(publishNow === value),
+                    cursor: 'pointer',
+                    ...(i === 1 ? { borderBottom: 'none' } : {}),
+                  }}
+                >
+                  <LcdCursor active={publishNow === value} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    {label}
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: 9,
+                        fontWeight: 400,
+                        letterSpacing: '0.06em',
+                        color: publishNow === value ? LCD.screen : t.muted,
+                        marginTop: 2,
+                      }}
+                    >
+                      {sub}
+                    </span>
                   </span>
-                </span>
-              </label>
-            ))}
-          </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+              {([
+                [true, 'Publish immediately', 'appears in the public directory right away'],
+                [false, 'Create hidden', 'publish it later from My Shows'],
+              ] as const).map(([value, label, sub]) => (
+                <label
+                  key={label}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer' }}
+                >
+                  <input
+                    type="radio"
+                    name="show-editor-visibility"
+                    checked={publishNow === value}
+                    onChange={() => setPublishNow(value)}
+                    style={{ accentColor: t.accent }}
+                  />
+                  <span style={{ fontFamily: t.fontDisplay, fontSize: 14.5, color: t.text }}>
+                    {label}
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: 12,
+                        color: t.muted,
+                        fontStyle: t.id === 'refined' ? 'italic' : 'normal',
+                        fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+                        marginTop: 2,
+                      }}
+                    >
+                      {sub}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -699,15 +993,19 @@ export default function ShowEditorScreen({ showId }: { showId?: string }) {
           disabled={busy || !name.trim() || !wb.hasMeta || wb.detecting}
           style={
             !busy && name.trim() && wb.hasMeta && !wb.detecting
-              ? primaryButtonStyle
-              : primaryButtonDisabledStyle
+              ? t.primaryButton
+              : t.primaryButtonDisabled
           }
         >
           {busy
             ? (isEdit ? 'Saving…' : 'Creating…')
-            : (isEdit ? 'SAVE CHANGES' : (publishNow ? 'CREATE & PUBLISH →' : 'CREATE HIDDEN →'))}
+            : (isEdit
+                ? (lcd ? '▶ SAVE CHANGES' : 'SAVE CHANGES')
+                : (publishNow
+                    ? (lcd ? '▶ CREATE & PUBLISH' : 'CREATE & PUBLISH →')
+                    : (lcd ? '▶ CREATE HIDDEN' : 'CREATE HIDDEN →')))}
         </button>
-        <Link href="/organizer" style={{ color: MUTED, fontSize: 14, fontFamily: SERIF, fontStyle: 'italic' }}>
+        <Link href="/organizer" style={{ ...t.note, fontSize: 14, lineHeight: 'normal' }}>
           ← Back to my shows
         </Link>
       </div>

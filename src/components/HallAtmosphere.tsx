@@ -3,6 +3,8 @@ import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { TABLE } from './Room';
 import type { TablePlacement } from '../lib/vendorPlan';
+import { resolveSignage, signageCacheKey, SIGNAGE_THEMES } from '../lib/hallSignage';
+import type { ResolvedHallSignage } from '../lib/hallSignage';
 import {
   getAtmosphereAssets,
   getEntranceGeometries,
@@ -11,12 +13,14 @@ import {
 } from './hallAtmosphereAssets';
 
 // Convention-hall set dressing: wall signage, entrance doors, ceiling truss
-// grid, hanging banners and aisle carpet runners. Everything below obeys the
-// hall perf rules — ZERO lights (the ENTRANCE sign is an emissive lozenge the
-// bloom pass picks up, exactly like the ceiling panels), and one instanced /
-// merged draw per unique material:
-//   banners (walls + hanging) · header · trusses · carpets · doors · frame ·
-//   sign  =  7 draws for the whole hall, independent of table count.
+// grid, hanging banners, pennant bunting and aisle carpet runners. Everything
+// below obeys the hall perf rules — ZERO lights (the ENTRANCE sign is an
+// emissive lozenge the bloom pass picks up, exactly like the ceiling panels),
+// and one instanced / merged draw per unique material:
+//   banners (walls + hanging) · header · trusses · carpets · pennants ·
+//   doors · frame · sign  =  8 draws for the whole hall, independent of
+//   table count. (Pennants are F3's sanctioned +1; signage customization
+//   itself is pure texture swaps on the existing draws.)
 
 export interface HallAtmosphereProps {
   /** Hall dimensions in meters (planToLayout's clamped hall). */
@@ -25,6 +29,10 @@ export interface HallAtmosphereProps {
   height: number;
   /** All table placements — positions/yaw/stretch for decoration anchoring. */
   tables: TablePlacement[];
+  /** Organizer signage (F3): title/subtitle/theme/uploaded textures. Absent =
+   *  classic defaults. Accepted at scaffold time; the signage stream keys the
+   *  asset cache on it (signageCacheKey) and parameterizes the canvases. */
+  signage?: ResolvedHallSignage;
 }
 
 const CARPET_FIELD = '#4e1616'; // deep show-red, darker than the tablecloth
@@ -88,6 +96,14 @@ interface Layout {
   trussMatrices: THREE.Matrix4[];
   carpetMatrices: THREE.Matrix4[];
   carpetColors: THREE.Color[];
+  pennantMatrices: THREE.Matrix4[];
+  pennantColors: THREE.Color[];
+}
+
+/** Deterministic 0..1 hash — pennant flutter must not reshuffle per render. */
+function jitter(i: number, salt: number): number {
+  const s = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+  return s - Math.floor(s);
 }
 
 function computeLayout(
@@ -95,6 +111,7 @@ function computeLayout(
   depth: number,
   height: number,
   tables: TablePlacement[],
+  pennantPalette: string[],
 ): Layout {
   // --- North header banner --------------------------------------------------
   let headerH = Math.min(Math.max(width * 0.5, 5) * HEADER_ASPECT, height * 0.36);
@@ -202,7 +219,49 @@ function computeLayout(
     }
   }
 
-  return { header, bannerMatrices: banners, trussMatrices: truss, carpetMatrices, carpetColors };
+  // --- Pennant bunting under the truss bottom chords (F3) --------------------
+  // One string per dressed truss row, sagging in shallow catenary spans
+  // between "nodes" every ~6 m; triangles every ~0.55 m cycle the theme's
+  // pennant palette. Restrained set dressing — sparse strings at ceiling
+  // height, not a birthday party.
+  const pennantMatrices: THREE.Matrix4[] = [];
+  const pennantColors: THREE.Color[] = [];
+  const cycle = pennantPalette.map((hex) => new THREE.Color(hex));
+  const attachY = botY - 0.05; // just under the bottom chord
+  const pennantRowStep = nz > 4 ? 2 : 1; // deep halls alternate rows
+  let pi = 0;
+  for (let j = 0; j < nz; j += pennantRowStep) {
+    const z = (j + 0.5) * (depth / nz) - depth / 2;
+    const nSpans = Math.max(1, Math.round(span / 6));
+    const spanLen = span / nSpans;
+    const sag = Math.min(0.18, spanLen * 0.03);
+    const per = Math.max(3, Math.round(spanLen / 0.55));
+    for (let s = 0; s < nSpans; s++) {
+      const x0 = -span / 2 + s * spanLen;
+      for (let k = 1; k < per; k++) {
+        const t = k / per;
+        const u = 2 * t - 1;
+        const x = x0 + t * spanLen;
+        const y = attachY - sag * (1 - u * u);
+        // Top edge follows the string slope; tiny per-triangle flutter
+        const rz = Math.atan((4 * sag * u) / spanLen) + (jitter(pi, 1) - 0.5) * 0.1;
+        const ry = (jitter(pi, 2) - 0.5) * 0.3;
+        pennantMatrices.push(composeM(x, y, z, 0, ry, rz));
+        pennantColors.push(cycle[pi % cycle.length]);
+        pi++;
+      }
+    }
+  }
+
+  return {
+    header,
+    bannerMatrices: banners,
+    trussMatrices: truss,
+    carpetMatrices,
+    carpetColors,
+    pennantMatrices,
+    pennantColors,
+  };
 }
 
 function InstancedStatic({
@@ -240,12 +299,27 @@ function InstancedStatic({
   );
 }
 
-export default function HallAtmosphere({ width, depth, height, tables }: HallAtmosphereProps) {
-  const assets = useMemo(getAtmosphereAssets, []);
+/** Stable classic default — resolveSignage(null) is the pre-F3 look. */
+const CLASSIC_SIGNAGE = resolveSignage(null);
+
+export default function HallAtmosphere({
+  width,
+  depth,
+  height,
+  tables,
+  signage,
+}: HallAtmosphereProps) {
+  const sig = signage ?? CLASSIC_SIGNAGE;
+  const sigKey = signageCacheKey(sig);
+  // Keyed on the signage cache key: the same look returns the same material
+  // objects (no instanced-mesh churn), a new look swaps in fresh signage
+  // materials while the invariant members keep their singleton identity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const assets = useMemo(() => getAtmosphereAssets(sig), [sigKey]);
   const entrance = useMemo(getEntranceGeometries, []);
   const layout = useMemo(
-    () => computeLayout(width, depth, height, tables),
-    [width, depth, height, tables],
+    () => computeLayout(width, depth, height, tables, SIGNAGE_THEMES[sig.theme].pennants),
+    [width, depth, height, tables, sig.theme],
   );
 
   // Shadow maps render on demand (gl.shadowMap.autoUpdate = false) — nudge
@@ -291,6 +365,14 @@ export default function HallAtmosphere({ width, depth, height, tables }: HallAtm
         matrices={layout.carpetMatrices}
         colors={layout.carpetColors}
         receiveShadow
+      />
+
+      {/* Pennant bunting strings (theme-colored via instance color) */}
+      <InstancedStatic
+        geometry={assets.pennantGeometry}
+        material={assets.pennantMaterial}
+        matrices={layout.pennantMatrices}
+        colors={layout.pennantColors}
       />
 
       {/* Entrance — double doors at the south wall, behind the spawn */}

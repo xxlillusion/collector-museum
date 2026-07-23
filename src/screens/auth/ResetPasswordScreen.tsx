@@ -10,10 +10,17 @@ import {
   authErrorStyle,
   NotConfiguredNote,
 } from './LoginScreen';
-import { GOLD, TEXT, SERIF, panelStyle, noteStyle } from '../../components/museumKit';
+import { useTheme } from '../../components/themeKit';
+import { LcdDialog } from '../../components/lcdKit';
 
 /** Password-recovery landing (reset-email links). Owned by Stream A. */
 export default function ResetPasswordScreen() {
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
+  const aLabel = authLabelStyle(t);
+  const aInput = authInputStyle(t);
+  const aButton = authButtonStyle(t);
+  const aError = authErrorStyle(t);
   const { configured, session, loading, passwordRecovery, updatePassword } = useAuth();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -49,26 +56,52 @@ export default function ResetPasswordScreen() {
   }
 
   return (
-    <PageShell title="Reset Password" eyebrow="MEMBERS">
+    <PageShell
+      title={lcd ? 'SET A NEW PASSWORD!' : 'Reset Password'}
+      eyebrow={lcd ? 'PASSWORD' : 'MEMBERS'}
+    >
       {!configured ? (
         <NotConfiguredNote />
       ) : loading ? null : done ? (
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <p style={{ fontSize: 17, lineHeight: 1.7, color: TEXT, fontFamily: SERIF }}>
-            Your password has been updated.
-          </p>
-          <p style={{ ...noteStyle, fontSize: 14 }}>
-            <Link href="/account" style={{ color: GOLD }}>
-              Go to my account →
-            </Link>
-          </p>
+          {lcd ? (
+            <LcdDialog cursor>
+              Password updated! Your save is secure.
+              <span style={{ display: 'block', marginTop: 6 }}>
+                <Link
+                  href="/account"
+                  style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none' }}
+                >
+                  ▶ GO TO OPTIONS
+                </Link>
+              </span>
+            </LcdDialog>
+          ) : (
+            <>
+              <p
+                style={{
+                  fontSize: 17,
+                  lineHeight: 1.7,
+                  color: t.text,
+                  fontFamily: t.id === 'refined' ? t.fontDisplay : undefined,
+                }}
+              >
+                Your password has been updated.
+              </p>
+              <p style={{ ...t.note, fontSize: 14 }}>
+                <Link href="/account" style={{ color: t.accent }}>
+                  Go to my account →
+                </Link>
+              </p>
+            </>
+          )}
         </div>
       ) : canReset ? (
         <div style={{ maxWidth: 440, margin: '0 auto' }}>
-          <div style={{ ...panelStyle, marginBottom: 0 }}>
+          <div style={{ ...t.panelStyle, marginBottom: 0 }}>
             <form onSubmit={onSubmit}>
               <div style={{ marginBottom: 18 }}>
-                <label htmlFor="reset-new-password" style={authLabelStyle}>
+                <label htmlFor="reset-new-password" style={aLabel}>
                   NEW PASSWORD
                 </label>
                 <input
@@ -79,11 +112,11 @@ export default function ResetPasswordScreen() {
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <div style={{ marginBottom: 24 }}>
-                <label htmlFor="reset-confirm-password" style={authLabelStyle}>
+                <label htmlFor="reset-confirm-password" style={aLabel}>
                   CONFIRM NEW PASSWORD
                 </label>
                 <input
@@ -94,30 +127,47 @@ export default function ResetPasswordScreen() {
                   autoComplete="new-password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <button
                 type="submit"
                 disabled={busy}
-                style={{ ...authButtonStyle, width: '100%', opacity: busy ? 0.6 : 1 }}
+                style={{ ...aButton, width: '100%', opacity: busy ? 0.6 : 1 }}
               >
-                {busy ? 'UPDATING…' : 'UPDATE PASSWORD →'}
+                {busy ? 'UPDATING…' : lcd ? '▶ UPDATE PASSWORD' : 'UPDATE PASSWORD →'}
               </button>
-              {error && <p style={authErrorStyle}>{error}</p>}
+              {error && <p style={aError}>{lcd ? `! ${error}` : error}</p>}
             </form>
           </div>
         </div>
       ) : (
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <p style={{ ...noteStyle, fontSize: 17, lineHeight: 1.7 }}>
-            Open the link from your password-reset email to set a new password.
-          </p>
-          <p style={{ ...noteStyle, fontSize: 14 }}>
-            <Link href="/login" style={{ color: GOLD }}>
-              Back to sign in →
-            </Link>
-          </p>
+          {lcd ? (
+            <LcdDialog cursor>
+              Lost your password? We’ll send a link! Use ▶ FORGOT PASSWORD? at sign-in,
+              then open the link from your email to set a new one.
+              <span style={{ display: 'block', marginTop: 6 }}>
+                <Link
+                  href="/login"
+                  style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none' }}
+                >
+                  ▶ BACK TO SIGN IN
+                </Link>
+              </span>
+            </LcdDialog>
+          ) : (
+            <>
+              <p style={{ ...t.note, fontSize: 17, lineHeight: 1.7 }}>
+                Open the link from your password-reset email to set a new password.
+              </p>
+              <p style={{ ...t.note, fontSize: 14 }}>
+                <Link href="/login" style={{ color: t.accent }}>
+                  Back to sign in →
+                </Link>
+              </p>
+            </>
+          )}
         </div>
       )}
     </PageShell>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { VendorRecord, VendorShowEntry } from './db';
+import type { BoothLayoutConfig } from './boothLayout';
 import { useProvider } from './provider/context';
 
 /**
@@ -12,17 +13,28 @@ export interface VendorSummary {
   name: string;
   bannerUrl: string | null;
   inventoryCount: number;
+  /** Binder-eligible count (display ≠ 'walls') — drives hall binder poses;
+   *  absent (pre-0008 cloud) falls back to inventoryCount. */
+  binderCount?: number;
+  /** Per-store booth layout default (F4); absent = defaults. */
+  boothLayout?: BoothLayoutConfig;
   manualShows: VendorShowEntry[];
   createdAt: number;
   updatedAt: number;
 }
 
-function toSummary(r: VendorRecord, inventoryCount: number): VendorSummary {
+function toSummary(
+  r: VendorRecord,
+  inventoryCount: number,
+  binderCount: number,
+): VendorSummary {
   return {
     id: r.id,
     name: r.name,
     bannerUrl: r.bannerBlob ? URL.createObjectURL(r.bannerBlob) : null,
     inventoryCount,
+    binderCount,
+    boothLayout: r.boothLayout,
     manualShows: r.manualShows,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
@@ -36,10 +48,13 @@ export function useVendors() {
 
   const reload = useCallback(async () => {
     const records = await provider.getVendors();
-    const counts = await Promise.all(records.map((r) => provider.countInventory(r.id)));
+    const [counts, binderCounts] = await Promise.all([
+      Promise.all(records.map((r) => provider.countInventory(r.id))),
+      Promise.all(records.map((r) => provider.countBinderInventory(r.id))),
+    ]);
     setVendors((prev) => {
       prev.forEach((v) => { if (v.bannerUrl) URL.revokeObjectURL(v.bannerUrl); });
-      return records.map((r, i) => toSummary(r, counts[i]));
+      return records.map((r, i) => toSummary(r, counts[i], binderCounts[i]));
     });
     setLoading(false);
   }, [provider]);

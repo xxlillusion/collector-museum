@@ -13,6 +13,7 @@
 import type { VendorPlanMeta } from './vendorPlan';
 import type { InventoryItemRecord } from './db';
 import type { VendorSummary } from './useVendors';
+import type { HallSignageConfig } from './hallSignage';
 
 import planImageUrl from '../assets/demo/floorplan.webp';
 import emberdrake from '../assets/demo/cards/emberdrake.webp';
@@ -56,6 +57,8 @@ export interface DemoManifest {
   planMeta: VendorPlanMeta;
   vendors: DemoVendor[];
   items: DemoItem[];
+  /** Hall signage (F3) — proves the pipeline account-free. */
+  signage?: HallSignageConfig;
 }
 
 const EMBER = 'demo-vendor-ember';
@@ -179,6 +182,14 @@ export const demoManifest: DemoManifest = {
     { id: 'demo-item-rune-tortoise', vendorId: MINT, image: runeTortoise, aspect: CARD_ASPECT,
       caption: 'Rune Tortoise — slow and inevitable', price: 18, status: 'forSale', condition: 'LP' },
   ],
+  // Organizer signage (F3) — a custom title + non-default theme proves the
+  // pipeline end-to-end, account-free: title on the header AND the entrance
+  // sign, subtitle words on the hanging banners, crimson pennant strings.
+  signage: {
+    title: 'EMBERVALE CARD EXPO',
+    subtitle: 'BUY · SELL · TRADE',
+    theme: 'crimson',
+  },
 };
 
 /** The manifest's vendors as the VendorSummary shape VendorScene consumes

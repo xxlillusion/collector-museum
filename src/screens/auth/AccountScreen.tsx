@@ -15,16 +15,10 @@ import type { LocalSnapshot, ImportSelection } from '../../lib/importLocal';
 import { purgeMyData } from '../../lib/accountDeletion';
 import MyStoresTab from './MyStoresTab';
 import { errMsg, StatusLine, checkLabelStyle } from './accountShared';
-import {
-  GOLD,
-  HAIRLINE,
-  TEXT,
-  MUTED,
-  SERIF,
-  panelStyle,
-  panelTitleStyle,
-  ghostButtonStyle,
-} from '../../components/museumKit';
+import { useTheme, withAlpha } from '../../components/themeKit';
+import type { Theme } from '../../components/themeKit';
+import { LCD, LcdDialog } from '../../components/lcdKit';
+import ThemeSwitch from '../../components/ThemeSwitch';
 import {
   authLabelStyle,
   authInputStyle,
@@ -40,17 +34,33 @@ type AccountTab = 'profile' | 'stores';
 const DANGER = '#b0685c';
 const DANGER_BORDER = 'rgba(176,104,92,0.5)';
 
-const tabButtonStyle = (active: boolean): CSSProperties => ({
-  background: 'transparent',
-  border: 'none',
-  borderBottom: active ? `2px solid ${GOLD}` : '2px solid transparent',
-  color: active ? GOLD : MUTED,
-  fontFamily: SERIF,
-  fontSize: 13,
-  letterSpacing: '0.18em',
-  padding: '10px 4px',
-  cursor: 'pointer',
-});
+const tabButtonStyle = (t: Theme, active: boolean): CSSProperties =>
+  t.id === 'handheld'
+    ? {
+        // OPTIONS menu chips: active = inverted (ink bg, screen text) + ▶.
+        background: active ? LCD.ink : LCD.panel,
+        color: active ? LCD.screen : LCD.ink,
+        border: `3px solid ${LCD.ink}`,
+        borderRadius: 0,
+        fontFamily: t.fontMono,
+        fontSize: 11,
+        fontWeight: active ? 700 : 400,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        padding: '8px 14px',
+        cursor: 'pointer',
+      }
+    : {
+        background: 'transparent',
+        border: 'none',
+        borderBottom: active ? `2px solid ${t.accent}` : '2px solid transparent',
+        color: active ? t.accent : t.muted,
+        fontFamily: t.fontMono,
+        fontSize: 13,
+        letterSpacing: '0.18em',
+        padding: '10px 4px',
+        cursor: 'pointer',
+      };
 
 function ImportRow({
   label,
@@ -65,6 +75,8 @@ function ImportRow({
   disabled: boolean;
   onChange: (next: boolean) => void;
 }) {
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
   return (
     <label
       style={{
@@ -72,8 +84,9 @@ function ImportRow({
         alignItems: 'baseline',
         gap: 12,
         padding: '8px 0',
-        fontSize: 15,
-        color: disabled ? MUTED : TEXT,
+        fontSize: lcd ? 10.5 : 15,
+        ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.04em' } : {}),
+        color: disabled ? t.muted : t.text,
         cursor: disabled ? 'default' : 'pointer',
       }}
     >
@@ -82,16 +95,22 @@ function ImportRow({
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        style={{ accentColor: GOLD }}
+        style={{ accentColor: t.accent }}
       />
       <span>{label}</span>
-      <span style={{ fontSize: 13, color: MUTED }}>{count}</span>
+      <span style={{ fontSize: lcd ? 9 : 13, color: t.muted }}>{count}</span>
     </label>
   );
 }
 
 // Owned by the accounts workstream (Stream A).
 export default function AccountScreen() {
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
+  const aLabel = authLabelStyle(t);
+  const aInput = authInputStyle(t);
+  const aButton = authButtonStyle(t);
+  const aError = authErrorStyle(t);
   const { configured, session, loading, signOut, updatePassword } = useAuth();
   const [, navigate] = useLocation();
   const search = useSearch();
@@ -366,16 +385,19 @@ export default function AccountScreen() {
     }
   }
 
+  const shellTitle = lcd ? 'OPTIONS' : 'My Account';
+  const shellEyebrow = lcd ? 'MENU' : 'MEMBERS';
+
   if (!configured) {
     return (
-      <PageShell title="My Account" eyebrow="MEMBERS">
+      <PageShell title={shellTitle} eyebrow={shellEyebrow}>
         <NotConfiguredNote />
       </PageShell>
     );
   }
   if (!session) {
     // Redirecting (effect above) — render the shell so there's no flash.
-    return <PageShell title="My Account" eyebrow="MEMBERS">{null}</PageShell>;
+    return <PageShell title={shellTitle} eyebrow={shellEyebrow}>{null}</PageShell>;
   }
 
   const alreadyImported = userId ? localStorage.getItem(importedFlagKey(userId)) : null;
@@ -389,21 +411,26 @@ export default function AccountScreen() {
   const regions = regionOptions(country);
 
   return (
-    <PageShell title="My Account" eyebrow="MEMBERS">
-      {/* Tab bar — MY STORES holds every store surface (settings + inventory). */}
+    <PageShell title={shellTitle} eyebrow={shellEyebrow}>
+      {/* Tab bar — MY STORES holds every store surface (settings + inventory).
+          Handheld: an OPTIONS menu strip of inverted chips instead of underline tabs. */}
       <div
-        style={{
-          display: 'flex',
-          gap: 26,
-          borderBottom: `1px solid ${HAIRLINE}`,
-          marginBottom: 28,
-        }}
+        style={
+          lcd
+            ? { display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 28 }
+            : {
+                display: 'flex',
+                gap: 26,
+                borderBottom: `1px solid ${t.border}`,
+                marginBottom: 28,
+              }
+        }
       >
-        <button onClick={() => setTab('profile')} style={tabButtonStyle(tab === 'profile')}>
-          PROFILE
+        <button onClick={() => setTab('profile')} style={tabButtonStyle(t, tab === 'profile')}>
+          {lcd && tab === 'profile' ? '▶ PROFILE' : 'PROFILE'}
         </button>
-        <button onClick={() => setTab('stores')} style={tabButtonStyle(tab === 'stores')}>
-          MY STORES
+        <button onClick={() => setTab('stores')} style={tabButtonStyle(t, tab === 'stores')}>
+          {lcd && tab === 'stores' ? '▶ MY STORES' : 'MY STORES'}
         </button>
       </div>
 
@@ -416,13 +443,21 @@ export default function AccountScreen() {
         />
       ) : (
         <>
-          <section style={panelStyle}>
-            <h2 style={panelTitleStyle}>PROFILE</h2>
-            <p style={{ margin: '0 0 18px', fontSize: 15, color: MUTED }}>
-              Signed in as <span style={{ color: TEXT }}>{session.user.email}</span>
+          <section style={t.panelStyle}>
+            <h2 style={t.panelTitle}>PROFILE</h2>
+            <p
+              style={{
+                margin: '0 0 18px',
+                fontSize: lcd ? 10.5 : 15,
+                ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.04em' } : {}),
+                color: t.muted,
+              }}
+            >
+              {lcd ? 'PLAYER: ' : 'Signed in as '}
+              <span style={{ color: t.text }}>{session.user.email}</span>
             </p>
             <div style={{ maxWidth: 420, marginBottom: 20 }}>
-              <label htmlFor="account-display-name" style={authLabelStyle}>
+              <label htmlFor="account-display-name" style={aLabel}>
                 DISPLAY NAME
               </label>
               <input
@@ -435,7 +470,7 @@ export default function AccountScreen() {
                   setNameStatus('idle');
                 }}
                 onBlur={saveDisplayName}
-                style={authInputStyle}
+                style={aInput}
               />
               <StatusLine status={nameStatus} />
             </div>
@@ -444,37 +479,48 @@ export default function AccountScreen() {
                 await signOut();
                 navigate('/');
               }}
-              style={ghostButtonStyle}
+              style={t.ghostButton}
             >
-              SIGN OUT
+              {lcd ? 'SAVE & QUIT' : 'SIGN OUT'}
             </button>
           </section>
 
           {profileLoadError && (
-            <section style={panelStyle}>
-              <p style={{ ...authErrorStyle, margin: 0 }}>{profileLoadError}</p>
+            <section style={t.panelStyle}>
+              <p style={{ ...aError, margin: 0 }}>
+                {lcd ? `! ${profileLoadError}` : profileLoadError}
+              </p>
             </section>
           )}
           {!profile && !profileLoadError && (
-            <section style={panelStyle}>
-              <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Loading profile…</p>
+            <section style={t.panelStyle}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: lcd ? 10 : 14,
+                  ...(lcd ? { textTransform: 'uppercase' as const } : {}),
+                  color: t.muted,
+                }}
+              >
+                Loading profile…
+              </p>
             </section>
           )}
 
           {profile && (
             <>
-              <section style={panelStyle}>
-                <h2 style={panelTitleStyle}>LOCATION &amp; BIO</h2>
+              <section style={t.panelStyle}>
+                <h2 style={t.panelTitle}>LOCATION &amp; BIO</h2>
                 <div style={{ maxWidth: 420 }}>
                   <div style={{ marginBottom: 18 }}>
-                    <label htmlFor="account-country" style={authLabelStyle}>
+                    <label htmlFor="account-country" style={aLabel}>
                       COUNTRY
                     </label>
                     <select
                       id="account-country"
                       value={country ?? ''}
                       onChange={(e) => onCountryChange(e.target.value)}
-                      style={authInputStyle}
+                      style={aInput}
                     >
                       <option value="">—</option>
                       {COUNTRIES.map((c) => (
@@ -486,7 +532,7 @@ export default function AccountScreen() {
                   </div>
                   {regions.length > 0 && (
                     <div style={{ marginBottom: 18 }}>
-                      <label htmlFor="account-state" style={authLabelStyle}>
+                      <label htmlFor="account-state" style={aLabel}>
                         {country === 'CA' ? 'PROVINCE' : 'STATE'}
                       </label>
                       <select
@@ -497,7 +543,7 @@ export default function AccountScreen() {
                           setStateRegion(next);
                           void saveLocation({ state: next });
                         }}
-                        style={authInputStyle}
+                        style={aInput}
                       >
                         <option value="">—</option>
                         {regions.map((r) => (
@@ -509,7 +555,7 @@ export default function AccountScreen() {
                     </div>
                   )}
                   <div style={{ marginBottom: 18 }}>
-                    <label htmlFor="account-city" style={authLabelStyle}>
+                    <label htmlFor="account-city" style={aLabel}>
                       CITY
                     </label>
                     <input
@@ -519,11 +565,11 @@ export default function AccountScreen() {
                       placeholder="e.g. Philadelphia"
                       onChange={(e) => setCity(e.target.value)}
                       onBlur={() => void saveLocation({ city: city.trim() || null })}
-                      style={authInputStyle}
+                      style={aInput}
                     />
                   </div>
                   <div>
-                    <label htmlFor="account-bio" style={authLabelStyle}>
+                    <label htmlFor="account-bio" style={aLabel}>
                       BIO
                     </label>
                     <textarea
@@ -533,67 +579,85 @@ export default function AccountScreen() {
                       onChange={(e) => setBio(e.target.value)}
                       onBlur={() => void saveLocation({ bio })}
                       rows={4}
-                      style={{ ...authInputStyle, lineHeight: 1.6, resize: 'vertical' }}
+                      style={{ ...aInput, lineHeight: 1.6, resize: 'vertical' }}
                     />
                     <StatusLine status={locStatus} error={locError} />
                   </div>
                 </div>
               </section>
 
-              <section style={panelStyle}>
-                <h2 style={panelTitleStyle}>MY COLLECTION</h2>
-                <label style={checkLabelStyle}>
+              <section style={t.panelStyle}>
+                <h2 style={t.panelTitle}>MY COLLECTION</h2>
+                <label style={checkLabelStyle(t)}>
                   <input
                     type="checkbox"
                     checked={profile.collectionPublic}
                     onChange={(e) => void toggleCollectionPublic(e.target.checked)}
-                    style={{ accentColor: GOLD }}
+                    style={{ accentColor: t.accent }}
                   />
                   <span>Make my collection public</span>
                 </label>
                 <StatusLine status={collStatus} error={collError} />
                 {profile.collectionPublic && (
                   <>
-                    <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
-                      <Link href={`/collector/${userId}`} style={{ color: GOLD }}>
-                        View my public collection page →
+                    <p style={{ margin: '10px 0 0', fontSize: lcd ? 10.5 : 14, color: t.muted }}>
+                      <Link
+                        href={`/collector/${userId}`}
+                        style={{
+                          color: t.accent,
+                          ...(lcd ? { fontWeight: 700 as const, textDecoration: 'none' } : {}),
+                        }}
+                      >
+                        {lcd ? '▶ MY PUBLIC COLLECTION PAGE' : 'View my public collection page →'}
                       </Link>
                     </p>
-                    <p style={{ margin: '6px 0 0', fontSize: 14, color: MUTED }}>
-                      <Link href={`/museum/collector/${userId}`} style={{ color: GOLD }}>
-                        Walk my public museum →
+                    <p style={{ margin: '6px 0 0', fontSize: lcd ? 10.5 : 14, color: t.muted }}>
+                      <Link
+                        href={`/museum/collector/${userId}`}
+                        style={{
+                          color: t.accent,
+                          ...(lcd ? { fontWeight: 700 as const, textDecoration: 'none' } : {}),
+                        }}
+                      >
+                        {lcd ? '▶ WALK MY PUBLIC MUSEUM' : 'Walk my public museum →'}
                       </Link>
                     </p>
                   </>
                 )}
               </section>
 
-              <section style={panelStyle}>
-                <h2 style={panelTitleStyle}>ORGANIZER</h2>
-                <label style={checkLabelStyle}>
+              <section style={t.panelStyle}>
+                <h2 style={t.panelTitle}>ORGANIZER</h2>
+                <label style={checkLabelStyle(t)}>
                   <input
                     type="checkbox"
                     checked={profile.isOrganizer}
                     onChange={(e) => void toggleOrganizer(e.target.checked)}
-                    style={{ accentColor: GOLD }}
+                    style={{ accentColor: t.accent }}
                   />
                   <span>Organizer — I run card shows</span>
                 </label>
                 <StatusLine status={orgStatus} error={orgError} />
                 {profile.isOrganizer && (
-                  <p style={{ margin: '10px 0 0', fontSize: 14, color: MUTED }}>
-                    <Link href="/organizer" style={{ color: GOLD }}>
-                      Go to organizer tools →
+                  <p style={{ margin: '10px 0 0', fontSize: lcd ? 10.5 : 14, color: t.muted }}>
+                    <Link
+                      href="/organizer"
+                      style={{
+                        color: t.accent,
+                        ...(lcd ? { fontWeight: 700 as const, textDecoration: 'none' } : {}),
+                      }}
+                    >
+                      {lcd ? '▶ ORGANIZER TOOLS' : 'Go to organizer tools →'}
                     </Link>
                   </p>
                 )}
               </section>
 
-              <section style={panelStyle}>
-                <h2 style={panelTitleStyle}>CHANGE PASSWORD</h2>
+              <section style={t.panelStyle}>
+                <h2 style={t.panelTitle}>CHANGE PASSWORD</h2>
                 <form onSubmit={onChangePassword} style={{ maxWidth: 420 }}>
                   <div style={{ marginBottom: 18 }}>
-                    <label htmlFor="account-new-password" style={authLabelStyle}>
+                    <label htmlFor="account-new-password" style={aLabel}>
                       NEW PASSWORD
                     </label>
                     <input
@@ -604,11 +668,11 @@ export default function AccountScreen() {
                       autoComplete="new-password"
                       value={newPw}
                       onChange={(e) => setNewPw(e.target.value)}
-                      style={authInputStyle}
+                      style={aInput}
                     />
                   </div>
                   <div style={{ marginBottom: 20 }}>
-                    <label htmlFor="account-confirm-password" style={authLabelStyle}>
+                    <label htmlFor="account-confirm-password" style={aLabel}>
                       CONFIRM NEW PASSWORD
                     </label>
                     <input
@@ -619,61 +683,117 @@ export default function AccountScreen() {
                       autoComplete="new-password"
                       value={confirmPw}
                       onChange={(e) => setConfirmPw(e.target.value)}
-                      style={authInputStyle}
+                      style={aInput}
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={pwBusy}
-                    style={{ ...authButtonStyle, opacity: pwBusy ? 0.6 : 1 }}
+                    style={{ ...aButton, opacity: pwBusy ? 0.6 : 1 }}
                   >
-                    {pwBusy ? 'UPDATING…' : 'UPDATE PASSWORD →'}
+                    {pwBusy ? 'UPDATING…' : lcd ? '▶ UPDATE PASSWORD' : 'UPDATE PASSWORD →'}
                   </button>
-                  <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
-                    {pwDone && 'Password updated.'}
-                  </p>
-                  {pwError && <p style={authErrorStyle}>{pwError}</p>}
+                  {lcd && pwDone ? (
+                    <LcdDialog cursor style={{ marginTop: 12 }}>
+                      Password updated! Your save is secure.
+                    </LcdDialog>
+                  ) : (
+                    <p style={{ margin: '12px 0 0', fontSize: 13, color: t.muted, minHeight: 16 }}>
+                      {pwDone && 'Password updated.'}
+                    </p>
+                  )}
+                  {pwError && <p style={aError}>{lcd ? `! ${pwError}` : pwError}</p>}
                 </form>
               </section>
             </>
           )}
 
-          <style>{`@keyframes vmImportPulse {
-            0% { box-shadow: 0 0 0 0 rgba(212,175,55,0.55); }
-            70% { box-shadow: 0 0 0 16px rgba(212,175,55,0); }
-            100% { box-shadow: 0 0 0 0 rgba(212,175,55,0); }
-          }`}</style>
+          {/* LCD has no glow pulses — the highlight blinks the panel border instead. */}
+          {!lcd && (
+            <style>{`@keyframes vmImportPulse {
+              0% { box-shadow: 0 0 0 0 ${withAlpha(t.accent, 0.55)}; }
+              70% { box-shadow: 0 0 0 16px ${withAlpha(t.accent, 0)}; }
+              100% { box-shadow: 0 0 0 0 ${withAlpha(t.accent, 0)}; }
+            }`}</style>
+          )}
           <section
             ref={importPanelRef}
             id="import-panel"
             style={{
-              ...panelStyle,
+              ...t.panelStyle,
               ...(highlightImport
-                ? {
-                    border: `1px solid ${GOLD}`,
-                    animation: 'vmImportPulse 1.8s ease-out 3',
-                  }
+                ? lcd
+                  ? // The panel's own border goes transparent; a blinking ink
+                    // overlay border takes its exact place (steps(), no fade).
+                    { position: 'relative' as const, border: '3px solid transparent' }
+                  : {
+                      border: `${t.borderWidth}px solid ${t.accent}`,
+                      animation: 'vmImportPulse 1.8s ease-out 3',
+                    }
                 : {}),
             }}
           >
-            <h2 style={panelTitleStyle}>BRING IN THIS BROWSER&rsquo;S COLLECTION</h2>
-            <p style={{ margin: '0 0 14px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
-              Anything added while browsing as a guest lives only in this browser. Copy it into
-              your account — the local data stays untouched, and running the import again simply
-              re-syncs the same items.
+            {lcd && highlightImport && (
+              <div
+                aria-hidden
+                className="lcd-blink"
+                style={{
+                  position: 'absolute',
+                  inset: -3,
+                  border: `3px solid ${LCD.ink}`,
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+            <h2 style={t.panelTitle}>
+              {lcd ? 'IMPORT YOUR GUEST SAVE' : 'BRING IN THIS BROWSER’S COLLECTION'}
+            </h2>
+            <p
+              style={{
+                margin: '0 0 14px',
+                fontSize: lcd ? 10 : 14.5,
+                lineHeight: lcd ? 1.9 : 1.65,
+                ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.04em' } : {}),
+                color: t.muted,
+              }}
+            >
+              {lcd
+                ? 'Your guest data lives only in this browser! Copy it into your account — the local data stays put, and importing again just re-syncs the same items.'
+                : 'Anything added while browsing as a guest lives only in this browser. Copy it into your account — the local data stays untouched, and running the import again simply re-syncs the same items.'}
             </p>
             {alreadyImported && !importDone && (
-              <p style={{ margin: '0 0 14px', fontSize: 13, color: MUTED, fontStyle: 'italic' }}>
-                Imported previously on {new Date(alreadyImported).toLocaleDateString()} — you can
-                import again.
+              <p
+                style={{
+                  margin: '0 0 14px',
+                  fontSize: lcd ? 9.5 : 13,
+                  color: t.muted,
+                  fontStyle: lcd ? 'normal' : 'italic',
+                  ...(lcd ? { textTransform: 'uppercase' as const } : {}),
+                }}
+              >
+                {lcd
+                  ? `Imported before on ${new Date(alreadyImported).toLocaleDateString()} — you can import again!`
+                  : `Imported previously on ${new Date(alreadyImported).toLocaleDateString()} — you can import again.`}
               </p>
             )}
             {snapshot === null ? (
-              <p style={{ fontSize: 14, color: MUTED }}>Reading local data…</p>
-            ) : nothingLocal ? (
-              <p style={{ fontSize: 14, color: MUTED, fontStyle: 'italic' }}>
-                Nothing to import — this browser has no guest data.
+              <p
+                style={{
+                  fontSize: lcd ? 10 : 14,
+                  ...(lcd ? { textTransform: 'uppercase' as const } : {}),
+                  color: t.muted,
+                }}
+              >
+                Reading local data…
               </p>
+            ) : nothingLocal ? (
+              lcd ? (
+                <LcdDialog>Nothing to import! This browser holds no guest data.</LcdDialog>
+              ) : (
+                <p style={{ fontSize: 14, color: t.muted, fontStyle: 'italic' }}>
+                  Nothing to import — this browser has no guest data.
+                </p>
+              )
             ) : (
               <>
                 <ImportRow
@@ -702,49 +822,109 @@ export default function AccountScreen() {
                     onClick={runImport}
                     disabled={importing || nothingSelected}
                     style={{
-                      ...authButtonStyle,
+                      ...aButton,
                       opacity: importing || nothingSelected ? 0.55 : 1,
                       cursor: importing || nothingSelected ? 'not-allowed' : 'pointer',
                     }}
                   >
-                    {importing ? 'IMPORTING…' : importDone || alreadyImported ? 'IMPORT AGAIN →' : 'IMPORT →'}
+                    {importing
+                      ? 'IMPORTING…'
+                      : importDone || alreadyImported
+                        ? lcd ? '▶ IMPORT AGAIN' : 'IMPORT AGAIN →'
+                        : lcd ? '▶ IMPORT' : 'IMPORT →'}
                   </button>
-                  <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
-                    {importing && progress}
-                    {importDone && !importing && 'Done — everything selected is now in your account.'}
-                  </p>
-                  {importError && <p style={authErrorStyle}>{importError}</p>}
+                  {lcd && importDone && !importing ? (
+                    <LcdDialog cursor style={{ marginTop: 12 }}>
+                      Import complete! Everything selected is now in your account.
+                    </LcdDialog>
+                  ) : (
+                    <p
+                      style={{
+                        margin: '12px 0 0',
+                        fontSize: lcd ? 10 : 13,
+                        ...(lcd ? { textTransform: 'uppercase' as const } : {}),
+                        color: t.muted,
+                        minHeight: 16,
+                      }}
+                    >
+                      {importing && progress}
+                      {importDone && !importing && 'Done — everything selected is now in your account.'}
+                    </p>
+                  )}
+                  {importError && <p style={aError}>{lcd ? `! ${importError}` : importError}</p>}
                 </div>
               </>
             )}
           </section>
 
+          {/* ---- interface style (beta): the design-review theme switcher ---- */}
+          <section style={t.panelStyle}>
+            <h2 style={t.panelTitle}>INTERFACE STYLE (BETA)</h2>
+            <div style={{ display: 'flex' }}>
+              <ThemeSwitch />
+            </div>
+            <p style={{ ...t.note, margin: '14px 0 0' }}>
+              Preview of the design-review themes. Saved per browser — the floating bar at
+              the bottom of every page switches it too.
+            </p>
+          </section>
+
           {/* ---- danger zone: clearly separated at the very bottom ---- */}
           <section
             style={{
-              ...panelStyle,
+              ...t.panelStyle,
               marginTop: 44,
-              border: `1px solid ${DANGER_BORDER}`,
+              // LCD never uses the terracotta warning hue — the panel keeps its
+              // ink border and the warning dialog below carries the alarm.
+              ...(lcd ? {} : { border: `${t.borderWidth}px solid ${DANGER_BORDER}` }),
             }}
           >
-            <h2 style={{ ...panelTitleStyle, color: DANGER }}>DELETE MY DATA</h2>
-            <p style={{ margin: '0 0 12px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
+            <h2 style={{ ...t.panelTitle, ...(lcd ? {} : { color: DANGER }) }}>DELETE MY DATA</h2>
+            <p
+              style={{
+                margin: '0 0 12px',
+                fontSize: lcd ? 10 : 14.5,
+                lineHeight: lcd ? 1.9 : 1.65,
+                ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.04em' } : {}),
+                color: t.muted,
+              }}
+            >
               Permanently deletes everything this account owns — stores and their
               inventory, shows and their booths, booth applications, your collection
               cards, and your ♥ interest marks. Collection card images are removed
               with the records; store banner, inventory and floor-plan images become
               unreachable and are periodically cleaned. This cannot be undone.
             </p>
-            <p style={{ margin: '0 0 20px', fontSize: 14.5, lineHeight: 1.65, color: MUTED }}>
+            <p
+              style={{
+                margin: '0 0 20px',
+                fontSize: lcd ? 10 : 14.5,
+                lineHeight: lcd ? 1.9 : 1.65,
+                ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.04em' } : {}),
+                color: t.muted,
+              }}
+            >
               Your login itself survives, so you can sign back in and start fresh. To
               remove the account entirely, email us via the{' '}
-              <Link href="/contact" style={{ color: GOLD }}>
+              <Link
+                href="/contact"
+                style={{
+                  color: t.accent,
+                  ...(lcd ? { fontWeight: 700 as const, textDecoration: 'none' } : {}),
+                }}
+              >
                 contact page
               </Link>
               .
             </p>
+            {lcd && (
+              <LcdDialog style={{ marginBottom: 16 }}>
+                ! THIS ERASES YOUR SAVE DATA. REALLY DELETE EVERYTHING? TYPE DELETE TO
+                CONFIRM.
+              </LcdDialog>
+            )}
             <div style={{ maxWidth: 420 }}>
-              <label htmlFor="account-purge-confirm" style={authLabelStyle}>
+              <label htmlFor="account-purge-confirm" style={aLabel}>
                 TYPE DELETE TO CONFIRM
               </label>
               <input
@@ -755,26 +935,35 @@ export default function AccountScreen() {
                 autoComplete="off"
                 disabled={purging}
                 onChange={(e) => setPurgeText(e.target.value)}
-                style={authInputStyle}
+                style={aInput}
               />
               <button
                 onClick={() => void runPurge()}
                 disabled={purgeText !== 'DELETE' || purging}
                 style={{
-                  ...ghostButtonStyle,
+                  ...t.ghostButton,
                   marginTop: 16,
-                  color: DANGER,
-                  border: `1px solid ${DANGER_BORDER}`,
+                  ...(lcd
+                    ? { fontWeight: 700 as const }
+                    : { color: DANGER, border: `${t.borderWidth}px solid ${DANGER_BORDER}` }),
                   opacity: purgeText !== 'DELETE' || purging ? 0.45 : 1,
                   cursor: purgeText !== 'DELETE' || purging ? 'not-allowed' : 'pointer',
                 }}
               >
-                {purging ? 'DELETING…' : 'DELETE MY DATA →'}
+                {purging ? 'DELETING…' : lcd ? '▶ ERASE SAVE DATA' : 'DELETE MY DATA →'}
               </button>
-              <p style={{ margin: '12px 0 0', fontSize: 13, color: MUTED, minHeight: 16 }}>
+              <p
+                style={{
+                  margin: '12px 0 0',
+                  fontSize: lcd ? 10 : 13,
+                  ...(lcd ? { textTransform: 'uppercase' as const } : {}),
+                  color: t.muted,
+                  minHeight: 16,
+                }}
+              >
                 {purging && purgeProgress}
               </p>
-              {purgeError && <p style={authErrorStyle}>{purgeError}</p>}
+              {purgeError && <p style={aError}>{lcd ? `! ${purgeError}` : purgeError}</p>}
             </div>
           </section>
         </>

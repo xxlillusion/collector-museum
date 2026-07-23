@@ -7,21 +7,11 @@ import VendorManagementPanel, {
 } from './VendorManagementPanel';
 import type { VendorSummary } from '../lib/useVendors';
 import type { SavedPlanRecord } from '../lib/db';
-import {
-  GOLD,
-  TEXT,
-  MUTED,
-  SERIF,
-  SANS,
-  PAGE_BG,
-  panelStyle,
-  noteStyle,
-  museumHoverCss,
-  Ornament,
-} from './museumKit';
+import { Ornament, useTheme, withAlpha } from './themeKit';
+import { LCD, LcdCursor, LcdDialog, lcdMenuBox, lcdMenuRow, lcdScreenFrame } from './lcdKit';
 
 // Vendor registry — create vendors, manage their banner, inventory (captioned
-// images) and shows attended. "Museum Refined" language via museumKit.
+// images) and shows attended. Styled via the active themeKit theme.
 // Sandbox / guest-only surface: signed-in accounts manage their stores on
 // /account?tab=stores instead (same VendorManagementPanel under the hood).
 
@@ -53,9 +43,18 @@ export default function VendorsScreen({
   onInventoryChanged,
   onBack,
 }: VendorsScreenProps) {
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
+  const rowInput = rowInputStyle(t);
+  const smallGhost = smallGhostStyle(t);
+  const smallPrimary = smallPrimaryStyle(t);
+  const smallPrimaryDisabled = smallPrimaryDisabledStyle(t);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [nameDraft, setNameDraft] = useState('');
+  // Handheld theme only: delete confirmation runs as an in-page LCD dialog
+  // instead of window.confirm. Inert for the other themes.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const selected = vendors.find((v) => v.id === selectedId) ?? null;
 
@@ -70,6 +69,11 @@ export default function VendorsScreen({
   useEffect(() => {
     setNameDraft(selected?.name ?? '');
   }, [selected?.id, selected?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A pending delete confirmation shouldn't follow you to another vendor
+  useEffect(() => {
+    setConfirmingDelete(false);
+  }, [selectedId]);
 
   const handleCreate = useCallback(async () => {
     const name = newName.trim();
@@ -87,18 +91,18 @@ export default function VendorsScreen({
   }, [nameDraft, selected, onRenameVendor]);
 
   return (
-    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: PAGE_BG, color: TEXT, fontFamily: SANS }}>
-      <style>{museumHoverCss}</style>
-      <div style={{ maxWidth: '980px', margin: '0 auto', padding: '56px 28px 80px' }}>
+    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: t.pageBg, color: t.text, fontFamily: t.fontBody, ...(lcd ? { padding: '0 14px' } : {}) }}>
+      <style>{t.hoverCss}</style>
+      <div style={{ maxWidth: '980px', margin: '0 auto', padding: '56px 28px 80px', ...(lcd ? { ...lcdScreenFrame, margin: '26px auto 60px', padding: '32px 22px 48px' } : {}) }}>
         <header style={{ textAlign: 'center', marginBottom: '44px' }}>
-          <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: '34px', fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
+          <h1 style={{ margin: 0, fontFamily: t.fontDisplay, fontSize: lcd ? '24px' : '34px', fontWeight: t.displayWeight, letterSpacing: t.id === 'night' ? '0.05em' : lcd ? '0.08em' : '0.18em', color: t.accent }}>
             VENDOR REGISTRY
           </h1>
-          <p style={{ margin: '12px 0 16px', fontSize: '12px', color: MUTED, letterSpacing: '0.24em' }}>
+          <p style={{ margin: '12px 0 16px', fontSize: lcd ? '10px' : '12px', color: t.muted, letterSpacing: lcd ? '0.1em' : '0.24em', fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
             YOUR STORES &amp; THEIR INVENTORY
           </p>
           <Ornament />
-          <p style={{ margin: '16px 0 0', fontSize: '11.5px', color: MUTED, letterSpacing: '0.12em' }}>
+          <p style={{ margin: '16px 0 0', fontSize: lcd ? '10px' : '11.5px', color: t.muted, letterSpacing: lcd ? '0.06em' : '0.12em', fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
             {vendors.length === 0
               ? 'NO VENDORS YET — ADD YOUR FIRST BELOW'
               : `${vendors.length} ${vendors.length === 1 ? 'VENDOR' : 'VENDORS'} ON FILE`}
@@ -107,7 +111,7 @@ export default function VendorsScreen({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 280px) 1fr', gap: '36px', alignItems: 'start' }}>
           {/* ---- Vendor list ---- */}
-          <div style={{ ...panelStyle, padding: '18px 16px', marginBottom: 0 }}>
+          <div style={{ ...t.panelStyle, padding: '18px 16px', marginBottom: 0 }}>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
               <input
                 type="text"
@@ -115,18 +119,44 @@ export default function VendorsScreen({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
-                style={{ ...rowInputStyle, flex: 1, minWidth: 0 }}
+                style={{ ...rowInput, flex: 1, minWidth: 0 }}
               />
               <button
                 onClick={handleCreate}
                 disabled={!newName.trim()}
-                style={newName.trim() ? smallPrimaryStyle : smallPrimaryDisabledStyle}
+                style={{ ...(newName.trim() ? smallPrimary : smallPrimaryDisabled), ...(lcd ? { whiteSpace: 'nowrap' as const, padding: '9px 12px' } : {}) }}
               >
-                ADD
+                {lcd ? '▶ ADD VENDOR' : 'ADD'}
               </button>
             </div>
 
-            {vendors.map((v) => (
+            {lcd && vendors.length > 0 ? (
+              <div style={lcdMenuBox}>
+                {vendors.map((v, i) => (
+                  <div
+                    key={v.id}
+                    className="museum-row"
+                    onClick={() => setSelectedId(v.id)}
+                    style={{
+                      ...lcdMenuRow(v.id === selectedId),
+                      cursor: 'pointer',
+                      ...(i === vendors.length - 1 ? { borderBottom: 'none' } : {}),
+                    }}
+                  >
+                    <LcdCursor active={v.id === selectedId} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {v.name}
+                      </div>
+                      <div style={{ fontSize: 9, fontWeight: 400, color: v.id === selectedId ? LCD.screen : t.muted, marginTop: 2, letterSpacing: '0.05em' }}>
+                        {v.inventoryCount} {v.inventoryCount === 1 ? 'item' : 'items'}
+                        {v.bannerUrl ? ' · banner' : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : vendors.map((v) => (
               <div
                 key={v.id}
                 className="museum-row"
@@ -134,15 +164,15 @@ export default function VendorsScreen({
                 style={{
                   padding: '12px 12px',
                   cursor: 'pointer',
-                  borderLeft: v.id === selectedId ? `2px solid ${GOLD}` : '2px solid transparent',
-                  borderBottom: '1px solid rgba(212,175,55,0.12)',
-                  background: v.id === selectedId ? 'rgba(212,175,55,0.08)' : 'transparent',
+                  borderLeft: v.id === selectedId ? `2px solid ${t.accent}` : '2px solid transparent',
+                  borderBottom: `1px solid ${withAlpha(t.accent, 0.12)}`,
+                  background: v.id === selectedId ? withAlpha(t.accent, 0.08) : 'transparent',
                 }}
               >
-                <div style={{ fontFamily: SERIF, fontSize: '14.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontFamily: t.id === 'refined' ? t.fontDisplay : t.fontBody, fontSize: '14.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {v.name}
                 </div>
-                <div style={{ fontSize: '11px', color: MUTED, marginTop: '3px', letterSpacing: '0.05em' }}>
+                <div style={{ fontSize: '11px', color: t.muted, marginTop: '3px', letterSpacing: '0.05em' }}>
                   {v.inventoryCount} {v.inventoryCount === 1 ? 'item' : 'items'}
                   {v.bannerUrl ? ' · banner' : ''}
                 </div>
@@ -161,19 +191,40 @@ export default function VendorsScreen({
                   onChange={(e) => setNameDraft(e.target.value)}
                   onBlur={commitRename}
                   onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                  style={{ ...rowInputStyle, fontSize: '19px', flex: 1, minWidth: 0, letterSpacing: '0.06em' }}
+                  style={{ ...rowInput, fontSize: lcd ? '13px' : '19px', fontWeight: lcd ? 700 : undefined, flex: 1, minWidth: 0, letterSpacing: '0.06em' }}
                 />
                 <button
                   onClick={() => {
+                    if (lcd) {
+                      setConfirmingDelete(true);
+                      return;
+                    }
                     if (window.confirm(`Delete “${selected.name}” and their ${selected.inventoryCount} inventory items? Floor-plan spots assigned to them become unassigned.`)) {
                       onDeleteVendor(selected.id);
                     }
                   }}
-                  style={{ ...smallGhostStyle, color: '#c66', borderColor: 'rgba(204,102,102,0.4)' }}
+                  style={lcd ? smallGhost : {
+                    ...smallGhost,
+                    color: t.id === 'refined' ? '#c66' : t.error,
+                    borderColor: t.id === 'refined' ? 'rgba(204,102,102,0.4)' : withAlpha(t.error, 0.4),
+                  }}
                 >
                   DELETE
                 </button>
               </div>
+
+              {lcd && confirmingDelete && (
+                <LcdDialog
+                  style={{ marginBottom: 24 }}
+                  choices={[
+                    { label: 'NO', primary: true, onClick: () => setConfirmingDelete(false) },
+                    { label: 'YES', onClick: () => { setConfirmingDelete(false); onDeleteVendor(selected.id); } },
+                  ]}
+                >
+                  REALLY DELETE {selected.name}? THEIR BINDER ({selected.inventoryCount}{' '}
+                  {selected.inventoryCount === 1 ? 'ITEM' : 'ITEMS'}) GOES TOO! THEIR BOOTHS BECOME UNASSIGNED.
+                </LcdDialog>
+              )}
 
               <VendorManagementPanel
                 vendor={selected}
@@ -185,8 +236,12 @@ export default function VendorsScreen({
                 onInventoryChanged={onInventoryChanged}
               />
             </div>
+          ) : lcd ? (
+            <LcdDialog cursor style={{ marginTop: 8 }}>
+              NO VENDORS YET! ADD YOUR FIRST — BANNER, BINDER AND SHOW HISTORY AWAIT.
+            </LcdDialog>
           ) : (
-            <p style={{ ...noteStyle, marginTop: '8px' }}>
+            <p style={{ ...t.note, marginTop: '8px' }}>
               Add a vendor to start building their profile — banner, inventory and show history.
             </p>
           )}
@@ -195,7 +250,7 @@ export default function VendorsScreen({
         <footer style={{ textAlign: 'center', marginTop: '56px' }}>
           <button
             onClick={onBack}
-            style={{ background: 'transparent', border: 'none', color: MUTED, fontSize: '13px', letterSpacing: '0.08em', fontFamily: SERIF, cursor: 'pointer', padding: '8px 14px' }}
+            style={{ ...t.subtleButton, fontSize: '13px', padding: '8px 14px' }}
           >
             ← Back to the museum
           </button>

@@ -12,12 +12,10 @@ import {
   authErrorStyle,
   NotConfiguredNote,
 } from './LoginScreen';
-import {
-  GOLD, HAIRLINE, MUTED, TEXT, SERIF, PANEL,
-  panelStyle, noteStyle,
-} from '../../components/museumKit';
+import { useTheme, withAlpha } from '../../components/themeKit';
+import { LcdCursor, LcdDialog, lcdMenuBox, lcdMenuRow } from '../../components/lcdKit';
 
-/** Selectable museum panel — hairline border, gold highlight when chosen. */
+/** Selectable panel — themed border, accent highlight when chosen. */
 function TypeCard({
   selected,
   title,
@@ -29,6 +27,7 @@ function TypeCard({
   blurb: string;
   onSelect: () => void;
 }) {
+  const t = useTheme();
   return (
     <button
       type="button"
@@ -38,12 +37,12 @@ function TypeCard({
       style={{
         flex: 1,
         textAlign: 'left',
-        background: selected ? 'rgba(212,175,55,0.08)' : PANEL,
-        border: `1px solid ${selected ? GOLD : HAIRLINE}`,
+        background: selected ? withAlpha(t.accent, 0.08) : t.panel,
+        border: `${t.borderWidth}px solid ${selected ? t.accent : t.border}`,
         borderRadius: 2,
         padding: '14px 16px',
         cursor: 'pointer',
-        fontFamily: SERIF,
+        fontFamily: t.fontMono,
       }}
     >
       <span
@@ -51,7 +50,7 @@ function TypeCard({
           display: 'block',
           fontSize: 13,
           letterSpacing: '0.18em',
-          color: selected ? GOLD : TEXT,
+          color: selected ? t.accent : t.text,
           marginBottom: 6,
         }}
       >
@@ -62,11 +61,64 @@ function TypeCard({
           display: 'block',
           fontSize: 13,
           lineHeight: 1.55,
-          color: MUTED,
-          fontStyle: 'italic',
+          color: t.muted,
+          fontStyle: t.id === 'refined' ? 'italic' : 'normal',
         }}
       >
         {blurb}
+      </span>
+    </button>
+  );
+}
+
+/** Handheld twin of TypeCard: a menu row with ▶ selection (inverted when
+ *  active) — same state writes, rendered only under t.id === 'handheld'. */
+function LcdClassRow({
+  selected,
+  title,
+  blurb,
+  last,
+  onSelect,
+}: {
+  selected: boolean;
+  title: string;
+  blurb: string;
+  last?: boolean;
+  onSelect: () => void;
+}) {
+  const t = useTheme();
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        border: 'none',
+        background: 'none',
+        cursor: 'pointer',
+        ...lcdMenuRow(selected),
+        ...(last ? { borderBottom: 'none' } : {}),
+        alignItems: 'flex-start',
+      }}
+    >
+      <LcdCursor active={selected} />
+      <span style={{ display: 'block', minWidth: 0 }}>
+        <span style={{ display: 'block', fontWeight: 700 }}>{title}</span>
+        <span
+          style={{
+            display: 'block',
+            fontSize: 9,
+            lineHeight: 1.8,
+            letterSpacing: '0.04em',
+            fontWeight: 400,
+            color: selected ? 'inherit' : t.muted,
+            opacity: selected ? 0.85 : 1,
+          }}
+        >
+          {blurb}
+        </span>
       </span>
     </button>
   );
@@ -91,6 +143,12 @@ function getPostSignupDest(): string {
 
 // Owned by the accounts workstream (Stream A).
 export default function SignupScreen() {
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
+  const aLabel = authLabelStyle(t);
+  const aInput = authInputStyle(t);
+  const aButton = authButtonStyle(t);
+  const aError = authErrorStyle(t);
   const { configured, session, signUp } = useAuth();
   const [, navigate] = useLocation();
   const [displayName, setDisplayName] = useState('');
@@ -146,28 +204,55 @@ export default function SignupScreen() {
   }
 
   return (
-    <PageShell title="Create Account" eyebrow="MEMBERS">
+    <PageShell
+      title={lcd ? 'START YOUR COLLECTION!' : 'Create Account'}
+      eyebrow={lcd ? 'NEW GAME' : 'MEMBERS'}
+    >
       {!configured ? (
         <NotConfiguredNote />
       ) : submitted && !session ? (
         // Email confirmation is on for this deployment: no session yet.
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <p style={{ fontSize: 17, lineHeight: 1.7, color: TEXT, fontFamily: SERIF }}>
-            Almost there — we sent a confirmation link to <strong>{email}</strong>. Follow it,
-            then sign in.
-          </p>
-          <p style={{ ...noteStyle, fontSize: 14 }}>
-            <Link href="/login" style={{ color: GOLD }}>
-              Go to sign in →
-            </Link>
-          </p>
+          {lcd ? (
+            <LcdDialog cursor>
+              Almost there! We sent a confirmation link to <strong>{email}</strong>. Follow
+              it, then sign in!
+              <span style={{ display: 'block', marginTop: 6 }}>
+                <Link
+                  href="/login"
+                  style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none' }}
+                >
+                  ▶ GO TO SIGN IN
+                </Link>
+              </span>
+            </LcdDialog>
+          ) : (
+            <>
+              <p
+                style={{
+                  fontSize: 17,
+                  lineHeight: 1.7,
+                  color: t.text,
+                  fontFamily: t.id === 'refined' ? t.fontDisplay : undefined,
+                }}
+              >
+                Almost there — we sent a confirmation link to <strong>{email}</strong>. Follow it,
+                then sign in.
+              </p>
+              <p style={{ ...t.note, fontSize: 14 }}>
+                <Link href="/login" style={{ color: t.accent }}>
+                  Go to sign in →
+                </Link>
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <div style={{ ...panelStyle, marginBottom: 0 }}>
+          <div style={{ ...t.panelStyle, marginBottom: 0 }}>
             <form onSubmit={onSubmit}>
               <div style={{ marginBottom: 18 }}>
-                <label htmlFor="signup-display-name" style={authLabelStyle}>
+                <label htmlFor="signup-display-name" style={aLabel}>
                   DISPLAY NAME
                 </label>
                 <input
@@ -178,28 +263,46 @@ export default function SignupScreen() {
                   placeholder="How you appear across the museum"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <div style={{ marginBottom: 18 }}>
-                <span style={authLabelStyle}>I AM A…</span>
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <TypeCard
-                    selected={accountType === 'collector'}
-                    title="COLLECTOR"
-                    blurb="I collect cards and want to show them off."
-                    onSelect={() => setAccountType('collector')}
-                  />
-                  <TypeCard
-                    selected={accountType === 'vendor'}
-                    title="VENDOR"
-                    blurb="I sell cards — get a vendor profile and appear in show booth assignments."
-                    onSelect={() => setAccountType('vendor')}
-                  />
-                </div>
+                <span style={aLabel}>{lcd ? 'CHOOSE YOUR CLASS!' : 'I AM A…'}</span>
+                {lcd ? (
+                  <div style={lcdMenuBox}>
+                    <LcdClassRow
+                      selected={accountType === 'collector'}
+                      title="COLLECTOR"
+                      blurb="I collect cards and want to show them off."
+                      onSelect={() => setAccountType('collector')}
+                    />
+                    <LcdClassRow
+                      selected={accountType === 'vendor'}
+                      title="VENDOR"
+                      blurb="I sell cards — get a vendor profile and appear in show booth assignments."
+                      last
+                      onSelect={() => setAccountType('vendor')}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <TypeCard
+                      selected={accountType === 'collector'}
+                      title="COLLECTOR"
+                      blurb="I collect cards and want to show them off."
+                      onSelect={() => setAccountType('collector')}
+                    />
+                    <TypeCard
+                      selected={accountType === 'vendor'}
+                      title="VENDOR"
+                      blurb="I sell cards — get a vendor profile and appear in show booth assignments."
+                      onSelect={() => setAccountType('vendor')}
+                    />
+                  </div>
+                )}
               </div>
               <div style={{ marginBottom: 18 }}>
-                <label htmlFor="signup-email" style={authLabelStyle}>
+                <label htmlFor="signup-email" style={aLabel}>
                   EMAIL
                 </label>
                 <input
@@ -209,11 +312,11 @@ export default function SignupScreen() {
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <div style={{ marginBottom: 24 }}>
-                <label htmlFor="signup-password" style={authLabelStyle}>
+                <label htmlFor="signup-password" style={aLabel}>
                   PASSWORD
                 </label>
                 <input
@@ -224,32 +327,37 @@ export default function SignupScreen() {
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <button
                 type="submit"
                 disabled={busy}
-                style={{ ...authButtonStyle, width: '100%', opacity: busy ? 0.6 : 1 }}
+                style={{ ...aButton, width: '100%', opacity: busy ? 0.6 : 1 }}
               >
-                {busy ? 'CREATING…' : 'CREATE ACCOUNT →'}
+                {busy ? 'CREATING…' : lcd ? '▶ NEW GAME' : 'CREATE ACCOUNT →'}
               </button>
-              {error && <p style={authErrorStyle}>{error}</p>}
+              {error && <p style={aError}>{lcd ? `! ${error}` : error}</p>}
             </form>
           </div>
           <p
             style={{
+              ...t.note,
+              lineHeight: undefined,
               marginTop: 26,
-              fontSize: 14,
-              color: MUTED,
-              fontFamily: SERIF,
-              fontStyle: 'italic',
+              fontSize: lcd ? 10 : 14,
               textAlign: 'center',
             }}
           >
-            Already have an account?{' '}
-            <Link href="/login" style={{ color: GOLD }}>
-              Sign in →
+            {lcd ? 'GOT A SAVE FILE? ' : 'Already have an account? '}
+            <Link
+              href="/login"
+              style={{
+                color: t.accent,
+                ...(lcd ? { fontWeight: 700 as const, textDecoration: 'none' } : {}),
+              }}
+            >
+              {lcd ? '▶ CONTINUE' : 'Sign in →'}
             </Link>
           </p>
         </div>

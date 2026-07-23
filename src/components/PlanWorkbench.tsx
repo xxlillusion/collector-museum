@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import PlanEditor from './PlanEditor';
-import { noteStyle, HAIRLINE } from './museumKit';
+import { useTheme, withAlpha } from './themeKit';
+import type { Theme } from './themeKit';
+import { LCD, PIXEL_FONT, LcdCss, LcdDialog, lcdDialogBox, lcdMenuBox } from './lcdKit';
 import { detectTables, inferScale } from '../lib/planDetect';
 import type { VendorRect, VendorPlanMeta } from '../lib/vendorPlan';
 import type { VendorSummary } from '../lib/useVendors';
@@ -20,8 +22,6 @@ import { planToLayout, standardTableW } from '../lib/vendorPlan';
  * imperative handle first, which flushes any pending save and returns the
  * current meta.
  */
-
-const GOLD = '#d4af37';
 
 export interface PlanWorkbenchState {
   /** A plan has detected/edited meta (the editor is showing). */
@@ -69,6 +69,7 @@ export default function PlanWorkbench({
   onStateChange,
   ref,
 }: PlanWorkbenchProps) {
+  const t = useTheme();
   const [dragging, setDragging] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [meta, setMeta] = useState<VendorPlanMeta | null>(planMeta);
@@ -76,6 +77,9 @@ export default function PlanWorkbench({
   const [calibrationValue, setCalibrationValue] = useState('');
   const [calibrationUnit, setCalibrationUnit] = useState<'m' | 'ft'>('ft');
   const [selectedRectId, setSelectedRectId] = useState<string | null>(null);
+  // Handheld theme only: the Replace-image confirmation runs as an in-page
+  // LCD dialog instead of window.confirm. Inert for the other themes.
+  const [confirmingReplace, setConfirmingReplace] = useState(false);
   const saveTimer = useRef<number | null>(null);
 
   // A restored session arrives with saved meta; a fresh upload sets it below
@@ -234,6 +238,30 @@ export default function PlanWorkbench({
     onStateChange?.({ hasMeta, detecting, totalTables });
   }, [onStateChange, hasMeta, detecting, totalTables]);
 
+  // Workbench chrome styles — under 'refined' these reproduce the pre-theme
+  // literals exactly; other themes swap in their tokens. The handheld theme
+  // uses the LCD input recipe (screen bg, 3px ink, pixel font, square).
+  const isR = t.id === 'refined';
+  const lcd = t.id === 'handheld';
+  const secondaryBtn = secondaryButton(t);
+  const wbInput: CSSProperties = lcd
+    ? {
+        background: LCD.screen,
+        color: LCD.ink,
+        border: `3px solid ${LCD.ink}`,
+        borderRadius: 0,
+        fontFamily: PIXEL_FONT,
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+      }
+    : {
+        background: t.surface,
+        color: t.text,
+        border: isR ? '1px solid #555' : `${t.borderWidth}px solid ${t.border}`,
+        borderRadius: '6px',
+        fontFamily: isR ? 'Georgia, serif' : t.fontBody,
+      };
+
   return (
     <div style={{
       width: '100%',
@@ -241,6 +269,7 @@ export default function PlanWorkbench({
       flexDirection: 'column',
       alignItems: 'center',
     }}>
+      {lcd && <LcdCss />}
       {!planUrl && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -251,26 +280,43 @@ export default function PlanWorkbench({
             handleFile(e.dataTransfer.files?.[0]);
           }}
           onClick={() => document.getElementById('plan-input')?.click()}
-          style={{
+          style={lcd ? {
+            ...lcdDialogBox,
             width: '100%',
             maxWidth: '560px',
-            border: `2px dashed ${dragging ? GOLD : '#555'}`,
+            boxSizing: 'border-box',
+            padding: '30px 24px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            background: dragging ? LCD.mid : LCD.panel,
+            marginBottom: '32px',
+          } : {
+            width: '100%',
+            maxWidth: '560px',
+            border: `2px dashed ${dragging ? t.accent : (isR ? '#555' : t.border)}`,
             borderRadius: '12px',
             padding: '48px 40px',
             textAlign: 'center',
             cursor: 'pointer',
-            background: dragging ? 'rgba(212,175,55,0.05)' : 'rgba(255,255,255,0.03)',
+            background: dragging ? withAlpha(t.accent, 0.05) : 'rgba(255,255,255,0.03)',
             transition: 'all 0.2s',
             marginBottom: '32px',
           }}
         >
-          <div style={{ fontSize: '40px', marginBottom: '12px' }}>🗺️</div>
-          <div style={{ fontSize: '16px', marginBottom: '8px' }}>
-            {detecting ? 'Reading the floor plan…' : 'Drop a convention floor plan here'}
+          {!lcd && <div style={{ fontSize: '40px', marginBottom: '12px' }}>🗺️</div>}
+          <div style={{ fontSize: lcd ? '11px' : '16px', marginBottom: '8px', ...(lcd ? { fontWeight: 700 } : {}) }}>
+            {detecting
+              ? (lcd ? 'READING THE FLOOR PLAN…' : 'Reading the floor plan…')
+              : (lcd ? 'DROP YOUR FLOOR PLAN HERE!' : 'Drop a convention floor plan here')}
           </div>
-          <div style={{ fontSize: '13px', color: '#666' }}>
-            or click to browse — tables are detected automatically, then you can fix them up
+          <div style={{ fontSize: lcd ? '9.5px' : '13px', color: isR ? '#666' : t.muted }}>
+            {lcd
+              ? 'OR CLICK TO BROWSE — TABLES ARE DETECTED AUTOMATICALLY, THEN YOU FIX THEM UP!'
+              : 'or click to browse — tables are detected automatically, then you can fix them up'}
           </div>
+          {lcd && (
+            <div aria-hidden className="lcd-blink" style={{ marginTop: 10, fontSize: 11, lineHeight: 1 }}>▼</div>
+          )}
           <input
             id="plan-input"
             type="file"
@@ -287,12 +333,14 @@ export default function PlanWorkbench({
       {planUrl && (
         <div style={{ width: '100%', maxWidth: '900px' }}>
           {detecting && (
-            <div style={{
+            <div className={lcd ? 'lcd-blink' : undefined} style={{
               textAlign: 'center',
-              color: GOLD,
-              letterSpacing: '0.1em',
+              color: t.accent,
+              letterSpacing: lcd ? '0.08em' : '0.1em',
               padding: '20px',
-              fontSize: '14px',
+              fontSize: lcd ? '11px' : '14px',
+              fontWeight: lcd ? 700 : undefined,
+              fontFamily: isR ? undefined : t.fontMono,
             }}>
               DETECTING TABLES…
             </div>
@@ -304,11 +352,11 @@ export default function PlanWorkbench({
                   below are otherwise discover-by-poking */}
               <div
                 style={{
-                  ...noteStyle,
-                  fontSize: 13,
+                  ...t.note,
+                  fontSize: lcd ? 9.5 : 13,
                   textAlign: 'center',
-                  border: `1px solid ${HAIRLINE}`,
-                  borderRadius: '6px',
+                  border: lcd ? `2px solid ${LCD.mid}` : `${t.borderWidth}px solid ${t.border}`,
+                  borderRadius: lcd ? 0 : '6px',
                   padding: '8px 14px',
                   margin: '0 0 10px',
                 }}
@@ -331,32 +379,42 @@ export default function PlanWorkbench({
               />
 
               {selectedRect && (
-                <div style={{
+                <div style={lcd ? {
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  ...lcdMenuBox,
+                  padding: '10px 16px',
+                  margin: '12px 0 0',
+                  fontSize: '10px',
+                  color: t.muted,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                } : {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '12px',
                   flexWrap: 'wrap',
                   background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid #444',
+                  border: isR ? '1px solid #444' : `${t.borderWidth}px solid ${t.border}`,
                   borderRadius: '8px',
                   padding: '10px 16px',
                   margin: '12px 0 0',
                   fontSize: '13px',
-                  color: '#aaa',
+                  color: isR ? '#aaa' : t.muted,
                 }}>
                   <span>Vendor at this booth:</span>
                   <select
                     value={selectedRect.vendorId && vendorNames.has(selectedRect.vendorId) ? selectedRect.vendorId : ''}
                     onChange={(e) => handleAssignVendor(e.target.value || undefined)}
                     style={{
-                      background: '#0d0b0a',
-                      color: '#e8e4dc',
-                      border: '1px solid #555',
-                      borderRadius: '6px',
+                      ...wbInput,
                       padding: '7px 10px',
-                      fontSize: '13px',
-                      fontFamily: 'Georgia, serif',
+                      fontSize: lcd ? '10.5px' : '13px',
+                      fontWeight: lcd && selectedRect.vendorId ? 700 : undefined,
                       maxWidth: '220px',
                     }}
                   >
@@ -368,7 +426,7 @@ export default function PlanWorkbench({
                   {onAddVendor && (creatingVendor === null ? (
                     <button
                       onClick={() => setCreatingVendor('')}
-                      style={{ ...secondaryButton, padding: '6px 12px', fontSize: '12px' }}
+                      style={{ ...secondaryBtn, padding: '6px 12px', fontSize: '12px' }}
                     >
                       ＋ New vendor…
                     </button>
@@ -382,13 +440,9 @@ export default function PlanWorkbench({
                         onChange={(e) => setCreatingVendor(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') handleQuickCreateVendor(); }}
                         style={{
-                          background: '#0d0b0a',
-                          color: '#e8e4dc',
-                          border: '1px solid #555',
-                          borderRadius: '6px',
+                          ...wbInput,
                           padding: '7px 10px',
-                          fontSize: '13px',
-                          fontFamily: 'Georgia, serif',
+                          fontSize: lcd ? '10.5px' : '13px',
                           width: '150px',
                         }}
                       />
@@ -396,11 +450,11 @@ export default function PlanWorkbench({
                         onClick={handleQuickCreateVendor}
                         disabled={!creatingVendor.trim()}
                         style={{
-                          ...secondaryButton,
+                          ...secondaryBtn,
                           padding: '6px 12px',
                           fontSize: '12px',
-                          background: creatingVendor.trim() ? GOLD : '#333',
-                          color: creatingVendor.trim() ? '#1a1614' : '#666',
+                          background: creatingVendor.trim() ? t.accent : (isR ? '#333' : t.primaryButtonDisabled.background),
+                          color: creatingVendor.trim() ? t.accentContrast : (isR ? '#666' : t.primaryButtonDisabled.color),
                           border: 'none',
                           cursor: creatingVendor.trim() ? 'pointer' : 'not-allowed',
                         }}
@@ -409,33 +463,45 @@ export default function PlanWorkbench({
                       </button>
                       <button
                         onClick={() => setCreatingVendor(null)}
-                        style={{ ...secondaryButton, padding: '6px 10px', fontSize: '12px' }}
+                        style={{ ...secondaryBtn, padding: '6px 10px', fontSize: '12px' }}
                       >
                         Cancel
                       </button>
                     </>
                   ))}
                   {!selectedRect.vendorId && (
-                    <span style={{ color: '#666' }}>unassigned — plain cloth / global banner</span>
+                    <span style={{ color: isR ? '#666' : t.muted }}>unassigned — plain cloth / global banner</span>
                   )}
                 </div>
               )}
 
               {calibrationPx !== null && (
-                <div style={{
+                <div style={lcd ? {
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  flexWrap: 'wrap',
+                  ...lcdMenuBox,
+                  padding: '12px 16px',
+                  margin: '12px 0 0',
+                  fontSize: '10.5px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                } : {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '10px',
                   flexWrap: 'wrap',
                   background: 'rgba(255,255,255,0.05)',
-                  border: `1px solid ${GOLD}`,
+                  border: `${t.borderWidth}px solid ${t.accent}`,
                   borderRadius: '8px',
                   padding: '12px 16px',
                   margin: '12px 0 0',
                   fontSize: '14px',
                 }}>
-                  <span>How long is that line in real life?</span>
+                  <span>{lcd ? 'HOW LONG IS THAT LINE IN REAL LIFE?' : 'How long is that line in real life?'}</span>
                   <input
                     type="number"
                     min="0"
@@ -445,27 +511,19 @@ export default function PlanWorkbench({
                     onChange={(e) => setCalibrationValue(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') applyCalibration(); }}
                     style={{
+                      ...wbInput,
                       width: '80px',
-                      background: '#0d0b0a',
-                      color: '#e8e4dc',
-                      border: '1px solid #555',
-                      borderRadius: '6px',
                       padding: '8px 10px',
-                      fontSize: '14px',
-                      fontFamily: 'Georgia, serif',
+                      fontSize: lcd ? '11px' : '14px',
                     }}
                   />
                   <select
                     value={calibrationUnit}
                     onChange={(e) => setCalibrationUnit(e.target.value as 'm' | 'ft')}
                     style={{
-                      background: '#0d0b0a',
-                      color: '#e8e4dc',
-                      border: '1px solid #555',
-                      borderRadius: '6px',
+                      ...wbInput,
                       padding: '8px 10px',
-                      fontSize: '14px',
-                      fontFamily: 'Georgia, serif',
+                      fontSize: lcd ? '11px' : '14px',
                     }}
                   >
                     <option value="ft">feet</option>
@@ -475,21 +533,24 @@ export default function PlanWorkbench({
                     onClick={applyCalibration}
                     disabled={!(parseFloat(calibrationValue) > 0)}
                     style={{
-                      background: parseFloat(calibrationValue) > 0 ? GOLD : '#333',
-                      color: parseFloat(calibrationValue) > 0 ? '#1a1614' : '#666',
+                      background: parseFloat(calibrationValue) > 0 ? t.accent : (isR ? '#333' : t.primaryButtonDisabled.background),
+                      color: parseFloat(calibrationValue) > 0 ? t.accentContrast : (isR ? '#666' : t.primaryButtonDisabled.color),
                       border: 'none',
-                      borderRadius: '6px',
+                      borderRadius: lcd ? 0 : '6px',
                       padding: '8px 18px',
-                      fontSize: '14px',
+                      fontSize: lcd ? '10.5px' : '14px',
+                      fontWeight: lcd ? 700 : undefined,
+                      letterSpacing: lcd ? '0.06em' : undefined,
                       cursor: parseFloat(calibrationValue) > 0 ? 'pointer' : 'not-allowed',
-                      fontFamily: 'Georgia, serif',
+                      fontFamily: isR ? 'Georgia, serif' : t.fontBody,
+                      textTransform: lcd ? 'uppercase' : undefined,
                     }}
                   >
-                    Apply
+                    {lcd ? '▶ APPLY' : 'Apply'}
                   </button>
                   <button
                     onClick={() => { setCalibrationPx(null); setCalibrationValue(''); }}
-                    style={{ ...secondaryButton, padding: '8px 14px', fontSize: '13px' }}
+                    style={{ ...secondaryBtn, padding: '8px 14px', fontSize: '13px' }}
                   >
                     Cancel
                   </button>
@@ -502,10 +563,12 @@ export default function PlanWorkbench({
                 justifyContent: 'space-between',
                 flexWrap: 'wrap',
                 gap: '8px',
-                color: '#888',
-                fontSize: '13px',
+                color: isR ? '#888' : t.muted,
+                fontSize: lcd ? '10px' : '13px',
                 letterSpacing: '0.05em',
                 margin: '12px 2px 24px',
+                fontFamily: isR ? undefined : t.fontMono,
+                ...(lcd ? { textTransform: 'uppercase' as const } : {}),
               }}>
                 <span>
                   Hall ≈ {layout ? `${layout.hall.width.toFixed(0)} × ${layout.hall.depth.toFixed(0)} m` : '—'}
@@ -519,18 +582,29 @@ export default function PlanWorkbench({
                       <button
                         key={ft}
                         onClick={() => handleTableSize(ft)}
-                        style={{
-                          background: active ? GOLD : 'transparent',
-                          color: active ? '#1a1614' : '#aaa',
-                          border: `1px solid ${active ? GOLD : '#555'}`,
+                        style={lcd ? {
+                          background: active ? LCD.ink : LCD.panel,
+                          color: active ? LCD.screen : LCD.ink,
+                          border: `2px solid ${LCD.ink}`,
+                          borderRadius: 0,
+                          padding: '3px 10px',
+                          fontSize: '10px',
+                          fontWeight: active ? 700 : 400,
+                          letterSpacing: '0.06em',
+                          cursor: 'pointer',
+                          fontFamily: PIXEL_FONT,
+                        } : {
+                          background: active ? t.accent : 'transparent',
+                          color: active ? t.accentContrast : (isR ? '#aaa' : t.muted),
+                          border: `${t.borderWidth}px solid ${active ? t.accent : (isR ? '#555' : t.border)}`,
                           borderRadius: '6px',
                           padding: '3px 10px',
                           fontSize: '12px',
                           cursor: 'pointer',
-                          fontFamily: 'Georgia, serif',
+                          fontFamily: isR ? 'Georgia, serif' : t.fontMono,
                         }}
                       >
-                        {ft} ft
+                        {lcd ? `${ft}FT` : `${ft} ft`}
                       </button>
                     );
                   })}
@@ -545,21 +619,37 @@ export default function PlanWorkbench({
                 {actions?.(state)}
                 <button
                   onClick={runDetection}
-                  style={secondaryButton}
+                  style={secondaryBtn}
                 >
                   Re-detect
                 </button>
                 <button
                   onClick={() => {
+                    if (lcd) {
+                      setConfirmingReplace(true);
+                      return;
+                    }
                     if (window.confirm('Replace the floor plan? Your table boxes will be cleared.')) {
                       onClearPlan();
                     }
                   }}
-                  style={secondaryButton}
+                  style={secondaryBtn}
                 >
                   Replace image
                 </button>
               </div>
+
+              {lcd && confirmingReplace && (
+                <LcdDialog
+                  style={{ marginTop: 14 }}
+                  choices={[
+                    { label: 'NO', primary: true, onClick: () => setConfirmingReplace(false) },
+                    { label: 'YES', onClick: () => { setConfirmingReplace(false); onClearPlan(); } },
+                  ]}
+                >
+                  ! REPLACE THE FLOOR PLAN? YOUR TABLE BOXES WILL BE CLEARED!
+                </LcdDialog>
+              )}
             </>
           )}
         </div>
@@ -568,14 +658,21 @@ export default function PlanWorkbench({
   );
 }
 
-export const secondaryButton: CSSProperties = {
-  background: 'transparent',
-  color: '#e8e4dc',
-  border: '1px solid #555',
-  padding: '14px 24px',
-  fontSize: '14px',
-  letterSpacing: '0.05em',
-  borderRadius: '8px',
-  cursor: 'pointer',
-  fontFamily: 'Georgia, serif',
-};
+/** Quiet outlined action for the workbench chrome — now a function of the
+ *  active theme (all consumers live in this batch: this file +
+ *  VendorSetupScreen). Under 'refined' it is the pre-theme literal style;
+ *  other themes reuse their ghost-button recipe. */
+export const secondaryButton = (t: Theme): CSSProperties =>
+  t.id === 'refined'
+    ? {
+        background: 'transparent',
+        color: '#e8e4dc',
+        border: '1px solid #555',
+        padding: '14px 24px',
+        fontSize: '14px',
+        letterSpacing: '0.05em',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        fontFamily: 'Georgia, serif',
+      }
+    : { ...t.ghostButton, padding: '14px 24px', fontSize: '14px', letterSpacing: '0.05em' };

@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { publicImageUrl } from './supabaseImages';
 import type { VendorSummary } from './useVendors';
 import type { InventoryStatus, VendorShowEntry } from './db';
+import type { DisplayPref } from './displayPref';
 
 /**
  * Anon-safe public reads for vendor profile pages (`/vendor/:id`).
@@ -26,6 +27,10 @@ export interface PublicInventoryItem {
   price?: number;
   status: InventoryStatus;
   condition: string;
+  /** 3D display fields (0008) — walls/binder/both + the museum wall-slot pin.
+   *  Absent pre-migration; the vendor museum treats absent as 'both'. */
+  display?: DisplayPref;
+  wallSlot?: string;
 }
 
 export interface PublicUpcomingShow {
@@ -89,6 +94,8 @@ interface InventoryRow {
   price: number | null;
   status: InventoryStatus | null;
   condition: string | null;
+  display_pref: DisplayPref | null;
+  wall_slot: string | null;
 }
 
 interface BoothShowRow {
@@ -105,7 +112,9 @@ async function fetchVisibleItems(vendorId: string): Promise<PublicInventoryItem[
   if (!supabase) return [];
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, image_path, caption, visible, aspect, price, status, condition')
+    .select(
+      'id, image_path, caption, visible, aspect, price, status, condition, display_pref, wall_slot',
+    )
     .eq('vendor_id', vendorId)
     .eq('visible', true)
     .order('added_at', { ascending: true });
@@ -122,6 +131,8 @@ async function fetchVisibleItems(vendorId: string): Promise<PublicInventoryItem[
       price: row.price ?? undefined,
       status: row.status ?? 'forSale',
       condition: row.condition ?? '',
+      display: row.display_pref ?? undefined,
+      wallSlot: row.wall_slot ?? undefined,
     }));
 }
 

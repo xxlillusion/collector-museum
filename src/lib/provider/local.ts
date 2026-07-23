@@ -26,6 +26,7 @@ import {
   saveInventoryItem,
   getInventoryItems,
   countInventory,
+  countBinderInventory,
   updateInventoryItem,
   deleteInventoryItem,
 } from '../db';
@@ -59,6 +60,7 @@ export const localProvider: DataProvider = {
   saveInventoryItem,
   getInventoryItems,
   countInventory,
+  countBinderInventory,
   updateInventoryItem,
   deleteInventoryItem,
 };

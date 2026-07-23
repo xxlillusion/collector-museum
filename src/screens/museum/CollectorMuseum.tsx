@@ -5,7 +5,10 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { getPublicCollectorProfile } from '../../lib/publicCollectors';
 import { cardDetailsLine, hasCardMeta } from '../../lib/cardMeta';
 import { orderForWalls } from '../../lib/wallOrder';
+import { wallEligible, binderEligible } from '../../lib/displayPref';
 import { recordWalk } from '../../lib/visitService';
+import { useTheme } from '../../components/themeKit';
+import { LCD, PIXEL_FONT, LcdDialog, LcdCss } from '../../components/lcdKit';
 import type { CardWithUrl } from '../../lib/useCards';
 
 // Walk a collector's public collection in the 3D museum
@@ -15,34 +18,58 @@ import type { CardWithUrl } from '../../lib/useCards';
 // three.js bundle loads only when the museum actually mounts.
 const Scene = lazy(() => import('../../components/Scene'));
 
-const GOLD = '#d4af37';
-
 type LoadState =
   | { status: 'loading' }
   | { status: 'unavailable'; note: string }
   | {
       status: 'ready';
       cards: CardWithUrl[];
-      /** Curated wall order (featured / hangOrder / onWalls from the owner's
-       *  metadata) — the binder keeps the full `cards` list. */
+      /** Curated wall order (featured / hangOrder / display / onWalls from
+       *  the owner's metadata). */
       wallCards: CardWithUrl[];
+      /** Binder membership (display ≠ 'walls') — F2. */
+      binderCards: CardWithUrl[];
       captions: Map<string, string>;
       details: Map<string, string>;
     };
 
-/** Fullscreen interstitial shown while blobs download / Scene code loads. */
+/** Fullscreen interstitial shown while blobs download / Scene code loads.
+ *  'refined' keeps the legacy literals pixel-identical; other themes branch;
+ *  'handheld' renders an LCD boot dialog on the shell-green desk. */
 function MuseumLoading({ text }: { text: string }) {
+  const t = useTheme();
+  const themed = t.id !== 'refined';
+  const lcd = t.id === 'handheld';
+  if (lcd) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: LCD.shell,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <LcdCss />
+        <LcdDialog cursor style={{ minWidth: 260, maxWidth: '86vw', textAlign: 'center' }}>
+          {text}
+        </LcdDialog>
+      </div>
+    );
+  }
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
-        background: '#0b0a08',
+        background: themed ? t.bg : '#0b0a08',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#b7ad98',
-        fontFamily: "Georgia, 'Times New Roman', serif",
+        color: themed ? t.muted : '#b7ad98',
+        fontFamily: t.fontMono,
         fontStyle: 'italic',
         fontSize: 18,
         letterSpacing: 1,
@@ -56,6 +83,9 @@ function MuseumLoading({ text }: { text: string }) {
 export default function CollectorMuseum({ profileId }: { profileId: string }) {
   const [, navigate] = useLocation();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const t = useTheme();
+  const themed = t.id !== 'refined';
+  const lcd = t.id === 'handheld';
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -108,6 +138,8 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
               featured: item.featured,
               hangOrder: item.hangOrder,
               onWalls: item.onWalls,
+              display: item.display,
+              wallSlot: item.wallSlot,
             };
           } catch {
             return null; // one missing image shouldn't sink the whole gallery
@@ -136,7 +168,14 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
       // Anonymous walk counter — the public collector museum actually opens
       // (never the sandbox/own museum). Fire-and-forget, day-deduped.
       recordWalk('collector', profileId);
-      setState({ status: 'ready', cards, wallCards: orderForWalls(cards), captions, details });
+      setState({
+        status: 'ready',
+        cards,
+        wallCards: orderForWalls(wallEligible(cards)),
+        binderCards: binderEligible(cards),
+        captions,
+        details,
+      });
     })();
     return () => {
       cancelled = true;
@@ -150,15 +189,21 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
   if (state.status === 'unavailable') {
     return (
       <PageShell title="Collector Museum">
-        <p style={{ fontSize: 17, lineHeight: 1.7, color: '#b7ad98', fontStyle: 'italic' }}>
-          {state.note}
-        </p>
+        {lcd ? (
+          <LcdDialog style={{ maxWidth: 480 }}>{state.note}</LcdDialog>
+        ) : (
+          <p style={{ fontSize: 17, lineHeight: 1.7, color: themed ? t.muted : '#b7ad98', fontStyle: 'italic' }}>
+            {state.note}
+          </p>
+        )}
         <p style={{ marginTop: 24 }}>
           <Link
             href={`/collector/${profileId}`}
-            style={{ color: GOLD, textDecoration: 'none', fontSize: 14, letterSpacing: 1 }}
+            style={lcd
+              ? { color: t.accent, textDecoration: 'none', fontSize: 10.5, fontWeight: 700, fontFamily: PIXEL_FONT, letterSpacing: '0.06em', textTransform: 'uppercase' }
+              : { color: t.accent, textDecoration: 'none', fontSize: 14, letterSpacing: 1 }}
           >
-            ← Back to the collector profile
+            {lcd ? '▶ BACK TO THE COLLECTOR PROFILE' : '← Back to the collector profile'}
           </Link>
         </p>
       </PageShell>
@@ -171,6 +216,7 @@ export default function CollectorMuseum({ profileId }: { profileId: string }) {
         <Scene
           cards={state.cards}
           wallCards={state.wallCards}
+          binderCards={state.binderCards}
           captions={state.captions}
           details={state.details}
           bannerUrl={null}

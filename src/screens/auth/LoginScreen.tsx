@@ -3,46 +3,63 @@ import type { CSSProperties, FormEvent } from 'react';
 import { Link, useLocation } from 'wouter';
 import PageShell from '../PageShell';
 import { useAuth } from '../../lib/auth';
-import {
-  GOLD, HAIRLINE, MUTED, SERIF,
-  labelStyle, inputStyle, primaryButtonStyle, errorTextStyle,
-  panelStyle, noteStyle,
-} from '../../components/museumKit';
+import { useTheme } from '../../components/themeKit';
+import type { Theme } from '../../components/themeKit';
+import { LcdDialog } from '../../components/lcdKit';
 
 // ---- shared auth styles (imported by SignupScreen / ResetPasswordScreen) ----
-// These now re-point at the museum kit so every auth form shares one aesthetic.
-// Do not remove or rename — other screens depend on these exports.
+// Functions of the active theme so every auth form restyles live with the
+// theme switcher. Do not remove or rename — other screens depend on these.
 
-export const authLabelStyle: CSSProperties = { ...labelStyle };
+export const authLabelStyle = (t: Theme): CSSProperties => ({ ...t.label });
 
-export const authInputStyle: CSSProperties = { ...inputStyle, outline: 'none' };
+export const authInputStyle = (t: Theme): CSSProperties => ({ ...t.input, outline: 'none' });
 
-export const authButtonStyle: CSSProperties = { ...primaryButtonStyle };
+export const authButtonStyle = (t: Theme): CSSProperties => ({ ...t.primaryButton });
 
-export const authErrorStyle: CSSProperties = {
-  ...errorTextStyle,
-  margin: '14px 0 0',
-  padding: '10px 14px',
-  border: '1px solid rgba(200,80,60,0.45)',
-  borderRadius: 2,
-};
+export const authErrorStyle = (t: Theme): CSSProperties =>
+  t.id === 'handheld'
+    ? // LCD: t.errorText already IS the inverted ink box — no red border,
+      // no radius; render sites add the "! " prefix.
+      { ...t.errorText, margin: '14px 0 0' }
+    : {
+        ...t.errorText,
+        margin: '14px 0 0',
+        padding: '10px 14px',
+        border: '1px solid rgba(200,80,60,0.45)',
+        borderRadius: 2,
+      };
 
-/** Muted italic-serif footnote with a gold link — shared visual for auth pages. */
-const authFootnoteStyle: CSSProperties = {
+/** Muted commentary footnote with an accent link — shared visual for auth pages. */
+const authFootnoteStyle = (t: Theme): CSSProperties => ({
+  ...t.note,
+  lineHeight: undefined,
   marginTop: 26,
-  fontSize: 14,
-  color: MUTED,
-  fontFamily: SERIF,
-  fontStyle: 'italic',
+  fontSize: t.id === 'handheld' ? 10 : 14,
   textAlign: 'center',
-};
+});
 
 export function NotConfiguredNote() {
+  const t = useTheme();
+  if (t.id === 'handheld') {
+    return (
+      <LcdDialog cursor>
+        Accounts are switched off on this machine! The museum runs in guest mode —
+        everything you add is saved to this browser.{' '}
+        <Link
+          href="/"
+          style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}
+        >
+          ▶ BACK TO THE MUSEUM
+        </Link>
+      </LcdDialog>
+    );
+  }
   return (
-    <p style={{ ...noteStyle, fontSize: 17, lineHeight: 1.7 }}>
+    <p style={{ ...t.note, fontSize: 17, lineHeight: 1.7 }}>
       Accounts are not configured on this deployment — the museum runs in guest mode, and
       everything you add is kept privately in this browser.{' '}
-      <Link href="/" style={{ color: GOLD }}>
+      <Link href="/" style={{ color: t.accent }}>
         Back to the museum →
       </Link>
     </p>
@@ -51,6 +68,12 @@ export function NotConfiguredNote() {
 
 // Owned by the accounts workstream (Stream A).
 export default function LoginScreen() {
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
+  const aLabel = authLabelStyle(t);
+  const aInput = authInputStyle(t);
+  const aButton = authButtonStyle(t);
+  const aError = authErrorStyle(t);
   const { configured, session, signIn, resetPassword } = useAuth();
   const [, navigate] = useLocation();
   const [email, setEmail] = useState('');
@@ -101,15 +124,18 @@ export default function LoginScreen() {
   }
 
   return (
-    <PageShell title="Sign In" eyebrow="MEMBERS">
+    <PageShell
+      title={lcd ? 'CONTINUE' : 'Sign In'}
+      eyebrow={lcd ? 'WELCOME BACK!' : 'MEMBERS'}
+    >
       {!configured ? (
         <NotConfiguredNote />
       ) : (
         <div style={{ maxWidth: 440, margin: '0 auto' }}>
-          <div style={{ ...panelStyle, marginBottom: 0 }}>
+          <div style={{ ...t.panelStyle, marginBottom: 0 }}>
             <form onSubmit={onSubmit}>
               <div style={{ marginBottom: 18 }}>
-                <label htmlFor="login-email" style={authLabelStyle}>
+                <label htmlFor="login-email" style={aLabel}>
                   EMAIL
                 </label>
                 <input
@@ -119,12 +145,12 @@ export default function LoginScreen() {
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <div style={{ marginBottom: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <label htmlFor="login-password" style={authLabelStyle}>
+                  <label htmlFor="login-password" style={aLabel}>
                     PASSWORD
                   </label>
                   <button
@@ -137,14 +163,15 @@ export default function LoginScreen() {
                       background: 'none',
                       border: 'none',
                       padding: 0,
-                      fontFamily: SERIF,
-                      fontStyle: 'italic',
-                      fontSize: 12.5,
-                      color: GOLD,
+                      fontFamily: t.id === 'refined' ? t.fontDisplay : t.fontMono,
+                      fontStyle: t.id === 'refined' ? 'italic' : 'normal',
+                      fontSize: lcd ? 10 : 12.5,
+                      color: lcd ? t.muted : t.accent,
+                      ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.06em' } : {}),
                       cursor: 'pointer',
                     }}
                   >
-                    Forgot password?
+                    {lcd ? '▶ FORGOT PASSWORD?' : 'Forgot password?'}
                   </button>
                 </div>
                 <input
@@ -154,33 +181,38 @@ export default function LoginScreen() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  style={authInputStyle}
+                  style={aInput}
                 />
               </div>
               <button
                 type="submit"
                 disabled={busy}
-                style={{ ...authButtonStyle, width: '100%', opacity: busy ? 0.6 : 1 }}
+                style={{ ...aButton, width: '100%', opacity: busy ? 0.6 : 1 }}
               >
-                {busy ? 'SIGNING IN…' : 'SIGN IN →'}
+                {busy ? 'SIGNING IN…' : lcd ? '▶ LOG IN' : 'SIGN IN →'}
               </button>
-              {error && <p style={authErrorStyle}>{error}</p>}
+              {error && <p style={aError}>{lcd ? `! ${error}` : error}</p>}
             </form>
 
             {forgotOpen && (
-              <div style={{ marginTop: 28, paddingTop: 22, borderTop: `1px solid ${HAIRLINE}` }}>
+              <div style={{ marginTop: 28, paddingTop: 22, borderTop: `${lcd ? 2 : 1}px solid ${t.border}` }}>
                 {resetSent ? (
-                  <p style={{ ...noteStyle, margin: 0, fontSize: 15 }}>
-                    Check your email for a reset link.
-                  </p>
+                  lcd ? (
+                    <LcdDialog cursor>Check your mailbox! A reset link is on its way!</LcdDialog>
+                  ) : (
+                    <p style={{ ...t.note, margin: 0, fontSize: 15 }}>
+                      Check your email for a reset link.
+                    </p>
+                  )
                 ) : (
                   <form onSubmit={onReset}>
-                    <p style={{ ...noteStyle, margin: '0 0 14px', fontSize: 14 }}>
-                      Enter your account email and we&rsquo;ll send you a link to set a new
-                      password.
+                    <p style={{ ...t.note, margin: '0 0 14px', fontSize: lcd ? 10 : 14 }}>
+                      {lcd
+                        ? 'Lost your password? We’ll send a link!'
+                        : 'Enter your account email and we’ll send you a link to set a new password.'}
                     </p>
                     <div style={{ marginBottom: 16 }}>
-                      <label htmlFor="reset-email" style={authLabelStyle}>
+                      <label htmlFor="reset-email" style={aLabel}>
                         EMAIL
                       </label>
                       <input
@@ -190,27 +222,33 @@ export default function LoginScreen() {
                         autoComplete="email"
                         value={resetEmail}
                         onChange={(e) => setResetEmail(e.target.value)}
-                        style={authInputStyle}
+                        style={aInput}
                       />
                     </div>
                     <button
                       type="submit"
                       disabled={resetBusy}
-                      style={{ ...authButtonStyle, opacity: resetBusy ? 0.6 : 1 }}
+                      style={{ ...aButton, opacity: resetBusy ? 0.6 : 1 }}
                     >
-                      {resetBusy ? 'SENDING…' : 'SEND RESET LINK →'}
+                      {resetBusy ? 'SENDING…' : lcd ? '▶ SEND RESET LINK' : 'SEND RESET LINK →'}
                     </button>
-                    {resetError && <p style={authErrorStyle}>{resetError}</p>}
+                    {resetError && <p style={aError}>{lcd ? `! ${resetError}` : resetError}</p>}
                   </form>
                 )}
               </div>
             )}
           </div>
 
-          <p style={authFootnoteStyle}>
-            New to the museum?{' '}
-            <Link href="/signup" style={{ color: GOLD }}>
-              Create an account →
+          <p style={authFootnoteStyle(t)}>
+            {lcd ? 'FIRST TIME HERE? ' : 'New to the museum? '}
+            <Link
+              href="/signup"
+              style={{
+                color: t.accent,
+                ...(lcd ? { fontWeight: 700 as const, textDecoration: 'none' } : {}),
+              }}
+            >
+              {lcd ? '▶ NEW GAME' : 'Create an account →'}
             </Link>
           </p>
         </div>

@@ -2,11 +2,13 @@ import { useEffect } from 'react';
 import type { CSSProperties } from 'react';
 import type { InventoryStatus } from '../lib/db';
 import { formatPrice } from '../lib/price';
+import { useTheme, withAlpha } from './themeKit';
+import { LCD, PIXEL_FONT, lcdDialogBox, LcdCss } from './lcdKit';
 
-// Museum-refined accents (matches museumKit's palette — kept as local consts
-// so the 3D chunk stays self-contained, same idiom as the rest of this file).
-const GOLD = '#d4af37';
-const SERIF = "Georgia, 'Times New Roman', serif";
+// Styling: under 'refined' every value below renders pixel-identical to the
+// pre-theme overlay — gold literals became t.accent (same hex) and the serif
+// became t.fontMono (refined's mono IS the serif); values that differ from
+// refined tokens branch on `themed` and keep the legacy literal.
 
 /** Sale metadata shown on the placard under an inventory item (0005). */
 export interface InspectSale {
@@ -38,6 +40,14 @@ interface InspectOverlayProps {
 }
 
 export default function InspectOverlay({ imageUrl, caption, details, sale, want, nav, vendor, onAddDetails, onClose }: InspectOverlayProps) {
+  const t = useTheme();
+  const themed = t.id !== 'refined';
+  // 'handheld': LCD desk scrim, 3px-ink card frame, dialog-box placard, ink
+  // chips. The card image itself stays FULL-RES and UNFILTERED in every theme
+  // — inspection is the one place fidelity wins. All close/nav wiring is
+  // shared across themes, untouched.
+  const lcd = t.id === 'handheld';
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.code === 'Escape') onClose(false);
@@ -76,19 +86,102 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
   const showSale =
     sale && (sale.price !== undefined || sale.condition || (sale.status && sale.status !== 'forSale'));
 
+  // Accent-on-dark hairline circles — vertically centered beside the card
+  // (fixed) on wide viewports; the inline pair lives in the placard.
+  // Handheld: square ink chips (screen outline) instead of circles.
+  const navBtnBase: CSSProperties = lcd
+    ? {
+        background: LCD.ink,
+        color: LCD.screen,
+        border: `2px solid ${LCD.screen}`,
+        borderRadius: 0,
+        boxSizing: 'border-box',
+        fontFamily: PIXEL_FONT,
+        fontWeight: 700,
+        textAlign: 'center',
+        padding: 0,
+        cursor: 'pointer',
+        userSelect: 'none',
+      }
+    : {
+        background: 'rgba(10,8,6,0.6)',
+        color: t.accent,
+        border: themed
+          ? `${t.borderWidth}px solid ${t.border}`
+          : '1px solid rgba(212,175,55,0.45)',
+        borderRadius: '50%',
+        fontFamily: t.fontMono,
+        textAlign: 'center',
+        padding: 0,
+        cursor: 'pointer',
+        userSelect: 'none',
+      };
+
+  const sideNavStyle: CSSProperties = {
+    ...navBtnBase,
+    position: 'fixed',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    width: '46px',
+    height: '46px',
+    fontSize: '26px',
+    lineHeight: '42px',
+    zIndex: 2,
+  };
+
+  const inlineNavStyle: CSSProperties = {
+    ...navBtnBase,
+    width: '36px',
+    height: '36px',
+    fontSize: '20px',
+    lineHeight: '32px',
+  };
+
+  /** Ghost pill (want heart / add details) — dark, hairline, small-caps.
+   *  Handheld: opaque LCD chip (panel bg, 2px ink, no radius). */
+  const ghostPillStyle: CSSProperties = lcd
+    ? {
+        background: LCD.panel,
+        color: LCD.ink,
+        border: `2px solid ${LCD.ink}`,
+        borderRadius: 0,
+        padding: '7px 14px',
+        fontSize: '10px',
+        fontFamily: PIXEL_FONT,
+        fontWeight: 700,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        cursor: 'pointer',
+      }
+    : {
+        background: 'rgba(10,8,6,0.55)',
+        color: 'rgba(255,255,255,0.78)',
+        border: themed
+          ? `${t.borderWidth}px solid ${t.border}`
+          : '1px solid rgba(255,255,255,0.28)',
+        borderRadius: '20px',
+        padding: '8px 20px',
+        fontSize: '12.5px',
+        fontFamily: t.fontMono,
+        letterSpacing: '0.14em',
+        cursor: 'pointer',
+      };
+
   return (
     <div
       onClick={() => onClose(true)}
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.88)',
+        // Handheld: the LCD "desk" around the screen — opaque-ish shell green
+        // (snaps in; LCDs don't fade). Other themes keep the dark scrim.
+        background: lcd ? withAlpha(LCD.shell, 0.92) : 'rgba(0,0,0,0.88)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 100,
-        animation: 'fadeIn 0.15s ease',
+        animation: lcd ? 'none' : 'fadeIn 0.15s ease',
         cursor: 'pointer',
         gap: '14px',
         // The column must never push the placard past the viewport: the
@@ -100,6 +193,7 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
         overflow: 'hidden',
       }}
     >
+      {lcd && <LcdCss />}
       <img
         src={imageUrl}
         alt="Card"
@@ -109,11 +203,25 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           flex: '0 1 auto',
           minHeight: 0,
           maxHeight: '82vh',
-          borderRadius: '8px',
-          boxShadow: '0 0 60px rgba(0,0,0,0.8)',
-          animation: 'scaleIn 0.2s ease',
           objectFit: 'contain',
           userSelect: 'none',
+          boxSizing: lcd ? 'border-box' : undefined,
+          // Handheld: 3px ink frame on screen-color backing — but the image
+          // itself is FULL-RES and UNFILTERED (no lcdImg here, on purpose).
+          ...(lcd
+            ? {
+                borderRadius: 0,
+                border: `3px solid ${LCD.ink}`,
+                background: LCD.screen,
+                padding: 4,
+                boxShadow: `4px 4px 0 ${LCD.shadowB}`,
+                animation: 'none',
+              }
+            : {
+                borderRadius: '8px',
+                boxShadow: '0 0 60px rgba(0,0,0,0.8)',
+                animation: 'scaleIn 0.2s ease',
+              }),
         }}
       />
 
@@ -147,7 +255,9 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
         </>
       )}
 
-      {/* Placard — never clipped (flexShrink 0); the image absorbs the squeeze. */}
+      {/* Placard — never clipped (flexShrink 0); the image absorbs the squeeze.
+          Handheld: the whole placard becomes THE LCD dialog box (opaque panel,
+          double ink border, blinking ▼ = awaiting input). */}
       <div
         style={{
           flexShrink: 0,
@@ -156,13 +266,23 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           alignItems: 'center',
           gap: '10px',
           maxWidth: '92vw',
+          ...(lcd ? { ...lcdDialogBox, padding: '12px 18px 14px', minWidth: 260 } : null),
         }}
       >
         {caption && (
-          <div style={{
+          <div style={lcd ? {
+            color: LCD.ink,
+            fontSize: '11px',
+            fontFamily: PIXEL_FONT,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            maxWidth: '80vw',
+            textAlign: 'center',
+            userSelect: 'none',
+          } : {
             color: 'rgba(255,255,255,0.85)',
             fontSize: '16px',
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             fontStyle: 'italic',
             letterSpacing: '0.04em',
             maxWidth: '80vw',
@@ -173,10 +293,18 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           </div>
         )}
         {details && (
-          <div style={{
+          <div style={lcd ? {
+            color: LCD.muted,
+            fontSize: '9px',
+            fontFamily: PIXEL_FONT,
+            letterSpacing: '0.06em',
+            maxWidth: '80vw',
+            textAlign: 'center',
+            userSelect: 'none',
+          } : {
             color: 'rgba(255,255,255,0.6)',
             fontSize: '13.5px',
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             letterSpacing: '0.06em',
             maxWidth: '80vw',
             textAlign: 'center',
@@ -190,34 +318,52 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
             display: 'flex',
             alignItems: 'baseline',
             gap: '14px',
-            fontFamily: SERIF,
+            fontFamily: t.fontMono,
             letterSpacing: '0.08em',
             userSelect: 'none',
           }}>
             {sale.price !== undefined && (
               <span style={{
-                color: sale.status === 'sold' ? 'rgba(255,255,255,0.4)' : GOLD,
-                fontSize: '19px',
+                color: sale.status === 'sold'
+                  ? (lcd ? LCD.muted : themed ? t.muted : 'rgba(255,255,255,0.4)')
+                  : t.accent,
+                fontSize: lcd ? '13px' : '19px',
+                fontWeight: lcd ? 700 : undefined,
                 textDecoration: sale.status === 'sold' ? 'line-through' : 'none',
               }}>
                 {formatPrice(sale.price)}
               </span>
             )}
             {sale.condition && (
-              <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: '14px' }}>
+              <span style={lcd
+                ? { color: LCD.muted, fontSize: '10px' }
+                : { color: 'rgba(255,255,255,0.65)', fontSize: '14px' }}>
                 {sale.condition}
               </span>
             )}
-            {sale.status === 'sold' && (
-              <span style={{ color: '#c9776b', fontSize: '13px', letterSpacing: '0.24em' }}>
+            {sale.status === 'sold' && (lcd ? (
+              <span style={{
+                background: LCD.ink,
+                color: LCD.screen,
+                fontWeight: 700,
+                fontSize: '10px',
+                letterSpacing: '0.08em',
+                padding: '2px 8px',
+              }}>
+                SOLD!
+              </span>
+            ) : (
+              <span style={{ color: themed ? t.accent : '#c9776b', fontSize: '13px', letterSpacing: '0.24em' }}>
                 SOLD
               </span>
-            )}
-            {sale.status === 'display' && (
+            ))}
+            {sale.status === 'display' && (lcd ? (
+              <span style={t.chip}>DISPLAY</span>
+            ) : (
               <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontStyle: 'italic' }}>
                 display only
               </span>
-            )}
+            ))}
           </div>
         )}
         {vendor && (
@@ -229,34 +375,48 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
               gap: '16px',
               flexWrap: 'wrap',
               justifyContent: 'center',
-              fontFamily: SERIF,
+              fontFamily: t.fontMono,
               userSelect: 'none',
               cursor: 'default',
             }}
           >
-            <span style={{
+            <span style={lcd ? {
+              color: LCD.muted,
+              fontSize: '10px',
+              letterSpacing: '0.04em',
+            } : {
               color: 'rgba(255,255,255,0.6)',
               fontSize: '14px',
               fontStyle: 'italic',
               letterSpacing: '0.04em',
             }}>
-              from <span style={{ color: 'rgba(255,255,255,0.92)' }}>{vendor.name}</span>
+              from <span style={lcd
+                ? { color: LCD.ink, fontWeight: 700 }
+                : { color: 'rgba(255,255,255,0.92)' }}>{vendor.name}</span>
             </span>
             {vendor.href && (
               <a
                 href={vendor.href}
                 onClick={(e) => e.stopPropagation()}
-                style={{
-                  color: GOLD,
+                style={lcd ? {
+                  color: LCD.ink,
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  fontFamily: PIXEL_FONT,
+                  letterSpacing: '0.08em',
+                  textDecoration: 'none',
+                  whiteSpace: 'nowrap',
+                } : {
+                  color: t.accent,
                   fontSize: '11.5px',
                   letterSpacing: '0.18em',
                   textDecoration: 'none',
-                  borderBottom: '1px solid rgba(212,175,55,0.45)',
+                  borderBottom: `1px solid ${withAlpha(t.accent, 0.45)}`,
                   paddingBottom: '1px',
                   whiteSpace: 'nowrap',
                 }}
               >
-                VISIT VENDOR PAGE →
+                {lcd ? <>▶ VISIT VENDOR PAGE</> : <>VISIT VENDOR PAGE →</>}
               </a>
             )}
           </div>
@@ -273,11 +433,13 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
                 style={{
                   ...ghostPillStyle,
                   ...(want.wanted
-                    ? {
-                        background: 'rgba(212,175,55,0.16)',
-                        color: GOLD,
-                        border: `1px solid ${GOLD}`,
-                      }
+                    ? (lcd
+                        ? { background: LCD.ink, color: LCD.screen }
+                        : {
+                            background: withAlpha(t.accent, 0.16),
+                            color: t.accent,
+                            border: `${themed ? t.borderWidth : 1}px solid ${t.accent}`,
+                          })
                     : null),
                 }}
               >
@@ -320,10 +482,16 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
             >
               ‹
             </button>
-            <span style={{
+            <span style={lcd ? {
+              color: LCD.muted,
+              fontSize: '9px',
+              fontFamily: PIXEL_FONT,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            } : {
               color: 'rgba(255,255,255,0.6)',
               fontSize: '13px',
-              fontFamily: SERIF,
+              fontFamily: t.fontMono,
               fontVariant: 'small-caps',
               letterSpacing: '0.14em',
             }}>
@@ -342,16 +510,32 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
             </button>
           </div>
         )}
-        <div style={{
+        <div style={lcd ? {
+          color: LCD.muted,
+          fontSize: '9px',
+          fontFamily: PIXEL_FONT,
+          letterSpacing: '0.08em',
+          userSelect: 'none',
+          textAlign: 'center',
+        } : {
           color: 'rgba(255,255,255,0.45)',
           fontSize: '13px',
-          fontFamily: SERIF,
+          fontFamily: t.fontMono,
           letterSpacing: '0.08em',
           userSelect: 'none',
           textAlign: 'center',
         }}>
           click anywhere to return to the room
         </div>
+        {lcd && (
+          <span
+            aria-hidden
+            className="lcd-blink"
+            style={{ position: 'absolute', right: 9, bottom: 5, fontSize: 9, color: LCD.ink, lineHeight: 1 }}
+          >
+            ▼
+          </span>
+        )}
       </div>
 
       <style>{`
@@ -366,62 +550,27 @@ export default function InspectOverlay({ imageUrl, caption, details, sale, want,
           .inspect-nav-side { display: block; }
           .inspect-nav-inline { display: none; }
         }
-        .inspect-nav-btn { transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
+        .inspect-nav-btn { transition: ${lcd ? 'none' : 'color 0.15s ease, border-color 0.15s ease, background 0.15s ease'}; }
         .inspect-nav-btn:hover {
-          color: #f4d97a;
+          ${lcd
+            ? `color: ${LCD.ink};
+          border-color: ${LCD.ink};
+          background: ${LCD.screen};`
+            : themed
+              ? `color: ${t.text};
+          border-color: ${t.accent};
+          background: ${withAlpha(t.bg, 0.85)};`
+              : `color: #f4d97a;
           border-color: rgba(212, 175, 55, 0.9);
-          background: rgba(28, 22, 14, 0.85);
+          background: rgba(28, 22, 14, 0.85);`}
         }
-        .inspect-pill { transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
-        .inspect-pill:hover { border-color: rgba(212, 175, 55, 0.75); color: #e8e4dc; }
+        .inspect-pill { transition: ${lcd ? 'none' : 'color 0.15s ease, border-color 0.15s ease, background 0.15s ease'}; }
+        .inspect-pill:hover { ${lcd
+          ? 'transform: translate(1px, 1px);'
+          : themed
+            ? `border-color: ${withAlpha(t.accent, 0.75)}; color: ${t.text};`
+            : 'border-color: rgba(212, 175, 55, 0.75); color: #e8e4dc;'} }
       `}</style>
     </div>
   );
 }
-
-// Gold-on-dark hairline circles, serif glyphs — vertically centered beside
-// the card (fixed) on wide viewports; the inline pair lives in the placard.
-const navBtnBase: CSSProperties = {
-  background: 'rgba(10,8,6,0.6)',
-  color: GOLD,
-  border: '1px solid rgba(212,175,55,0.45)',
-  borderRadius: '50%',
-  fontFamily: SERIF,
-  textAlign: 'center',
-  padding: 0,
-  cursor: 'pointer',
-  userSelect: 'none',
-};
-
-const sideNavStyle: CSSProperties = {
-  ...navBtnBase,
-  position: 'fixed',
-  top: '50%',
-  transform: 'translateY(-50%)',
-  width: '46px',
-  height: '46px',
-  fontSize: '26px',
-  lineHeight: '42px',
-  zIndex: 2,
-};
-
-const inlineNavStyle: CSSProperties = {
-  ...navBtnBase,
-  width: '36px',
-  height: '36px',
-  fontSize: '20px',
-  lineHeight: '32px',
-};
-
-/** Ghost pill (want heart / add details) — dark, hairline, serif small-caps. */
-const ghostPillStyle: CSSProperties = {
-  background: 'rgba(10,8,6,0.55)',
-  color: 'rgba(255,255,255,0.78)',
-  border: '1px solid rgba(255,255,255,0.28)',
-  borderRadius: '20px',
-  padding: '8px 20px',
-  fontSize: '12.5px',
-  fontFamily: SERIF,
-  letterSpacing: '0.14em',
-  cursor: 'pointer',
-};

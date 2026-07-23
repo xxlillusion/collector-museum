@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
-import { GOLD, HAIRLINE, MUTED, SERIF, inputStyle } from './museumKit';
+import { useTheme } from './themeKit';
 
 // Museum-styled search entry: submits to /search?q=… (the SearchScreen owns
 // the actual querying). Lives on the landing page and both directories.
+// Handheld: the input flows LCD tokens (3px ink border, Silkscreen); the
+// submit button becomes a bold ▶ chip.
 export default function SearchBox({
   initialQuery = '',
   autoFocus = false,
@@ -16,6 +18,8 @@ export default function SearchBox({
 }) {
   const [, navigate] = useLocation();
   const [q, setQ] = useState(initialQuery);
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
 
   const submit = () => {
     const trimmed = q.trim();
@@ -35,30 +39,40 @@ export default function SearchBox({
     >
       <input
         type="search"
-        placeholder="Search shows, vendors, cards…"
+        placeholder={lcd ? 'SEARCH SHOWS, VENDORS, CARDS…' : 'Search shows, vendors, cards…'}
         value={q}
         autoFocus={autoFocus}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') submit();
         }}
-        style={{ ...inputStyle, flex: 1, minWidth: 0, fontFamily: SERIF }}
+        style={{ ...t.input, flex: 1, minWidth: 0 }}
       />
       <button
         onClick={submit}
         title="Search"
         aria-label="Search"
-        style={{
+        style={lcd ? {
+          background: t.panel,
+          border: `3px solid ${t.border}`,
+          borderRadius: 0,
+          color: q.trim() ? t.text : t.muted,
+          fontFamily: t.fontMono,
+          fontWeight: 700,
+          fontSize: 12,
+          padding: '0 12px',
+          cursor: 'pointer',
+        } : {
           background: 'transparent',
-          border: `1px solid ${HAIRLINE}`,
+          border: `${t.borderWidth}px solid ${t.border}`,
           borderRadius: 2,
-          color: q.trim() ? GOLD : MUTED,
+          color: q.trim() ? t.accent : t.muted,
           fontSize: 16,
           padding: '0 14px',
           cursor: 'pointer',
         }}
       >
-        ⌕
+        {lcd ? '▶' : '⌕'}
       </button>
     </div>
   );

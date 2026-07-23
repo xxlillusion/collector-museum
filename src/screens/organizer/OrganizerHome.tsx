@@ -7,33 +7,37 @@ import { getMyProfile } from '../../lib/profileService';
 import { listMyShows, setShowPublished, deleteShow } from '../../lib/showService';
 import type { MyShow } from '../../lib/showService';
 import { formatShowDate } from '../shows/ShowDirectory';
-import {
-  GOLD, HAIRLINE, TEXT, MUTED, ERROR, SERIF,
-  Section, primaryButtonStyle, noteStyle, errorTextStyle,
-} from '../../components/museumKit';
-
-/** Big italic-serif commentary for the gate / empty states. */
-const bigNoteStyle: CSSProperties = { ...noteStyle, fontSize: 17, lineHeight: 1.7 };
-
-/** Gold text affordance for the show rows (Edit / Publish / Delete). */
-const rowActionStyle: CSSProperties = {
-  background: 'transparent',
-  border: 'none',
-  padding: '4px 2px',
-  color: GOLD,
-  fontFamily: SERIF,
-  fontSize: 12.5,
-  letterSpacing: '0.12em',
-  cursor: 'pointer',
-};
+import { Section, useTheme } from '../../components/themeKit';
+import { LCD, LcdDialog, lcdMenuBox, lcdMenuRow } from '../../components/lcdKit';
 
 export default function OrganizerHome() {
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
+  /** Big note commentary for the gate / empty states. */
+  const bigNoteStyle: CSSProperties = { ...t.note, fontSize: lcd ? 11 : 17, lineHeight: lcd ? 1.9 : 1.7 };
+  /** Accent text affordance for the show rows (Edit / Publish / Delete). */
+  const rowActionStyle: CSSProperties = {
+    background: 'transparent',
+    border: 'none',
+    padding: '4px 2px',
+    color: t.accent,
+    fontFamily: t.fontMono,
+    fontSize: 12.5,
+    letterSpacing: '0.12em',
+    cursor: 'pointer',
+  };
+  /** Handheld twin of rowActionStyle: chip-shaped row actions. */
+  const rowChipStyle: CSSProperties = { ...t.chip, fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap' };
+  const gateLinkStyle: CSSProperties = { color: t.accent, fontSize: lcd ? 11 : 15, fontFamily: t.fontMono, letterSpacing: '0.08em' };
   const { configured, session, loading } = useAuth();
   const [shows, setShows] = useState<MyShow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   // null = still checking the profile
   const [isOrganizer, setIsOrganizer] = useState<boolean | null>(null);
+  // Handheld theme only: delete confirmation runs as an in-page LCD dialog
+  // instead of window.confirm. Inert for the other themes.
+  const [pendingDelete, setPendingDelete] = useState<MyShow | null>(null);
 
   const userId = session?.user.id ?? null;
 
@@ -76,9 +80,10 @@ export default function OrganizerHome() {
     [reload],
   );
 
-  const handleDelete = useCallback(
+  /** The confirmed delete — shared by the window.confirm path and the
+   *  handheld dialog's YES choice. */
+  const doDelete = useCallback(
     async (show: MyShow) => {
-      if (!window.confirm(`Delete “${show.name}”? Its booths and floor plan go with it.`)) return;
       setBusyId(show.id);
       try {
         await deleteShow(show.id);
@@ -90,6 +95,14 @@ export default function OrganizerHome() {
       }
     },
     [reload],
+  );
+
+  const handleDelete = useCallback(
+    async (show: MyShow) => {
+      if (!window.confirm(`Delete “${show.name}”? Its booths and floor plan go with it.`)) return;
+      await doDelete(show);
+    },
+    [doDelete],
   );
 
   return (
@@ -107,7 +120,7 @@ export default function OrganizerHome() {
         <>
           <p style={bigNoteStyle}>Sign in to publish and manage your card shows.</p>
           <p style={{ marginTop: 18 }}>
-            <Link href="/login" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
+            <Link href="/login" style={gateLinkStyle}>
               Sign in →
             </Link>
           </p>
@@ -122,11 +135,11 @@ export default function OrganizerHome() {
         <>
           <p style={bigNoteStyle}>
             Only organizers can create shows — enable the organizer designation on your{' '}
-            <Link href="/account" style={{ color: GOLD }}>Account page</Link> and come back to
+            <Link href="/account" style={{ color: t.accent }}>Account page</Link> and come back to
             publish floor plans anyone can walk in 3D.
           </p>
           <p style={{ marginTop: 18 }}>
-            <Link href="/account" style={{ color: GOLD, fontSize: 15, fontFamily: SERIF, letterSpacing: '0.08em' }}>
+            <Link href="/account" style={gateLinkStyle}>
               Go to my account →
             </Link>
           </p>
@@ -139,40 +152,52 @@ export default function OrganizerHome() {
             <Link
               href="/organizer/show/new"
               style={{
-                ...primaryButtonStyle,
+                ...t.primaryButton,
                 display: 'inline-block',
                 textDecoration: 'none',
               }}
             >
-              CREATE A SHOW →
+              {lcd ? '▶ CREATE A SHOW' : 'CREATE A SHOW →'}
             </Link>
           </div>
 
           <Section numeral="I." title="MY SHOWS">
             {error && (
-              <p style={{ ...errorTextStyle, marginBottom: 14 }}>{error}</p>
+              <p style={{ ...t.errorText, marginBottom: 14 }}>{lcd ? '! ' : ''}{error}</p>
             )}
 
-            {shows === null && !error && <p style={noteStyle}>Loading your shows…</p>}
+            {shows === null && !error && <p style={t.note}>Loading your shows…</p>}
 
             {shows !== null && shows.length === 0 && !error && (
-              <p style={noteStyle}>Nothing published yet.</p>
+              lcd ? (
+                <LcdDialog cursor style={{ maxWidth: 480 }}>
+                  NO SHOWS YET! BUILD YOUR FIRST ONE?
+                </LcdDialog>
+              ) : (
+                <p style={t.note}>Nothing published yet.</p>
+              )
             )}
 
-            {shows !== null &&
-              shows.map((s) => {
+            {shows !== null && (() => {
+              const rows = shows.map((s, i) => {
                 const busy = busyId === s.id;
                 return (
                   <div
                     key={s.id}
                     className="museum-row"
-                    style={{
+                    style={lcd ? {
+                      ...lcdMenuRow(false),
+                      gap: 10,
+                      flexWrap: 'wrap',
+                      opacity: busy ? 0.6 : 1,
+                      ...(i === shows.length - 1 ? { borderBottom: 'none' } : {}),
+                    } : {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 14,
                       flexWrap: 'wrap',
                       padding: '14px 12px',
-                      borderBottom: `1px solid ${HAIRLINE}`,
+                      borderBottom: `1px solid ${t.border}`,
                       opacity: busy ? 0.6 : 1,
                     }}
                   >
@@ -180,16 +205,17 @@ export default function OrganizerHome() {
                       style={{
                         flex: 1,
                         minWidth: 140,
-                        color: TEXT,
-                        fontFamily: SERIF,
-                        fontSize: 16.5,
+                        color: t.text,
+                        fontFamily: t.fontDisplay,
+                        fontSize: lcd ? 11 : 16.5,
+                        fontWeight: lcd ? 700 : undefined,
                         letterSpacing: '0.04em',
                       }}
                     >
                       {s.published ? (
                         <Link
                           href={`/show/${s.id}`}
-                          style={{ color: TEXT, textDecoration: 'none' }}
+                          style={{ color: t.text, textDecoration: 'none' }}
                         >
                           {s.name}
                         </Link>
@@ -198,12 +224,17 @@ export default function OrganizerHome() {
                       )}
                     </span>
                     <span
-                      style={{
+                      style={lcd ? {
+                        ...t.chip,
+                        ...(s.published
+                          ? { background: LCD.ink, color: LCD.screen }
+                          : { color: t.muted }),
+                      } : {
                         fontSize: 10.5,
                         letterSpacing: '0.18em',
-                        fontFamily: SERIF,
-                        color: s.published ? GOLD : MUTED,
-                        border: `1px solid ${s.published ? GOLD : HAIRLINE}`,
+                        fontFamily: t.fontMono,
+                        color: s.published ? t.accent : t.muted,
+                        border: `${t.borderWidth}px solid ${s.published ? t.accent : t.border}`,
                         borderRadius: 2,
                         padding: '3px 9px',
                       }}
@@ -212,11 +243,10 @@ export default function OrganizerHome() {
                     </span>
                     <span
                       style={{
-                        color: MUTED,
-                        fontSize: 13,
+                        ...t.note,
+                        fontSize: lcd ? 9.5 : 13,
                         whiteSpace: 'nowrap',
-                        fontFamily: SERIF,
-                        fontStyle: 'italic',
+                        lineHeight: 'normal',
                       }}
                     >
                       {formatShowDate(s.showDate) ?? 'no date'} · {s.boothCount} booth
@@ -225,27 +255,43 @@ export default function OrganizerHome() {
                     </span>
                     <Link
                       href={`/organizer/show/${s.id}/edit`}
-                      style={{ ...rowActionStyle, textDecoration: 'none', display: 'inline-block' }}
+                      style={lcd
+                        ? { ...rowChipStyle, textDecoration: 'none', display: 'inline-block' }
+                        : { ...rowActionStyle, textDecoration: 'none', display: 'inline-block' }}
                     >
                       EDIT
                     </Link>
                     <button
                       onClick={() => handleTogglePublished(s)}
                       disabled={busy}
-                      style={rowActionStyle}
+                      style={lcd ? rowChipStyle : rowActionStyle}
                     >
                       {s.published ? 'UNPUBLISH' : 'PUBLISH'}
                     </button>
                     <button
-                      onClick={() => handleDelete(s)}
+                      onClick={() => (lcd ? setPendingDelete(s) : handleDelete(s))}
                       disabled={busy}
-                      style={{ ...rowActionStyle, color: ERROR }}
+                      style={lcd ? rowChipStyle : { ...rowActionStyle, color: t.error }}
                     >
                       DELETE
                     </button>
                   </div>
                 );
-              })}
+              });
+              return lcd && shows.length > 0 ? <div style={lcdMenuBox}>{rows}</div> : rows;
+            })()}
+
+            {lcd && pendingDelete && (
+              <LcdDialog
+                style={{ marginTop: 14 }}
+                choices={[
+                  { label: 'NO', primary: true, onClick: () => setPendingDelete(null) },
+                  { label: 'YES', onClick: () => { const s = pendingDelete; setPendingDelete(null); doDelete(s); } },
+                ]}
+              >
+                ! REALLY DELETE {pendingDelete.name}? ITS BOOTHS AND FLOOR PLAN GO WITH IT!
+              </LcdDialog>
+            )}
           </Section>
         </>
       )}

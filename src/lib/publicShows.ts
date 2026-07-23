@@ -3,6 +3,9 @@ import { publicImageUrl, downloadImage } from './supabaseImages';
 import type { VendorPlanMeta, VendorRect } from './vendorPlan';
 import type { VendorSummary } from './useVendors';
 import type { InventoryItemRecord, InventoryStatus, VendorShowEntry } from './db';
+import { parseSignage, type HallSignageConfig } from './hallSignage';
+import { normalizeBoothLayout } from './boothLayout';
+import type { DisplayPref } from './displayPref';
 
 /**
  * Anonymous public reads for the shows directory and the 3D walk.
@@ -46,6 +49,10 @@ export interface ShowWalkData {
   hours: string;
   admission: string;
   externalUrl: string;
+  /** Organizer hall signage config (0008 jsonb) — null = pure defaults
+   *  (header/entrance render the show's name). Hosts resolve via
+   *  resolveSignage(signage, name, urls). */
+  signage: HallSignageConfig | null;
   /** Reconstructed working-slot meta (plan_meta + rects from booths), or
    *  null when the stored meta lacks the essentials — Walk stays disabled. */
   meta: VendorPlanMeta | null;
@@ -160,7 +167,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     const { data, error } = await sb
       .from('shows')
       .select(
-        'id, name, organizer_id, show_date, country, state, city, venue_name, address, hours, admission, external_url, plan_image_path, plan_meta, booths(rect, vendor_id)',
+        'id, name, organizer_id, show_date, country, state, city, venue_name, address, hours, admission, external_url, signage, plan_image_path, plan_meta, booths(rect, vendor_id)',
       )
       .eq('id', id)
       .maybeSingle();
@@ -178,6 +185,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
       hours: string | null;
       admission: string | null;
       external_url: string | null;
+      signage: unknown;
       plan_image_path: string | null;
       plan_meta: Record<string, unknown> | null;
       booths: { rect: unknown; vendor_id: string | null }[] | null;
@@ -203,31 +211,47 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
     if (vendorIds.length > 0) {
       const { data: vendorRows } = await sb
         .from('vendors')
-        .select('id, name, banner_path, manual_shows, created_at, updated_at')
+        .select('id, name, banner_path, manual_shows, booth_layout, created_at, updated_at')
         .in('id', vendorIds);
       const rowsV = (vendorRows ?? []) as {
         id: string;
         name: string;
         banner_path: string | null;
         manual_shows: VendorShowEntry[] | null;
+        booth_layout: unknown;
         created_at: string;
         updated_at: string;
       }[];
       const counts = await Promise.all(
         rowsV.map(async (v) => {
-          const { count } = await sb
-            .from('inventory_items')
-            .select('id', { count: 'exact', head: true })
-            .eq('vendor_id', v.id)
-            .eq('visible', true);
-          return count ?? 0;
+          // Total visible (directory labels) + binder-eligible (poses/slices
+          // must agree — display 'walls' items never enter hall binders).
+          const [total, binder] = await Promise.all([
+            sb
+              .from('inventory_items')
+              .select('id', { count: 'exact', head: true })
+              .eq('vendor_id', v.id)
+              .eq('visible', true),
+            sb
+              .from('inventory_items')
+              .select('id', { count: 'exact', head: true })
+              .eq('vendor_id', v.id)
+              .eq('visible', true)
+              .neq('display_pref', 'walls'),
+          ]);
+          return {
+            total: total.count ?? 0,
+            binder: binder.error ? undefined : binder.count ?? 0,
+          };
         }),
       );
       vendors = rowsV.map((v, i) => ({
         id: v.id,
         name: v.name,
         bannerUrl: v.banner_path ? publicImageUrl('banners', v.banner_path) : null,
-        inventoryCount: counts[i],
+        inventoryCount: counts[i].total,
+        binderCount: counts[i].binder,
+        boothLayout: normalizeBoothLayout(v.booth_layout),
         manualShows: v.manual_shows ?? [],
         createdAt: Date.parse(v.created_at) || 0,
         updatedAt: Date.parse(v.updated_at) || 0,
@@ -238,7 +262,9 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
       try {
         const { data: items, error: invErr } = await sb
           .from('inventory_items')
-          .select('id, vendor_id, image_path, caption, visible, aspect, added_at, price, status, condition')
+          .select(
+            'id, vendor_id, image_path, caption, visible, aspect, added_at, price, status, condition, display_pref, wall_slot',
+          )
           .eq('vendor_id', vendorId)
           .eq('visible', true)
           .order('added_at', { ascending: true });
@@ -255,6 +281,8 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
             price: number | null;
             status: InventoryStatus | null;
             condition: string | null;
+            display_pref: DisplayPref | null;
+            wall_slot: string | null;
           }[]).map(async (item): Promise<InventoryItemRecord | null> => {
             try {
               const imageBlob = await downloadImage('inventory', item.image_path);
@@ -271,6 +299,8 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
                 price: item.price ?? undefined,
                 status: item.status ?? undefined,
                 condition: item.condition || undefined,
+                display: item.display_pref ?? undefined,
+                wallSlot: item.wall_slot ?? undefined,
               };
             } catch {
               return null; // a missing image shouldn't sink the whole binder
@@ -296,6 +326,7 @@ export async function getShowForWalk(id: string): Promise<ShowWalkData | null> {
       hours: show.hours ?? '',
       admission: show.admission ?? '',
       externalUrl: show.external_url ?? '',
+      signage: parseSignage(show.signage),
       meta,
       planUrl,
       vendors,

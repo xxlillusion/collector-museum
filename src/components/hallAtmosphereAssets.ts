@@ -1,16 +1,23 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import {
+  DEFAULT_SIGNAGE_TITLE,
+  SIGNAGE_THEMES,
+  signageCacheKey,
+} from '../lib/hallSignage';
+import type { ResolvedHallSignage, SignagePalette } from '../lib/hallSignage';
 
 // Canvas-baked textures + shared materials/geometries for HallAtmosphere.
-// Everything is a lazy module singleton (same pattern as tableGeometry.ts):
-// built once per session, shared by every instanced draw, never disposed by
-// R3F (passed via args). Palette = the museum kit's gold-on-dark so the hall
-// signage reads as the same brand as the DOM chrome.
-
-const GOLD = '#d4af37';
-const GOLD_SOFT = 'rgba(212,175,55,0.55)';
-const CREAM = '#e8d9a8';
-const DARK = '#1b1613'; // banner cloth ground (panel-dark, warm)
+// Since F3 the signage set (header / cloth banners / entrance sign) is
+// parameterized by ResolvedHallSignage — title/subtitle/theme palette and
+// optional uploaded images — behind a small keyed cache (signageCacheKey,
+// cap 2: the current look + the one just edited away from; evicted entries
+// dispose their textures/materials). Everything signage-independent (door,
+// truss, carpet, pennant materials + every geometry) stays a lazy module
+// singleton exactly like tableGeometry.ts, so its identity never churns.
+// resolveSignage(null) — title 'CARD SHOW', classic subtitle, classicGold —
+// reproduces the pre-F3 baked canvases stroke for stroke; that regression
+// key is load-bearing.
 
 const SERIF = 'Georgia, "Times New Roman", serif';
 
@@ -55,74 +62,193 @@ function diamond(ctx: CanvasRenderingContext2D, x: number, y: number, r: number)
   ctx.closePath();
 }
 
+function setLetterSpacing(ctx: CanvasRenderingContext2D, px: number) {
+  try {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${px}px`;
+  } catch { /* older engines — spacing is cosmetic */ }
+}
+
 // ---------------------------------------------------------------------------
-// Header banner — "CARD SHOW" (north wall)
+// Palette shades — the accents the canvases need beyond the four theme fields
+// ---------------------------------------------------------------------------
+
+function hexRgb(hex: string): [number, number, number] | null {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+const toHex = (r: number, g: number, b: number) =>
+  `#${[r, g, b]
+    .map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0'))
+    .join('')}`;
+
+/** Mix toward another color (t = 0..1). */
+function mixHex(hex: string, toward: string, t: number): string {
+  const a = hexRgb(hex);
+  const b = hexRgb(toward);
+  if (!a || !b) return hex;
+  return toHex(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+}
+
+/** Multiply toward black (f < 1 darkens). */
+function scaleHex(hex: string, f: number): string {
+  const a = hexRgb(hex);
+  if (!a) return hex;
+  return toHex(a[0] * f, a[1] * f, a[2] * f);
+}
+
+function alphaOf(hex: string, alpha: number): string {
+  const a = hexRgb(hex);
+  if (!a) return hex;
+  return `rgba(${a[0]},${a[1]},${a[2]},${alpha})`;
+}
+
+/** Gradient stops + translucent accents. classicGold's stops were hand-tuned
+ *  pre-F3; while the palette still carries those exact hexes the original
+ *  literals come back verbatim (the regression key). Tuned or non-classic
+ *  palettes derive everything from gold/dark. */
+interface Shades {
+  headerTop: string;
+  headerBot: string;
+  bannerTop: string;
+  bannerBot: string;
+  titleHi: string;
+  titleLo: string;
+  a28: string;
+  a40: string;
+  a45: string;
+  a50: string;
+}
+
+function shadesFor(p: SignagePalette): Shades {
+  if (p.gold === '#d4af37' && p.dark === '#1b1613') {
+    return {
+      headerTop: '#221c16',
+      headerBot: '#141009',
+      bannerTop: '#231d17',
+      bannerBot: '#120e08',
+      titleHi: '#ecd489',
+      titleLo: '#9a7b22',
+      a28: 'rgba(212,175,55,0.28)',
+      a40: 'rgba(212,175,55,0.4)',
+      a45: 'rgba(212,175,55,0.45)',
+      a50: 'rgba(212,175,55,0.5)',
+    };
+  }
+  return {
+    headerTop: mixHex(p.dark, '#ffffff', 0.035),
+    headerBot: scaleHex(p.dark, 0.72),
+    bannerTop: mixHex(p.dark, '#ffffff', 0.045),
+    bannerBot: scaleHex(p.dark, 0.62),
+    titleHi: mixHex(p.gold, '#ffffff', 0.35),
+    titleLo: scaleHex(p.gold, 0.7),
+    a28: alphaOf(p.gold, 0.28),
+    a40: alphaOf(p.gold, 0.4),
+    a45: alphaOf(p.gold, 0.45),
+    a50: alphaOf(p.gold, 0.5),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Text fitting — shrink long organizer text; the classic strings fit at their
+// base sizes with hundreds of px to spare, so defaults render untouched
+// ---------------------------------------------------------------------------
+
+/** Single-line ellipsis for text that would dwarf any font size. */
+function ellipsize(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Step the size down until `text` fits `maxWidth`; letter spacing scales
+ *  with the size so shrunken titles keep their tracking. Leaves the context
+ *  font/spacing set for the caller's fillText. */
+function fitFont(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  baseSize: number,
+  baseSpacing: number,
+  maxWidth: number,
+  minSize: number,
+  fontOf: (size: number) => string,
+): void {
+  let size = baseSize;
+  for (;;) {
+    setLetterSpacing(ctx, Math.round(baseSpacing * (size / baseSize)));
+    ctx.font = fontOf(size);
+    if (ctx.measureText(text).width <= maxWidth || size <= minSize) return;
+    size = Math.max(minSize, Math.floor(size * 0.93));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Header banner — show title + subtitle (north wall)
 // ---------------------------------------------------------------------------
 
 export const HEADER_ASPECT = 456 / 2048; // h / w of the canvas below
 
-function makeHeaderCanvas(): HTMLCanvasElement {
+function makeHeaderCanvas(title: string, subtitle: string, p: SignagePalette): HTMLCanvasElement {
   const [c, ctx] = canvas(2048, 456);
+  const sh = shadesFor(p);
 
   const bg = ctx.createLinearGradient(0, 0, 0, 456);
-  bg.addColorStop(0, '#221c16');
-  bg.addColorStop(0.5, DARK);
-  bg.addColorStop(1, '#141009');
+  bg.addColorStop(0, sh.headerTop);
+  bg.addColorStop(0.5, p.dark);
+  bg.addColorStop(1, sh.headerBot);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, 2048, 456);
   grain(ctx, 2048, 456, 2600, 0.16);
 
   // Double border, museum-plaque style
-  ctx.strokeStyle = GOLD_SOFT;
+  ctx.strokeStyle = p.goldSoft;
   ctx.lineWidth = 3;
   ctx.strokeRect(26, 26, 2048 - 52, 456 - 52);
-  ctx.strokeStyle = 'rgba(212,175,55,0.28)';
+  ctx.strokeStyle = sh.a28;
   ctx.lineWidth = 1.5;
   ctx.strokeRect(40, 40, 2048 - 80, 456 - 80);
 
   // Corner diamonds
-  ctx.fillStyle = GOLD_SOFT;
+  ctx.fillStyle = p.goldSoft;
   for (const [x, y] of [[26, 26], [2022, 26], [26, 430], [2022, 430]]) {
     diamond(ctx, x, y, 14);
     ctx.fill();
   }
 
-  // Title with a soft gold gradient
-  const title = ctx.createLinearGradient(0, 110, 0, 300);
-  title.addColorStop(0, '#ecd489');
-  title.addColorStop(0.55, GOLD);
-  title.addColorStop(1, '#9a7b22');
+  // Title with a soft gold gradient — auto-fit keeps long show names inside
+  // the plaque ('CARD SHOW' fits at the base 196px, so defaults are exact)
+  const titleText = ellipsize(title, 40);
+  const grad = ctx.createLinearGradient(0, 110, 0, 300);
+  grad.addColorStop(0, sh.titleHi);
+  grad.addColorStop(0.55, p.gold);
+  grad.addColorStop(1, sh.titleLo);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,0.6)';
   ctx.shadowBlur = 14;
   ctx.shadowOffsetY = 6;
-  ctx.fillStyle = title;
-  try {
-    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '26px';
-  } catch { /* older engines — spacing is cosmetic */ }
-  ctx.font = `600 196px ${SERIF}`;
-  ctx.fillText('CARD SHOW', 1024, 208);
+  ctx.fillStyle = grad;
+  fitFont(ctx, titleText, 196, 26, 1800, 52, (s) => `600 ${s}px ${SERIF}`);
+  ctx.fillText(titleText, 1024, 208);
   ctx.shadowColor = 'transparent';
 
-  // Flanking diamonds + rules beside the title
-  const halfTitle = ctx.measureText('CARD SHOW').width / 2;
-  ctx.fillStyle = GOLD_SOFT;
+  // Flanking diamonds + rules beside the title (wide titles zero the rules
+  // out — negative-width fillRect is a no-op, exactly as pre-F3)
+  const halfTitle = ctx.measureText(titleText).width / 2;
+  ctx.fillStyle = p.goldSoft;
   diamond(ctx, 1024 - halfTitle - 74, 208, 26);
   ctx.fill();
   diamond(ctx, 1024 + halfTitle + 74, 208, 26);
   ctx.fill();
-  ctx.fillStyle = 'rgba(212,175,55,0.4)';
+  ctx.fillStyle = sh.a40;
   ctx.fillRect(120, 205, 1024 - halfTitle - 240, 4);
   ctx.fillRect(1024 + halfTitle + 120, 205, 2048 - 240 - (1024 + halfTitle + 120), 4);
 
   // Subtitle
-  try {
-    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '18px';
-  } catch { /* */ }
-  ctx.font = `54px ${SERIF}`;
-  ctx.fillStyle = CREAM;
-  ctx.fillText('TRADE  ·  COLLECT  ·  PLAY', 1024, 356);
+  const subText = ellipsize(subtitle, 60);
+  ctx.fillStyle = p.cream;
+  fitFont(ctx, subText, 54, 18, 1800, 30, (s) => `${s}px ${SERIF}`);
+  ctx.fillText(subText, 1024, 356);
   return c;
 }
 
@@ -132,49 +258,63 @@ function makeHeaderCanvas(): HTMLCanvasElement {
 
 export const BANNER_ASPECT = 800 / 512; // h / w
 
-function makeBannerCanvas(): HTMLCanvasElement {
-  const [c, ctx] = canvas(512, 800);
-  const W = 512;
-  const H = 800;
-  const notch = 74; // swallowtail depth
+const BANNER_W = 512;
+const BANNER_H = 800;
+const BANNER_NOTCH = 74; // swallowtail depth
 
-  // Cloth silhouette (transparent outside — material uses alphaTest)
+/** The cloth silhouette path (transparent outside — material uses alphaTest). */
+function bannerSilhouette(ctx: CanvasRenderingContext2D) {
   ctx.beginPath();
   ctx.moveTo(0, 0);
-  ctx.lineTo(W, 0);
-  ctx.lineTo(W, H - notch);
-  ctx.lineTo(W / 2, H);
-  ctx.lineTo(0, H - notch);
+  ctx.lineTo(BANNER_W, 0);
+  ctx.lineTo(BANNER_W, BANNER_H - BANNER_NOTCH);
+  ctx.lineTo(BANNER_W / 2, BANNER_H);
+  ctx.lineTo(0, BANNER_H - BANNER_NOTCH);
   ctx.closePath();
+}
+
+/** Hanging sleeve + grommets — drawn on the baked banner AND back over an
+ *  uploaded one, so organizer art still reads as hung show cloth. */
+function bannerSleeve(ctx: CanvasRenderingContext2D, grommetRing: string) {
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(0, 0, BANNER_W, 40);
+  ctx.fillStyle = '#0d0b09';
+  ctx.beginPath();
+  ctx.arc(58, 20, 9, 0, Math.PI * 2);
+  ctx.arc(BANNER_W - 58, 20, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = grommetRing;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(58, 20, 9, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(BANNER_W - 58, 20, 9, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function makeBannerCanvas(words: string[], p: SignagePalette): HTMLCanvasElement {
+  const [c, ctx] = canvas(BANNER_W, BANNER_H);
+  const sh = shadesFor(p);
+  const W = BANNER_W;
+  const H = BANNER_H;
+  const notch = BANNER_NOTCH;
+
+  bannerSilhouette(ctx);
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#231d17');
-  bg.addColorStop(0.5, DARK);
-  bg.addColorStop(1, '#120e08');
+  bg.addColorStop(0, sh.bannerTop);
+  bg.addColorStop(0.5, p.dark);
+  bg.addColorStop(1, sh.bannerBot);
   ctx.fillStyle = bg;
   ctx.fill();
   ctx.save();
   ctx.clip();
   grain(ctx, W, H, 1400, 0.15);
 
-  // Hanging sleeve + grommets
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(0, 0, W, 40);
-  ctx.fillStyle = '#0d0b09';
-  ctx.beginPath();
-  ctx.arc(58, 20, 9, 0, Math.PI * 2);
-  ctx.arc(W - 58, 20, 9, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(212,175,55,0.5)';
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.arc(58, 20, 9, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(W - 58, 20, 9, 0, Math.PI * 2);
-  ctx.stroke();
+  bannerSleeve(ctx, sh.a50);
 
   // Border following the swallowtail
-  ctx.strokeStyle = GOLD_SOFT;
+  ctx.strokeStyle = p.goldSoft;
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(22, 56);
@@ -186,33 +326,33 @@ function makeBannerCanvas(): HTMLCanvasElement {
   ctx.stroke();
 
   // Big ornament diamond, double-lined
-  ctx.strokeStyle = GOLD;
+  ctx.strokeStyle = p.gold;
   ctx.lineWidth = 5;
   diamond(ctx, W / 2, 240, 96);
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(212,175,55,0.45)';
+  ctx.strokeStyle = sh.a45;
   ctx.lineWidth = 2;
   diamond(ctx, W / 2, 240, 118);
   ctx.stroke();
-  ctx.fillStyle = GOLD;
+  ctx.fillStyle = p.gold;
   diamond(ctx, W / 2, 240, 34);
   ctx.fill();
 
-  // Stacked wordmark
+  // Stacked wordmark — subtitle words (max 4); rows tighten past three so
+  // the stack never chases the swallowtail. Three words at step 110 = the
+  // classic layout exactly.
+  const shown = words.slice(0, 4).map((w) => ellipsize(w, 16));
+  const step = shown.length <= 3 ? 110 : Math.min(110, (668 - 430) / (shown.length - 1));
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  try {
-    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '12px';
-  } catch { /* */ }
-  ctx.font = `64px ${SERIF}`;
-  const words = ['TRADE', 'COLLECT', 'PLAY'];
-  words.forEach((w, i) => {
-    const y = 430 + i * 110;
-    ctx.fillStyle = CREAM;
+  shown.forEach((w, i) => {
+    const y = 430 + i * step;
+    ctx.fillStyle = p.cream;
+    fitFont(ctx, w, 64, 12, 440, 28, (s) => `${s}px ${SERIF}`);
     ctx.fillText(w, W / 2, y);
-    if (i < words.length - 1) {
-      ctx.fillStyle = GOLD_SOFT;
-      diamond(ctx, W / 2, y + 55, 9);
+    if (i < shown.length - 1) {
+      ctx.fillStyle = p.goldSoft;
+      diamond(ctx, W / 2, y + step / 2, 9);
       ctx.fill();
     }
   });
@@ -221,10 +361,10 @@ function makeBannerCanvas(): HTMLCanvasElement {
 }
 
 // ---------------------------------------------------------------------------
-// Entrance sign — emissive "ENTRANCE" lozenge (bloom pickup)
+// Entrance sign — emissive lozenge (bloom pickup)
 // ---------------------------------------------------------------------------
 
-function makeSignCanvas(): HTMLCanvasElement {
+function makeSignCanvas(text: string): HTMLCanvasElement {
   const [c, ctx] = canvas(768, 224);
   ctx.fillStyle = '#0b0a09';
   ctx.fillRect(0, 0, 768, 224);
@@ -233,17 +373,25 @@ function makeSignCanvas(): HTMLCanvasElement {
   ctx.strokeRect(22, 22, 768 - 44, 224 - 44);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  try {
-    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '22px';
-  } catch { /* */ }
-  ctx.font = `600 108px ${SERIF}`;
   ctx.fillStyle = '#ffe9c4';
-  ctx.fillText('ENTRANCE', 384, 118);
+  // The lozenge is small — a tight ellipsis + low size floor keep even
+  // pathological titles inside the frame (typical titles fit at 40px+).
+  const shown = text === 'ENTRANCE' ? text : ellipsize(text, 22);
+  if (shown === 'ENTRANCE') {
+    // Default sign — pre-F3 drawing verbatim (no fit pass; the classic
+    // lettering must come back byte-for-byte, and it slightly overfills the
+    // fit budget custom titles get)
+    setLetterSpacing(ctx, 22);
+    ctx.font = `600 108px ${SERIF}`;
+  } else {
+    fitFont(ctx, shown, 108, 22, 700, 24, (s) => `600 ${s}px ${SERIF}`);
+  }
+  ctx.fillText(shown, 384, 118);
   return c;
 }
 
 // ---------------------------------------------------------------------------
-// Door leaf — dark metal with recessed panels + kick plate
+// Door leaf — dark metal with recessed panels + kick plate (signage-invariant)
 // ---------------------------------------------------------------------------
 
 function makeDoorCanvas(): HTMLCanvasElement {
@@ -287,7 +435,51 @@ function makeDoorCanvas(): HTMLCanvasElement {
 }
 
 // ---------------------------------------------------------------------------
-// Assets bundle
+// Uploaded-image composites — organizer art in the baked frames' clothes
+// ---------------------------------------------------------------------------
+
+/** Cover-fit draw (fill + center crop) — never letterboxes, never distorts. */
+function coverDraw(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  w: number,
+  h: number,
+) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return;
+  const s = Math.max(w / iw, h / ih);
+  ctx.drawImage(img, (w - iw * s) / 2, (h - ih * s) / 2, iw * s, ih * s);
+}
+
+/** Uploaded header art, cover-fit full bleed on the plaque ground. */
+function compositeHeaderImage(img: HTMLImageElement, p: SignagePalette): HTMLCanvasElement {
+  const [c, ctx] = canvas(2048, 456);
+  ctx.fillStyle = p.dark;
+  ctx.fillRect(0, 0, 2048, 456);
+  coverDraw(ctx, img, 2048, 456);
+  return c;
+}
+
+/** Uploaded banner art inside the swallowtail silhouette — the cutout mask
+ *  stays (alphaTest) and the sleeve + grommets return on top, so a plain
+ *  rectangular upload still reads as hung show cloth. */
+function compositeBannerImage(img: HTMLImageElement, p: SignagePalette): HTMLCanvasElement {
+  const [c, ctx] = canvas(BANNER_W, BANNER_H);
+  const sh = shadesFor(p);
+  bannerSilhouette(ctx);
+  ctx.fillStyle = p.dark;
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  coverDraw(ctx, img, BANNER_W, BANNER_H);
+  bannerSleeve(ctx, sh.a50);
+  ctx.restore();
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+// Assets bundle — signage-keyed cache over shared invariants
 // ---------------------------------------------------------------------------
 
 export interface AtmosphereAssets {
@@ -298,23 +490,36 @@ export interface AtmosphereAssets {
   frameMaterial: THREE.MeshStandardMaterial;
   trussMaterial: THREE.MeshStandardMaterial;
   carpetMaterial: THREE.MeshStandardMaterial;
+  /** White base — pennant triangles color per instance (theme palette). */
+  pennantMaterial: THREE.MeshStandardMaterial;
   /** Unit 1×1 plane facing +Z — banners, header, carpet strips (scaled per instance). */
   unitPlane: THREE.PlaneGeometry;
   /** Unit 1×1×1 box — truss members (scaled per instance). */
   unitBox: THREE.BoxGeometry;
   /** Sign lozenge plane (1.5 × 0.44). */
   signGeometry: THREE.PlaneGeometry;
+  /** Bunting triangle (0.18 wide × 0.24 drop), top edge at the origin. */
+  pennantGeometry: THREE.BufferGeometry;
 }
 
-let assets: AtmosphereAssets | null = null;
+/** Signage-independent members, built once per session. */
+type SharedAssets = Pick<
+  AtmosphereAssets,
+  | 'doorMaterial'
+  | 'frameMaterial'
+  | 'trussMaterial'
+  | 'carpetMaterial'
+  | 'pennantMaterial'
+  | 'unitPlane'
+  | 'unitBox'
+  | 'signGeometry'
+  | 'pennantGeometry'
+>;
 
-export function getAtmosphereAssets(): AtmosphereAssets {
-  if (assets) return assets;
+let shared: SharedAssets | null = null;
 
-  const headerTex = colorTexture(makeHeaderCanvas());
-  const bannerTex = colorTexture(makeBannerCanvas());
-  const signTex = colorTexture(makeSignCanvas(), 4);
-  const doorTex = colorTexture(makeDoorCanvas(), 4);
+function getShared(): SharedAssets {
+  if (shared) return shared;
 
   const unitPlane = new THREE.PlaneGeometry(1, 1);
   unitPlane.name = 'atmoUnitPlane';
@@ -323,7 +528,136 @@ export function getAtmosphereAssets(): AtmosphereAssets {
   const signGeometry = new THREE.PlaneGeometry(1.5, 0.44);
   signGeometry.name = 'atmoSign';
 
-  assets = {
+  // Bunting triangle: top edge centered at the origin, apex pointing down.
+  const pennantGeometry = new THREE.BufferGeometry();
+  pennantGeometry.setAttribute(
+    'position',
+    new THREE.BufferAttribute(new Float32Array([-0.09, 0, 0, 0.09, 0, 0, 0, -0.24, 0]), 3),
+  );
+  pennantGeometry.computeVertexNormals();
+  pennantGeometry.name = 'atmoPennant';
+
+  shared = {
+    doorMaterial: new THREE.MeshStandardMaterial({
+      map: colorTexture(makeDoorCanvas(), 4),
+      roughness: 0.5,
+      metalness: 0.55,
+      envMapIntensity: 0.7,
+    }),
+    frameMaterial: new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.4,
+      metalness: 0.8,
+      envMapIntensity: 0.8,
+    }),
+    trussMaterial: new THREE.MeshStandardMaterial({
+      color: '#2c2e31',
+      roughness: 0.42,
+      metalness: 0.75,
+      envMapIntensity: 0.7,
+    }),
+    carpetMaterial: new THREE.MeshStandardMaterial({
+      color: '#ffffff', // per-instance colors (field / border)
+      roughness: 0.97,
+      metalness: 0,
+      envMapIntensity: 0.12,
+    }),
+    pennantMaterial: new THREE.MeshStandardMaterial({
+      color: '#ffffff', // per-instance colors (theme pennant cycle)
+      roughness: 0.92,
+      metalness: 0,
+      envMapIntensity: 0.15,
+      side: THREE.DoubleSide, // flat cloth triangles, seen from both aisles
+    }),
+    unitPlane,
+    unitBox,
+    signGeometry,
+    pennantGeometry,
+  };
+  return shared;
+}
+
+interface CacheEntry {
+  assets: AtmosphereAssets;
+  /** Textures/materials owned by THIS entry (shared members excluded). */
+  disposables: Set<THREE.Texture | THREE.Material>;
+  disposed: boolean;
+}
+
+const signageCache = new Map<string, CacheEntry>();
+
+/** Current look + the one just edited away from. */
+const CACHE_CAP = 2;
+
+/**
+ * Loads `url` with the VendorTables CORS idiom and, on successful decode,
+ * swaps the material's map + emissiveMap in place — a texture swap, zero
+ * draw-call change. Decode/CORS failure keeps the baked default silently.
+ */
+function swapInImage(
+  entry: CacheEntry,
+  material: THREE.MeshStandardMaterial,
+  url: string,
+  composite: (img: HTMLImageElement) => HTMLCanvasElement,
+) {
+  const img = new Image();
+  // Cloud signage art comes off the Supabase CDN: without CORS opt-in the
+  // canvas taints and the texture upload throws. blob: object URLs (sandbox)
+  // ignore the attribute, so the local path is unaffected.
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    if (entry.disposed) return; // evicted while the image was in flight
+    const tex = colorTexture(composite(img));
+    const old = material.map;
+    material.map = tex;
+    material.emissiveMap = tex;
+    material.needsUpdate = true;
+    entry.disposables.add(tex);
+    if (old) {
+      entry.disposables.delete(old);
+      old.dispose();
+    }
+  };
+  img.src = url;
+}
+
+/**
+ * The signage-parameterized asset bundle. Keyed on signageCacheKey — same
+ * look, same objects (stable material identity is what keeps R3F from
+ * recreating the instanced meshes every render); a new look builds fresh
+ * header/banner/sign materials while every invariant member keeps its
+ * module-singleton identity.
+ */
+export function getAtmosphereAssets(signage: ResolvedHallSignage): AtmosphereAssets {
+  const key = signageCacheKey(signage);
+  const hit = signageCache.get(key);
+  if (hit) {
+    // LRU touch — the other entry becomes the eviction candidate
+    signageCache.delete(key);
+    signageCache.set(key, hit);
+    return hit.assets;
+  }
+
+  const base = getShared();
+  const palette = SIGNAGE_THEMES[signage.theme];
+
+  const headerTex = colorTexture(makeHeaderCanvas(signage.title, signage.subtitle, palette));
+  // Banner wordmark = subtitle split on '·' (the classic three by default)
+  const words = signage.subtitle
+    .split('·')
+    .map((w) => w.trim().toUpperCase())
+    .filter(Boolean);
+  const bannerTex = colorTexture(
+    makeBannerCanvas(words.length > 0 ? words : ['TRADE', 'COLLECT', 'PLAY'], palette),
+  );
+  // The entrance lozenge carries the show's title; an untitled hall keeps
+  // the classic 'ENTRANCE' (that IS the pre-F3 canvas — the regression key).
+  const signTex = colorTexture(
+    makeSignCanvas(signage.title === DEFAULT_SIGNAGE_TITLE ? 'ENTRANCE' : signage.title),
+    4,
+  );
+
+  const assets: AtmosphereAssets = {
     // Slight self-lift (emissiveMap = map at 6%) keeps the gold readable in
     // aisle shadow without ever reaching the 1.2 bloom threshold.
     headerMaterial: new THREE.MeshStandardMaterial({
@@ -351,34 +685,50 @@ export function getAtmosphereAssets(): AtmosphereAssets {
       toneMapped: false,
       roughness: 0.6,
     }),
-    doorMaterial: new THREE.MeshStandardMaterial({
-      map: doorTex,
-      roughness: 0.5,
-      metalness: 0.55,
-      envMapIntensity: 0.7,
-    }),
-    frameMaterial: new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.4,
-      metalness: 0.8,
-      envMapIntensity: 0.8,
-    }),
-    trussMaterial: new THREE.MeshStandardMaterial({
-      color: '#2c2e31',
-      roughness: 0.42,
-      metalness: 0.75,
-      envMapIntensity: 0.7,
-    }),
-    carpetMaterial: new THREE.MeshStandardMaterial({
-      color: '#ffffff', // per-instance colors (field / border)
-      roughness: 0.97,
-      metalness: 0,
-      envMapIntensity: 0.12,
-    }),
-    unitPlane,
-    unitBox,
-    signGeometry,
+    doorMaterial: base.doorMaterial,
+    frameMaterial: base.frameMaterial,
+    trussMaterial: base.trussMaterial,
+    carpetMaterial: base.carpetMaterial,
+    pennantMaterial: base.pennantMaterial,
+    unitPlane: base.unitPlane,
+    unitBox: base.unitBox,
+    signGeometry: base.signGeometry,
+    pennantGeometry: base.pennantGeometry,
   };
+
+  const entry: CacheEntry = {
+    assets,
+    disposables: new Set([
+      headerTex,
+      bannerTex,
+      signTex,
+      assets.headerMaterial,
+      assets.bannerMaterial,
+      assets.signMaterial,
+    ]),
+    disposed: false,
+  };
+
+  // Uploaded art rides in as a texture swap once decoded
+  if (signage.headerImageUrl) {
+    swapInImage(entry, assets.headerMaterial, signage.headerImageUrl, (img) =>
+      compositeHeaderImage(img, palette),
+    );
+  }
+  if (signage.bannerImageUrl) {
+    swapInImage(entry, assets.bannerMaterial, signage.bannerImageUrl, (img) =>
+      compositeBannerImage(img, palette),
+    );
+  }
+
+  signageCache.set(key, entry);
+  if (signageCache.size > CACHE_CAP) {
+    const oldestKey = signageCache.keys().next().value as string;
+    const oldest = signageCache.get(oldestKey)!;
+    signageCache.delete(oldestKey);
+    oldest.disposed = true;
+    for (const d of oldest.disposables) d.dispose();
+  }
   return assets;
 }
 

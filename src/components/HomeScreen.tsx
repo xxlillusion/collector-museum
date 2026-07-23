@@ -3,17 +3,17 @@ import { Link, useLocation } from 'wouter';
 import { useAuth } from '../lib/auth';
 import { useMyProfile } from '../lib/useMyProfile';
 import { cardDetailsLine } from '../lib/cardMeta';
-import { orderForWalls, hiddenFromWalls } from '../lib/wallOrder';
+import { orderForWalls } from '../lib/wallOrder';
+import { effectiveDisplay, wallEligible } from '../lib/displayPref';
+import type { DisplayPref } from '../lib/displayPref';
 import type { CardWithUrl } from '../lib/useCards';
 import type { CardPatch, SavedPlanRecord } from '../lib/db';
 import type { VendorSummary } from '../lib/useVendors';
 import { accountLabel } from '../screens/PageShell';
 import OnboardingChecklist from './OnboardingChecklist';
 import SiteFooter from './SiteFooter';
-import {
-  GOLD, BG, PANEL, HAIRLINE, TEXT, MUTED, SERIF, SANS,
-  Ornament, QuickAction, Section, museumHoverCss, ghostButtonStyle,
-} from './museumKit';
+import { Ornament, QuickAction, Section, useTheme, withAlpha } from './themeKit';
+import { LCD, PIXEL_FONT, LcdCursor, LcdDialog, lcdImg, lcdMenuBox, lcdMenuRow, lcdScreenFrame, lcdWell } from './lcdKit';
 
 // Home screen — the "Museum Refined" design (graduated from the 2026-07 UI
 // Lab beta): upload cards, manage the banner, and enter either 3D experience.
@@ -53,35 +53,6 @@ interface HomeScreenProps {
   showOrganizer?: boolean;
 }
 
-/** Compact control chip on curate-mode tiles — same idiom as the ✎/✕
- *  corner buttons, laid out as a row under the tile. */
-const curateBtnStyle: React.CSSProperties = {
-  background: 'rgba(0,0,0,0.75)',
-  color: TEXT,
-  border: `1px solid ${HAIRLINE}`,
-  borderRadius: '3px',
-  minWidth: '24px',
-  height: '22px',
-  cursor: 'pointer',
-  fontSize: '11px',
-  lineHeight: '20px',
-  textAlign: 'center',
-  padding: '0 5px',
-};
-
-const cardFieldStyle: React.CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  background: '#171310',
-  border: `1px solid ${HAIRLINE}`,
-  borderRadius: '3px',
-  color: TEXT,
-  padding: '6px 8px',
-  fontSize: '11.5px',
-  fontFamily: SERIF,
-  marginTop: '5px',
-};
-
 /** The editor's text fields — CardPatch minus the curation flags (those are
  *  boolean/number and belong to the curate-the-walls controls, not inputs). */
 type CardTextKey = 'name' | 'setName' | 'cardNumber' | 'year' | 'grade' | 'notes';
@@ -94,6 +65,21 @@ function CardDetailsEditor({
   card: CardWithUrl;
   onSave: (id: string, patch: CardPatch) => void;
 }) {
+  const t = useTheme();
+  const lcd = t.id === 'handheld';
+  const cardFieldStyle: React.CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    background: t.bg,
+    border: `${t.borderWidth}px solid ${t.border}`,
+    borderRadius: lcd ? 0 : '3px',
+    color: t.text,
+    padding: '6px 8px',
+    fontSize: '11.5px',
+    fontFamily: t.input.fontFamily,
+    marginTop: '5px',
+    ...(lcd ? { textTransform: 'uppercase' as const, letterSpacing: '0.04em' } : {}),
+  };
   const [draft, setDraft] = useState<Record<CardTextKey, string>>({
     name: card.name,
     setName: card.setName ?? '',
@@ -161,11 +147,17 @@ export default function HomeScreen({
   showOrganizer = false,
 }: HomeScreenProps) {
   const [, navigate] = useLocation();
+  const t = useTheme();
+  const night = t.id === 'night';
+  const lcd = t.id === 'handheld';
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [walkingId, setWalkingId] = useState<string | null>(null);
   // Which card's details editor is open (✎ on the tile)
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  // Handheld main menu: which row the ▶ cursor is on (hover/focus moves it).
+  // Unconditional hook — the other themes simply never read it.
+  const [menuSel, setMenuSel] = useState(0);
 
   // Museum "✎ add details" hand-off: seed the editor once, then tell the
   // host to clear the request. Idempotent, so StrictMode's double-run and
@@ -175,13 +167,29 @@ export default function HomeScreen({
     setEditingCardId(autoEditCardId);
     onAutoEditConsumed?.();
   }, [autoEditCardId, onAutoEditConsumed]);
-  // Curate-the-walls mode: tiles show in wall order with ★ / ‹ › / HIDE
-  // controls instead of the ✎/✕ pair
+  // Curate-the-walls mode: tiles show in wall order with ★ / ‹ › /
+  // WALLS·BINDER·BOTH controls instead of the ✎/✕ pair
   const [curating, setCurating] = useState(false);
 
-  // Wall order (featured first, hangOrder, addedAt) and the hidden remainder
-  const wallCards = useMemo(() => orderForWalls(cards), [cards]);
-  const offWallCards = useMemo(() => hiddenFromWalls(cards), [cards]);
+  // Wall order (featured first, hangOrder, addedAt) over the wall-eligible
+  // cards — the same composition the 3D walls consume (App:
+  // orderForWalls(wallEligible(...))). "Off the walls" = display 'binder'
+  // (legacy onWalls:false reads the same via effectiveDisplay).
+  const wallCards = useMemo(() => orderForWalls(wallEligible(cards)), [cards]);
+  const offWallCards = useMemo(
+    () => cards.filter((c) => effectiveDisplay(c) === 'binder'),
+    [cards],
+  );
+
+  /** The display three-way (F2). Writing a preference also clears the
+   *  deprecated onWalls flag: orderForWalls still reads it, and a stale
+   *  `onWalls:false` under `display:'walls'` would drop the card from every
+   *  wall composition while the new flag says it hangs. */
+  const setDisplay = useCallback(
+    (id: string, display: DisplayPref) =>
+      onUpdateCard(id, { display, onWalls: undefined }),
+    [onUpdateCard],
+  );
 
   /** Swap two adjacent on-wall cards. If any on-wall card still lacks a
    *  hangOrder, first materialize hangOrder = index for ALL of them in the
@@ -263,60 +271,141 @@ export default function HomeScreen({
   const galleryVendor = showableVendors.find((v) => v.id === galleryVendorId) ?? null;
   const canEnter = galleryVendor ? galleryVendor.inventoryCount > 0 : cards.length > 0;
 
+  const scrollToDropzone = () =>
+    document.getElementById('home-dropzone')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // ------------------------------------------------------------ THE HANDHELD
+  // #5b — the signed-in home as a game screen: the CTA tiles become THE MENU.
+  // Rows mirror the QuickAction gates exactly; same handlers.
+  const lcdMenu = lcd
+    ? ([
+        { label: 'WALK MUSEUM', hint: canEnter ? '3D GALLERY' : 'NEED A CARD FIRST!', onClick: onEnter, disabled: !canEnter },
+        { label: 'UPLOAD CARDS', hint: 'ADD TO COLLECTION', onClick: scrollToDropzone },
+        ...(authConfigured ? [{ label: 'CARD SHOWS', hint: 'BROWSE + WALK', onClick: () => navigate('/shows') }] : []),
+        ...(sandbox || !authConfigured ? [{ label: 'BUILD A SHOW', hint: 'THIS BROWSER ONLY', onClick: onVendor }] : []),
+        ...(authConfigured && !sandbox ? [{ label: 'VENDORS', hint: 'DIRECTORY', onClick: () => navigate('/vendors') }] : []),
+        ...(showRegistry ? [{ label: 'VENDOR REGISTRY', hint: 'LOCAL INVENTORY', onClick: onVendors }] : []),
+        ...(authConfigured && !sandbox && session ? [{ label: 'MY STORES', hint: 'INVENTORY + BANNERS', onClick: () => navigate('/account?tab=stores') }] : []),
+        ...(showOrganizer && !sandbox ? [{ label: 'ORGANIZER TOOLS', hint: 'MANAGE SHOWS', onClick: () => navigate('/organizer') }] : []),
+      ] as { label: string; hint: string; onClick: () => void; disabled?: boolean }[])
+    : null;
+  // Effective cursor row: never rest on a disabled row (falls to the first
+  // enabled one, e.g. while the collection is still empty).
+  const lcdMenuSel = lcdMenu
+    ? (lcdMenu[menuSel] && !lcdMenu[menuSel].disabled
+        ? menuSel
+        : Math.max(0, lcdMenu.findIndex((r) => !r.disabled)))
+    : 0;
+
+  /** Handheld-only corner-button overrides: the ✕/✎/curate chips are dark
+   *  scrims for the dark themes; on the light LCD they become panel chips
+   *  (square, ink border). Spread AFTER the base style. */
+  const lcdCornerBtn: React.CSSProperties = {
+    background: LCD.panel,
+    color: LCD.ink,
+    borderRadius: 0,
+    fontFamily: PIXEL_FONT,
+  };
+
+  /** Compact control chip on curate-mode tiles — same idiom as the ✎/✕
+   *  corner buttons, laid out as a row under the tile. */
+  const curateBtnStyle: React.CSSProperties = {
+    background: lcd ? LCD.panel : 'rgba(0,0,0,0.75)',
+    color: t.text,
+    border: `${t.borderWidth}px solid ${t.border}`,
+    borderRadius: lcd ? 0 : '3px',
+    minWidth: '24px',
+    height: '22px',
+    cursor: 'pointer',
+    fontSize: '11px',
+    lineHeight: '20px',
+    textAlign: 'center',
+    padding: '0 5px',
+    ...(lcd ? { fontFamily: PIXEL_FONT } : {}),
+  };
+
   return (
-    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: BG, color: TEXT, fontFamily: SANS, position: 'relative' }}>
+    <div style={{ height: '100vh', overflowY: 'auto', boxSizing: 'border-box', background: lcd ? t.pageBg : t.bg, color: t.text, fontFamily: t.fontBody, position: 'relative', ...(lcd ? { padding: '56px 12px 24px' } : {}) }}>
       {/* Sandbox: back to the main site. Otherwise: auth corner (hidden when
-          accounts aren't configured). */}
+          accounts aren't configured). On the handheld these sit on the device
+          shell above the screen frame — the account chip is the inverted
+          ink-on-screen idiom. */}
       {sandbox ? (
-        <div style={{ position: 'absolute', top: 18, left: 22, fontFamily: SERIF, fontSize: 12, letterSpacing: '0.12em' }}>
-          <Link href="/" style={{ color: GOLD, textDecoration: 'none' }}>
+        <div style={{ position: 'absolute', top: 18, left: 22, fontFamily: t.fontMono, fontSize: 12, letterSpacing: '0.12em' }}>
+          <Link href="/" style={{ color: t.accent, textDecoration: 'none', ...(lcd ? { fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const } : {}) }}>
             ← VENDOR MUSEUM
           </Link>
         </div>
       ) : authConfigured && (
-        <div style={{ position: 'absolute', top: 18, right: 22, fontFamily: SERIF, fontSize: 12, letterSpacing: '0.12em' }}>
+        <div style={{ position: 'absolute', top: 18, right: 22, fontFamily: t.fontMono, fontSize: 12, letterSpacing: '0.12em' }}>
           <Link
             href={session ? '/account' : '/login'}
             style={{
-              color: GOLD, textDecoration: 'none', border: `1px solid ${HAIRLINE}`,
-              borderRadius: '999px', padding: '8px 18px',
+              color: lcd ? LCD.screen : t.accent, textDecoration: 'none',
+              border: lcd ? 'none' : `${t.borderWidth}px solid ${t.border}`,
+              background: lcd ? LCD.ink : undefined,
+              borderRadius: lcd ? 0 : '999px', padding: '8px 18px',
               display: 'inline-block', maxWidth: 'min(44vw, 260px)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               boxSizing: 'border-box', verticalAlign: 'middle',
+              ...(lcd ? { fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const } : {}),
             }}
           >
             {session ? accountLabel(session, profile?.displayName) : 'SIGN IN'}
           </Link>
         </div>
       )}
-      <style>{museumHoverCss}</style>
-      <div style={{ maxWidth: '860px', margin: '0 auto', padding: '64px 28px 80px' }}>
+      <style>{t.hoverCss}</style>
+      <div style={{
+        maxWidth: '860px', margin: '0 auto',
+        ...(lcd
+          ? { ...lcdScreenFrame, padding: 'clamp(18px, 5vw, 40px) clamp(12px, 4vw, 30px) 48px' }
+          : { padding: '64px 28px 80px' }),
+      }}>
         {/* Masthead */}
         <header style={{ textAlign: 'center', marginBottom: '56px' }}>
-          <div style={{ fontSize: '11px', letterSpacing: '0.4em', color: MUTED, marginBottom: '14px' }}>
+          <div style={{ fontSize: '11px', letterSpacing: '0.4em', color: t.muted, marginBottom: '14px', fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
             {sandbox ? 'LOCAL SANDBOX · THIS BROWSER ONLY' : 'EST. 2026 · PRIVATE COLLECTION'}
           </div>
-          <h1 style={{ margin: 0, fontFamily: SERIF, fontSize: '44px', fontWeight: 400, letterSpacing: '0.18em', color: GOLD }}>
+          <h1 style={{
+            margin: 0, fontFamily: t.fontDisplay, fontSize: lcd ? 'clamp(20px, 6vw, 26px)' : night ? '52px' : '44px',
+            fontWeight: t.displayWeight, letterSpacing: night ? '0.05em' : lcd ? '0.08em' : '0.18em',
+            color: t.accent, textTransform: t.displayTransform,
+          }}>
             VENDOR MUSEUM
           </h1>
           <div style={{ margin: '18px 0' }}>
             <Ornament />
           </div>
-          <p style={{ margin: 0, fontSize: '13.5px', color: MUTED, letterSpacing: '0.12em' }}>
+          <p style={{ margin: 0, fontSize: lcd ? '10px' : '13.5px', color: t.muted, letterSpacing: '0.12em', fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
             {loading ? 'OPENING THE ARCHIVES…' : countsLine}
           </p>
+          {lcd && (
+            <LcdDialog cursor style={{ maxWidth: 560, margin: '20px auto 0', textAlign: 'left', overflowWrap: 'break-word' }}>
+              {!sandbox && session
+                ? `WELCOME BACK, ${accountLabel(session, profile?.displayName)}! THE MUSEUM AWAITS!`
+                : 'WELCOME! THE MUSEUM AWAITS!'}
+            </LcdDialog>
+          )}
           {sandbox && (
             <div style={{
+              ...t.note,
               margin: '22px auto 0', maxWidth: 560,
-              border: `1px solid ${HAIRLINE}`, borderRadius: '4px',
-              background: 'rgba(212,175,55,0.05)', padding: '10px 18px',
-              fontSize: '12.5px', lineHeight: 1.6, color: MUTED, fontFamily: SERIF, fontStyle: 'italic',
+              border: `${t.borderWidth}px solid ${t.border}`, borderRadius: lcd ? 0 : '4px',
+              background: withAlpha(t.accent, 0.05), padding: '10px 18px',
+              fontSize: '12.5px', lineHeight: 1.6,
+              // Handheld: the local-only notice as an inverted strip.
+              ...(lcd ? {
+                background: LCD.ink, color: LCD.screen, border: 'none',
+                fontSize: 10, lineHeight: 1.9, letterSpacing: '0.05em',
+                textTransform: 'uppercase' as const,
+              } : {}),
             }}>
               Everything on this page lives in this browser — no account required.
               Collections and shows built here can't be shared or published
               {authConfigured && (
                 <>
-                  {' '}(<Link href="/signup" style={{ color: GOLD }}>create an account</Link> to
+                  {' '}(<Link href="/signup" style={{ color: lcd ? LCD.screen : t.accent, fontWeight: lcd ? 700 : undefined }}>create an account</Link> to
                   take them online — everything built here can be imported into
                   your account right after you sign up)
                 </>
@@ -325,16 +414,16 @@ export default function HomeScreen({
           )}
           {showableVendors.length > 0 && (
             <div style={{ marginTop: '28px' }}>
-              <span style={{ fontSize: '11px', letterSpacing: '0.14em', color: MUTED, marginRight: '10px' }}>
+              <span style={{ fontSize: '11px', letterSpacing: '0.14em', color: t.muted, marginRight: '10px', fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
                 ON THE WALLS
               </span>
               <select
                 value={galleryVendor?.id ?? ''}
                 onChange={(e) => onSelectGalleryVendor(e.target.value || null)}
                 style={{
-                  background: '#0d0b0a', color: TEXT, border: `1px solid ${HAIRLINE}`,
-                  borderRadius: '2px', padding: '8px 12px', fontSize: '13px',
-                  fontFamily: SERIF, letterSpacing: '0.04em', cursor: 'pointer',
+                  background: t.surface, color: t.text, border: `${t.borderWidth}px solid ${t.border}`,
+                  borderRadius: lcd ? 0 : '2px', padding: '8px 12px', fontSize: lcd ? '11px' : '13px',
+                  fontFamily: t.input.fontFamily, letterSpacing: '0.04em', cursor: 'pointer',
                 }}
               >
                 <option value="">My Collection · {cards.length} {cards.length === 1 ? 'work' : 'works'}</option>
@@ -346,69 +435,100 @@ export default function HomeScreen({
               </select>
             </div>
           )}
-          <button
-            onClick={onEnter}
-            disabled={!canEnter}
-            style={{
-              marginTop: showableVendors.length > 0 ? '16px' : '30px',
-              background: canEnter ? GOLD : '#332b1e',
-              color: canEnter ? '#1a1614' : '#7a6c50',
-              border: 'none', padding: '15px 46px',
-              fontSize: '14px', letterSpacing: '0.16em', fontFamily: SERIF,
-              cursor: canEnter ? 'pointer' : 'not-allowed', borderRadius: '2px',
-            }}
-          >
-            ENTER THE GALLERY →
-          </button>
-          {!canEnter && !loading && (
-            <p style={{ margin: '10px 0 0', fontSize: '11.5px', color: MUTED, fontStyle: 'italic', fontFamily: SERIF }}>
-              Submit at least one work to open the gallery
-            </p>
+          {lcd && lcdMenu ? (
+            /* THE MENU — every CTA as a game-menu row; ▶ follows hover/focus. */
+            <div style={{ ...lcdMenuBox, maxWidth: 430, margin: '22px auto 0', textAlign: 'left' }}>
+              {lcdMenu.map((r, i) => {
+                const sel = i === lcdMenuSel && !r.disabled;
+                return (
+                  <button
+                    key={r.label}
+                    onClick={() => { if (!r.disabled) r.onClick(); }}
+                    disabled={r.disabled}
+                    onMouseEnter={() => { if (!r.disabled) setMenuSel(i); }}
+                    onFocus={() => { if (!r.disabled) setMenuSel(i); }}
+                    style={{
+                      width: '100%', textAlign: 'left', border: 'none', background: 'none',
+                      cursor: r.disabled ? 'not-allowed' : 'pointer', outline: 'none',
+                      ...lcdMenuRow(sel),
+                      ...(r.disabled ? { color: LCD.muted } : {}),
+                      ...(i === lcdMenu.length - 1 ? { borderBottom: 'none' } : {}),
+                    }}
+                  >
+                    <LcdCursor active={sel} />
+                    <span>{r.label}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 9, letterSpacing: '0.04em', fontWeight: 400, color: sel ? LCD.screen : LCD.muted }}>
+                      {r.hint}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={onEnter}
+                disabled={!canEnter}
+                style={{
+                  ...(canEnter ? t.primaryButton : t.primaryButtonDisabled),
+                  marginTop: showableVendors.length > 0 ? '16px' : '30px',
+                  padding: '15px 46px',
+                  fontSize: '14px',
+                }}
+              >
+                ENTER THE GALLERY →
+              </button>
+              {!canEnter && !loading && (
+                <p style={{ ...t.note, margin: '10px 0 0', fontSize: '11.5px', lineHeight: undefined }}>
+                  Submit at least one work to open the gallery
+                </p>
+              )}
+              <div style={{ marginTop: '12px', display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', alignItems: 'stretch' }}>
+                {authConfigured && (
+                  <QuickAction
+                    label="EXPLORE CARD SHOWS →"
+                    sub="browse published shows by location and walk them"
+                    onClick={() => navigate('/shows')}
+                  />
+                )}
+                {(sandbox || !authConfigured) && (
+                  <QuickAction
+                    label="BUILD A SHOW →"
+                    sub="floor-plan editor, this browser only"
+                    onClick={onVendor}
+                  />
+                )}
+                {authConfigured && !sandbox && (
+                  <QuickAction
+                    label="VENDOR DIRECTORY →"
+                    sub="registered vendors across the platform"
+                    onClick={() => navigate('/vendors')}
+                  />
+                )}
+                {showRegistry && (
+                  <QuickAction
+                    label="VENDOR REGISTRY →"
+                    sub="local vendors and their inventory"
+                    onClick={onVendors}
+                  />
+                )}
+                {authConfigured && !sandbox && session && (
+                  <QuickAction
+                    label="MY STORES →"
+                    sub="your stores, inventory and banners"
+                    onClick={() => navigate('/account?tab=stores')}
+                  />
+                )}
+                {showOrganizer && !sandbox && (
+                  <QuickAction
+                    label="ORGANIZER TOOLS →"
+                    sub="create and manage your public shows"
+                    onClick={() => navigate('/organizer')}
+                  />
+                )}
+              </div>
+            </>
           )}
-          <div style={{ marginTop: '12px', display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', alignItems: 'stretch' }}>
-            {authConfigured && (
-              <QuickAction
-                label="EXPLORE CARD SHOWS →"
-                sub="browse published shows by location and walk them"
-                onClick={() => navigate('/shows')}
-              />
-            )}
-            {(sandbox || !authConfigured) && (
-              <QuickAction
-                label="BUILD A SHOW →"
-                sub="floor-plan editor, this browser only"
-                onClick={onVendor}
-              />
-            )}
-            {authConfigured && !sandbox && (
-              <QuickAction
-                label="VENDOR DIRECTORY →"
-                sub="registered vendors across the platform"
-                onClick={() => navigate('/vendors')}
-              />
-            )}
-            {showRegistry && (
-              <QuickAction
-                label="VENDOR REGISTRY →"
-                sub="local vendors and their inventory"
-                onClick={onVendors}
-              />
-            )}
-            {authConfigured && !sandbox && session && (
-              <QuickAction
-                label="MY STORES →"
-                sub="your stores, inventory and banners"
-                onClick={() => navigate('/account?tab=stores')}
-              />
-            )}
-            {showOrganizer && !sandbox && (
-              <QuickAction
-                label="ORGANIZER TOOLS →"
-                sub="create and manage your public shows"
-                onClick={() => navigate('/organizer')}
-              />
-            )}
-          </div>
         </header>
 
         {/* Getting-started checklist — signed-in home only (never sandbox /
@@ -433,17 +553,22 @@ export default function HomeScreen({
             onDrop={onDrop}
             onClick={() => document.getElementById('home-file-input')?.click()}
             style={{
-              border: `1px dashed ${dragging ? GOLD : HAIRLINE}`,
-              borderRadius: '4px', padding: '32px', textAlign: 'center', cursor: 'pointer',
-              background: dragging ? 'rgba(212,175,55,0.08)' : PANEL,
+              border: `${t.borderWidth}px dashed ${dragging ? t.accent : t.border}`,
+              borderRadius: lcd ? 0 : '4px', padding: '32px', textAlign: 'center', cursor: 'pointer',
+              // Handheld drag state = the mid well shade, not an alpha tint.
+              background: dragging ? (lcd ? LCD.mid : withAlpha(t.accent, 0.08)) : t.panel,
               transition: 'all 0.2s',
             }}
           >
-            <div style={{ fontFamily: SERIF, fontSize: '15px', letterSpacing: '0.04em' }}>
-              {uploading ? 'Cataloguing new works…' : 'Submit new works to the collection'}
+            <div style={{ fontFamily: t.fontDisplay, fontSize: lcd ? '12px' : '15px', letterSpacing: '0.04em', ...(lcd ? { fontWeight: 700, textTransform: 'uppercase' as const } : {}) }}>
+              {uploading
+                ? (lcd ? 'HANGING CARDS…' : 'Cataloguing new works…')
+                : (lcd ? 'DROP CARD SCANS HERE!' : 'Submit new works to the collection')}
             </div>
-            <div style={{ fontSize: '12px', color: MUTED, marginTop: '8px', letterSpacing: '0.06em' }}>
-              Drop images here, or click to browse — PNG, JPG, WebP
+            <div style={{ fontSize: lcd ? '9.5px' : '12px', color: t.muted, marginTop: '8px', letterSpacing: '0.06em', ...(lcd ? { textTransform: 'uppercase' as const } : {}) }}>
+              {lcd
+                ? 'OR PRESS HERE TO BROWSE — PNG · JPG · WEBP'
+                : 'Drop images here, or click to browse — PNG, JPG, WebP'}
             </div>
             <input
               id="home-file-input"
@@ -457,35 +582,49 @@ export default function HomeScreen({
         </Section>
 
         <Section numeral="II." title="THE COLLECTION">
-          {!loading && cards.length === 0 && (
-            <p style={{ margin: 0, fontFamily: SERIF, fontStyle: 'italic', fontSize: '13.5px', color: MUTED }}>
+          {!loading && cards.length === 0 && (lcd ? (
+            <LcdDialog
+              cursor
+              choices={[{
+                label: 'UPLOAD',
+                primary: true,
+                onClick: () => document.getElementById('home-file-input')?.click(),
+              }]}
+            >
+              THE WALLS ARE BARE! HANG YOUR FIRST CARD?
+            </LcdDialog>
+          ) : (
+            <p style={{ ...t.note, margin: 0, fontSize: '13.5px', lineHeight: undefined }}>
               The walls are bare — submit your first work above.
             </p>
-          )}
+          ))}
           {cards.length > 0 && (
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               gap: '14px', flexWrap: 'wrap', margin: '-6px 0 18px',
             }}>
               {curating ? (
-                <span style={{ fontFamily: SERIF, fontStyle: 'italic', fontSize: '12px', color: MUTED }}>
-                  ★ featured works hang first · ‹ › set the order · hidden works stay in the binder
+                <span style={{ ...t.note, fontSize: lcd ? '9.5px' : '12px', lineHeight: undefined }}>
+                  ★ featured works hang first · ‹ › set the order · WALLS / BINDER / BOTH choose where each work shows
                 </span>
               ) : <span />}
               <button
                 onClick={() => setCurating((c) => !c)}
                 style={{
-                  ...ghostButtonStyle,
+                  ...t.ghostButton,
                   padding: '8px 18px',
                   fontSize: '11px',
-                  ...(curating ? { border: `1px solid ${GOLD}` } : {}),
+                  ...(curating ? { border: `${t.borderWidth}px solid ${t.accent}` } : {}),
+                  // Handheld active state = inversion, not a border-color shift
+                  // (accent and border are both ink there).
+                  ...(lcd && curating ? { background: LCD.ink, color: LCD.screen, border: `3px solid ${LCD.ink}` } : {}),
                 }}
               >
                 {curating ? 'DONE CURATING' : 'CURATE THE WALLS'}
               </button>
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '20px' }}>
+          <div style={{ ...(lcd && cards.length > 0 ? lcdWell : {}), display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '20px' }}>
             {(curating
               ? [
                   ...wallCards.map((card, i) => ({ card, wallIndex: i, hidden: false })),
@@ -499,9 +638,7 @@ export default function HomeScreen({
                   alt={card.name}
                   style={{
                     width: '100%', aspectRatio: '2.5/3.5', objectFit: 'cover', display: 'block',
-                    borderRadius: '2px', border: '3px solid #3a2f1e',
-                    outline: `1px solid ${HAIRLINE}`, outlineOffset: '3px',
-                    boxSizing: 'border-box',
+                    ...t.cardFrame,
                     opacity: hidden ? 0.45 : 1,
                   }}
                 />
@@ -512,9 +649,10 @@ export default function HomeScreen({
                       title="Remove from collection"
                       style={{
                         position: 'absolute', top: '6px', right: '6px',
-                        background: 'rgba(0,0,0,0.75)', color: TEXT, border: `1px solid ${HAIRLINE}`,
+                        background: 'rgba(0,0,0,0.75)', color: t.text, border: `${t.borderWidth}px solid ${t.border}`,
                         borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
                         fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
+                        ...(lcd ? lcdCornerBtn : {}),
                       }}
                     >
                       ✕
@@ -525,10 +663,13 @@ export default function HomeScreen({
                       style={{
                         position: 'absolute', top: '6px', left: '6px',
                         background: 'rgba(0,0,0,0.75)',
-                        color: editingCardId === card.id ? GOLD : TEXT,
-                        border: `1px solid ${editingCardId === card.id ? GOLD : HAIRLINE}`,
+                        color: editingCardId === card.id ? t.accent : t.text,
+                        border: `${t.borderWidth}px solid ${editingCardId === card.id ? t.accent : t.border}`,
                         borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
                         fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
+                        ...(lcd ? lcdCornerBtn : {}),
+                        // Handheld open-editor state = inversion, never hue.
+                        ...(lcd && editingCardId === card.id ? { background: LCD.ink, color: LCD.screen } : {}),
                       }}
                     >
                       ✎
@@ -538,9 +679,12 @@ export default function HomeScreen({
                 {curating && hidden && (
                   <span style={{
                     position: 'absolute', top: '6px', left: '6px',
-                    background: 'rgba(0,0,0,0.8)', color: MUTED, border: `1px solid ${HAIRLINE}`,
+                    background: 'rgba(0,0,0,0.8)', color: t.muted, border: `${t.borderWidth}px solid ${t.border}`,
                     borderRadius: '3px', padding: '2px 6px',
                     fontSize: '9px', letterSpacing: '0.12em',
+                    fontFamily: t.id === 'refined' ? undefined : t.fontMono,
+                    // Handheld: inverted chip on the light LCD surface.
+                    ...(lcd ? { background: LCD.ink, color: LCD.screen, border: 'none', borderRadius: 0 } : {}),
                   }}>
                     OFF THE WALLS
                   </span>
@@ -555,8 +699,10 @@ export default function HomeScreen({
                       title={card.featured ? 'Un-feature' : 'Feature — hangs first on the walls'}
                       style={{
                         ...curateBtnStyle,
-                        color: card.featured ? GOLD : TEXT,
-                        border: `1px solid ${card.featured ? GOLD : HAIRLINE}`,
+                        color: card.featured ? t.accent : t.text,
+                        border: `${t.borderWidth}px solid ${card.featured ? t.accent : t.border}`,
+                        // Handheld featured state = inversion (accent is ink).
+                        ...(lcd && card.featured ? { background: LCD.ink, color: LCD.screen } : {}),
                       }}
                     >
                       {card.featured ? '★' : '☆'}
@@ -589,18 +735,50 @@ export default function HomeScreen({
                         </button>
                       </>
                     )}
-                    <button
-                      onClick={() => onUpdateCard(card.id, { onWalls: card.onWalls === false })}
-                      title={hidden ? 'Hang this work on the walls' : 'Take off the walls (stays in the binder)'}
-                      style={{ ...curateBtnStyle, letterSpacing: '0.08em', fontSize: '9.5px' }}
-                    >
-                      {hidden ? 'SHOW' : 'HIDE'}
-                    </button>
+                    {/* Where this work shows (F2): walls only, binder only,
+                        or both. Reads via effectiveDisplay so legacy hidden
+                        cards light up BINDER. */}
+                    <span style={{ display: 'flex', gap: '2px' }}>
+                      {(
+                        [
+                          ['walls', 'WALLS', 'Hangs on the walls only — skips the binder'],
+                          ['binder', 'BINDER', 'Binder only — comes off the walls'],
+                          ['both', 'BOTH', 'Hangs on the walls and pages in the binder'],
+                        ] as const
+                      ).map(([pref, label, title]) => {
+                        const active = effectiveDisplay(card) === pref;
+                        return (
+                          <button
+                            key={pref}
+                            onClick={() => setDisplay(card.id, pref)}
+                            title={title}
+                            style={{
+                              ...curateBtnStyle,
+                              minWidth: 0,
+                              padding: '0 5px',
+                              letterSpacing: '0.06em',
+                              fontSize: lcd ? '9px' : '8.5px',
+                              color: active ? t.accent : t.muted,
+                              ...(active
+                                ? { border: `${t.borderWidth}px solid ${t.accent}` }
+                                : {}),
+                              // Handheld active state = inversion (accent is ink).
+                              ...(lcd && active
+                                ? { background: LCD.ink, color: LCD.screen }
+                                : {}),
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </span>
                   </div>
                 )}
                 <figcaption style={{
-                  marginTop: curating ? '8px' : '10px', textAlign: 'center', fontFamily: SERIF, fontSize: '11.5px',
-                  fontStyle: 'italic', color: MUTED,
+                  ...t.note,
+                  marginTop: curating ? '8px' : '10px', textAlign: 'center',
+                  fontSize: '11.5px', lineHeight: undefined,
                 }}>
                   <span style={{
                     display: 'block',
@@ -628,11 +806,18 @@ export default function HomeScreen({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '0 40px' }}>
           <Section numeral="III." title="EXHIBITIONS">
-            {planSummaries.length === 0 && (
-              <p style={{ margin: '0 0 14px', fontFamily: SERIF, fontStyle: 'italic', fontSize: '13px', color: MUTED }}>
+            {planSummaries.length === 0 && (lcd ? (
+              <LcdDialog
+                style={{ marginBottom: 14 }}
+                choices={[{ label: 'BUILD A SHOW', primary: true, onClick: onVendor }]}
+              >
+                NO SHOW PLANS SAVED YET!
+              </LcdDialog>
+            ) : (
+              <p style={{ ...t.note, margin: '0 0 14px', fontSize: '13px', lineHeight: undefined }}>
                 No saved floor plans yet.
               </p>
-            )}
+            ))}
             {planSummaries.map((p) => (
               <div
                 key={p.id}
@@ -640,38 +825,40 @@ export default function HomeScreen({
                 onClick={() => { if (!walkingId) handleWalk(p.id); }}
                 style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '13px 10px', borderBottom: '1px solid rgba(212,175,55,0.12)',
+                  padding: '13px 10px',
+                  borderBottom: lcd ? `2px solid ${LCD.mid}` : `1px solid ${withAlpha(t.accent, 0.12)}`,
                   cursor: walkingId ? 'wait' : 'pointer',
                   opacity: walkingId && walkingId !== p.id ? 0.5 : 1,
+                  ...(lcd ? { textTransform: 'uppercase' as const } : {}),
                 }}
               >
                 <div>
-                  <div style={{ fontFamily: SERIF, fontSize: '14px' }}>{p.name}</div>
-                  <div style={{ fontSize: '11.5px', color: MUTED, marginTop: '2px' }}>{p.detail}</div>
+                  <div style={{ fontFamily: t.fontDisplay, fontSize: lcd ? '11px' : '14px' }}>{p.name}</div>
+                  <div style={{ fontSize: lcd ? '9px' : '11.5px', color: t.muted, marginTop: '2px' }}>{p.detail}</div>
                 </div>
-                <span style={{ color: GOLD, fontSize: '13px', whiteSpace: 'nowrap' }}>
-                  {walkingId === p.id ? 'Opening…' : 'Walk →'}
+                <span style={{ color: t.accent, fontSize: lcd ? '10.5px' : '13px', whiteSpace: 'nowrap', ...(lcd ? { fontWeight: 700 } : {}) }}>
+                  {walkingId === p.id ? 'Opening…' : lcd ? '▶ WALK' : 'Walk →'}
                 </span>
               </div>
             ))}
             <div
               className="museum-row"
               onClick={onVendor}
-              style={{ padding: '13px 10px', cursor: 'pointer', fontSize: '12.5px', color: MUTED, letterSpacing: '0.06em' }}
+              style={{ padding: '13px 10px', cursor: 'pointer', fontSize: lcd ? '10px' : '12.5px', color: t.muted, letterSpacing: '0.06em' }}
             >
-              + Upload or edit a floor plan
+              {lcd ? '+ BUILD OR EDIT A FLOOR PLAN' : '+ Upload or edit a floor plan'}
             </div>
           </Section>
 
           <Section numeral="IV." title="TABLECLOTH BANNER">
-            <div style={{ fontSize: '11.5px', color: MUTED, marginBottom: '12px', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: lcd ? '9.5px' : '11.5px', color: t.muted, marginBottom: '12px', letterSpacing: '0.06em', ...(lcd ? { textTransform: 'uppercase' as const } : {}) }}>
               Displayed on the front of your vendor table — plain cloth if empty.
             </div>
             <div
               onClick={() => document.getElementById('home-banner-input')?.click()}
               style={{
-                position: 'relative', borderRadius: '2px', border: `1px ${bannerUrl ? 'solid' : 'dashed'} ${HAIRLINE}`,
-                background: PANEL, cursor: 'pointer', padding: bannerUrl ? '8px' : '26px',
+                position: 'relative', borderRadius: lcd ? 0 : '2px', border: `${t.borderWidth}px ${bannerUrl ? 'solid' : 'dashed'} ${t.border}`,
+                background: t.panel, cursor: 'pointer', padding: bannerUrl ? '8px' : '26px',
                 textAlign: 'center', transition: 'all 0.2s',
               }}
             >
@@ -680,16 +867,17 @@ export default function HomeScreen({
                   <img
                     src={bannerUrl}
                     alt="Tablecloth banner"
-                    style={{ width: '100%', maxHeight: '120px', objectFit: 'contain', display: 'block' }}
+                    style={{ width: '100%', maxHeight: '120px', objectFit: 'contain', display: 'block', ...(lcd ? lcdImg : {}) }}
                   />
                   <button
                     onClick={(e) => { e.stopPropagation(); onRemoveBanner(); }}
                     title="Remove banner"
                     style={{
                       position: 'absolute', top: '6px', right: '6px',
-                      background: 'rgba(0,0,0,0.75)', color: TEXT, border: `1px solid ${HAIRLINE}`,
+                      background: 'rgba(0,0,0,0.75)', color: t.text, border: `${t.borderWidth}px solid ${t.border}`,
                       borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
                       fontSize: '11px', lineHeight: '20px', textAlign: 'center', padding: 0,
+                      ...(lcd ? lcdCornerBtn : {}),
                     }}
                   >
                     ✕
@@ -697,8 +885,12 @@ export default function HomeScreen({
                 </>
               ) : (
                 <>
-                  <div style={{ fontFamily: SERIF, fontSize: '13.5px' }}>Add a banner image</div>
-                  <div style={{ fontSize: '11.5px', color: MUTED, marginTop: '6px' }}>Click to browse</div>
+                  <div style={{ fontFamily: t.fontDisplay, fontSize: lcd ? '11px' : '13.5px', ...(lcd ? { fontWeight: 700, textTransform: 'uppercase' as const } : {}) }}>
+                    {lcd ? 'SET A TABLE BANNER!' : 'Add a banner image'}
+                  </div>
+                  <div style={{ fontSize: lcd ? '9.5px' : '11.5px', color: t.muted, marginTop: '6px', ...(lcd ? { textTransform: 'uppercase' as const } : {}) }}>
+                    {lcd ? 'PRESS HERE TO BROWSE' : 'Click to browse'}
+                  </div>
                 </>
               )}
               <input
@@ -720,15 +912,15 @@ export default function HomeScreen({
           <div style={{ marginBottom: '14px' }}>
             <Ornament width={40} />
           </div>
-          <p style={{ margin: 0, fontSize: '11px', letterSpacing: '0.2em', color: MUTED }}>
+          <p style={{ margin: 0, fontSize: '11px', letterSpacing: '0.2em', color: t.muted, fontFamily: t.id === 'refined' ? undefined : t.fontMono }}>
             {sandbox || !authConfigured
               ? 'EVERYTHING LIVES IN YOUR BROWSER · NO ACCOUNT REQUIRED'
               : 'SYNCED TO YOUR ACCOUNT'}
           </p>
           {!sandbox && authConfigured && (
-            <p style={{ margin: '12px 0 0', fontSize: '12px', fontFamily: SERIF, fontStyle: 'italic', color: MUTED }}>
+            <p style={{ ...t.note, margin: '12px 0 0', fontSize: '12px', lineHeight: undefined }}>
               Prefer to keep things offline?{' '}
-              <Link href="/sandbox" style={{ color: GOLD }}>
+              <Link href="/sandbox" style={{ color: t.accent }}>
                 Open the local sandbox →
               </Link>
             </p>

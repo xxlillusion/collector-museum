@@ -25,6 +25,14 @@ export interface CardRecord {
   // wall-slot pin ("N:0:3" — see lib/wallSlots.ts).
   display?: DisplayPref;
   wallSlot?: string;
+  // Collectr import (same jsonb — see lib/collectrImport.ts). collectrId is the
+  // re-import sync key and is deliberately never shown on placards or public
+  // pages; quantity renders as "×3" and is only stored when > 1, so cards that
+  // predate the importer keep byte-identical metadata.
+  collectrId?: string;
+  quantity?: number;
+  /** Free text: "NM", "LP" — mirrors InventoryItemRecord.condition. */
+  condition?: string;
 }
 
 /** The editable (non-image) fields of a card. */
@@ -42,6 +50,9 @@ export type CardPatch = Partial<
     | 'onWalls'
     | 'display'
     | 'wallSlot'
+    | 'collectrId'
+    | 'quantity'
+    | 'condition'
   >
 >;
 

@@ -85,7 +85,7 @@ export async function getPublicCollectorProfile(
           metadata: Record<string, unknown> | null;
         }[]).map((row) => {
           const meta: CardMetaFields = {};
-          for (const k of ['setName', 'cardNumber', 'year', 'grade', 'notes'] as const) {
+          for (const k of ['setName', 'cardNumber', 'year', 'grade', 'notes', 'condition'] as const) {
             const v = row.metadata?.[k];
             if (typeof v === 'string' && v) meta[k] = v;
           }
@@ -101,6 +101,10 @@ export async function getPublicCollectorProfile(
           if (typeof featured === 'boolean') item.featured = featured;
           const hangOrder = row.metadata?.['hangOrder'];
           if (typeof hangOrder === 'number') item.hangOrder = hangOrder;
+          // Placard copy count. collectrId is intentionally NOT surfaced here —
+          // it is a private sync key, not public placard data.
+          const quantity = row.metadata?.['quantity'];
+          if (typeof quantity === 'number' && quantity > 1) meta.quantity = Math.floor(quantity);
           const onWalls = row.metadata?.['onWalls'];
           if (typeof onWalls === 'boolean') item.onWalls = onWalls;
           const display = row.metadata?.['display'];

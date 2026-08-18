@@ -273,6 +273,51 @@ parallel streams, additive-only changes since — never reshape existing signatu
   (`replaceImage`). (3) Blind `storage.download()` of a maybe-missing object logs a 400
   console error — existence-check first (see remote.ts getBanner).
 
+## Collectr import (2026-08-15)
+
+Bulk-import an existing [Collectr](https://app.getcollectr.com) collection into the
+user's cards. Collectr has **no public portfolio API** (holdings sit behind
+`auth.getcollectr.com`; their published API is catalog-only) and only Collectr PRO has a
+built-in export — so **the app never talks to Collectr**. Two feeders normalize into one
+folder format that the app reads:
+
+```
+tools/collectr-export/  (local Playwright, free tier) ─┐
+                                                       ├─→ collection.json + img/ ─→ ACQUISITIONS panel
+Collectr PRO CSV export                               ─┘
+```
+
+- **No SQL migration.** `collections.metadata` is a jsonb bag, so `CardRecord` gained
+  `collectrId` / `quantity` / `condition` additively. `remote.ts` keeps `collectrId` in a
+  separate `CARD_IMPORT_KEYS` (a private sync key — deliberately NOT exposed via
+  `publicCollectors.ts`), and `quantity` is read/written **explicitly** because
+  `CARD_META_KEYS` is a `typeof v === 'string'` loop that would silently drop a number
+  (the `hangOrder` precedent).
+- ⚠ `updateCard`'s `metaTouched` guard enumerates the key lists; a `{quantity}`-only
+  patch matched none of them and **silently no-opped**. It now also tests
+  `CARD_IMPORT_KEYS` and `'quantity' in patch`. Any future non-string metadata field
+  must be added there too.
+- **Quantity 1 is never persisted** (both providers), so pre-import cards keep
+  byte-identical metadata and render unchanged. `cardMeta.ts` is the single placard
+  choke point — `×N` and condition light up all four surfaces from one edit.
+- **Re-import syncs on `collectrId`**: adds new, patches only genuinely-changed
+  import-owned fields, and **never writes curation** (`wallSlot`, `featured`,
+  `hangOrder`, `display`, `onWalls`) or the user's `notes`. Nothing is ever deleted.
+- **Grouping key**: `productId` when raw, `` `${productId}|${grade}` `` when graded — a
+  PSA 9 and a raw copy are different works on a wall. Appending an empty grade suffix to
+  raw cards makes the script and the CSV parser disagree and duplicates the whole
+  collection on a cross-feeder refresh. Caught in E2E; keep the two in step.
+- **`webkitdirectory` is not in `@types/react@19`** — set it via ref, never as a JSX
+  prop, or `tsc -b` fails. The panel renders both a directory and a flat multi-select
+  input; the flat one is what the headless test drives.
+- The apply loop talks to the provider **directly**, not `useCards.addCard` (which
+  reloads the whole collection per card — on remote that is an image download per card,
+  so 500 adds would be ~125k downloads). `useCards` now exposes `reload` for one refresh
+  at the end.
+- **Credential safety**: the export script never accepts or types a password. It opens a
+  headed browser, the user signs in themselves, and only `storageState` is persisted (to
+  a gitignored `.auth/`).
+
 ## Gotchas (hard-won, don't rediscover)
 
 1. **Type-check with `npm run build` (`tsc -b`), not bare `npx tsc --noEmit`** — bare tsc

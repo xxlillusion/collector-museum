@@ -52,10 +52,14 @@ interface CollectionRow {
 /** collections.metadata jsonb ⇄ CardRecord's optional metadata fields.
  *  Placard keys are strings; curation keys (0007-era walls feature) carry
  *  their real types through the same jsonb. */
-const CARD_META_KEYS = ['setName', 'cardNumber', 'year', 'grade', 'notes'] as const;
+const CARD_META_KEYS = ['setName', 'cardNumber', 'year', 'grade', 'notes', 'condition'] as const;
 const CARD_CURATION_KEYS = ['featured', 'hangOrder', 'onWalls'] as const;
 // 3D-interactivity wave: display walls/binder/both + the wall-slot pin.
 const CARD_LAYOUT_KEYS = ['display', 'wallSlot'] as const;
+// Collectr import: a private sync key, kept out of CARD_META_KEYS so it never
+// reaches placards or public collector pages. `quantity` is a NUMBER and so is
+// read/written explicitly below — the string loop would silently drop it.
+const CARD_IMPORT_KEYS = ['collectrId'] as const;
 
 function cardMetaFromRow(metadata: Record<string, unknown> | null): Partial<CardRecord> {
   const out: Partial<CardRecord> = {};
@@ -73,6 +77,15 @@ function cardMetaFromRow(metadata: Record<string, unknown> | null): Partial<Card
   if (isDisplayPref(display)) out.display = display;
   const wallSlot = metadata?.wallSlot;
   if (typeof wallSlot === 'string' && wallSlot) out.wallSlot = wallSlot;
+  for (const k of CARD_IMPORT_KEYS) {
+    const v = metadata?.[k];
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  // Only > 1 is meaningful; 1 is the default and is never persisted.
+  const quantity = metadata?.quantity;
+  if (typeof quantity === 'number' && Number.isFinite(quantity) && quantity > 1) {
+    out.quantity = Math.floor(quantity);
+  }
   return out;
 }
 
@@ -91,6 +104,13 @@ function cardMetaToJson(
   if (typeof card.onWalls === 'boolean') out.onWalls = card.onWalls;
   if (card.display && isDisplayPref(card.display)) out.display = card.display;
   if (typeof card.wallSlot === 'string' && card.wallSlot) out.wallSlot = card.wallSlot;
+  for (const k of CARD_IMPORT_KEYS) {
+    const v = card[k];
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  if (typeof card.quantity === 'number' && Number.isFinite(card.quantity) && card.quantity > 1) {
+    out.quantity = Math.floor(card.quantity);
+  }
   return out;
 }
 
@@ -371,7 +391,11 @@ export function makeRemoteProvider(userId: string): DataProvider {
       const metaTouched =
         CARD_META_KEYS.some((k) => k in patch) ||
         CARD_CURATION_KEYS.some((k) => k in patch) ||
-        CARD_LAYOUT_KEYS.some((k) => k in patch);
+        CARD_LAYOUT_KEYS.some((k) => k in patch) ||
+        CARD_IMPORT_KEYS.some((k) => k in patch) ||
+        // quantity lives in the same jsonb but is not in any key list (number,
+        // not string) — omitting it here makes a quantity-only patch a no-op.
+        'quantity' in patch;
       if (metaTouched) {
         const { data } = await db()
           .from('collections')

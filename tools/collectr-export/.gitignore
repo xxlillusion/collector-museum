@@ -1,0 +1,8 @@
+# Your signed-in Collectr session (state.json) and your own card data
+# (discovery.json). Never commit either — state.json is a working login.
+.auth/
+
+# A default --out landing here would be your whole collection. Anchored with a
+# leading slash: unanchored, these match a directory of that name at ANY depth.
+/out/
+/collectr-export/

@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "collectr:login": "node tools/collectr-export/login.mjs",
+    "collectr:discover": "node tools/collectr-export/discover.mjs",
+    "collectr:export": "node tools/collectr-export/export.mjs",
+    "collectr:from-har": "node tools/collectr-export/from-har.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

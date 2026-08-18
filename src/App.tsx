@@ -112,7 +112,7 @@ function MuseumApp({
     );
   }, []);
   const provider = useProvider();
-  const { cards, loading, addCard, removeCard, updateCard } = useCards();
+  const { cards, loading, addCard, removeCard, updateCard, reload: reloadCards } = useCards();
   const { bannerUrl, setBanner, removeBanner } = useBanner();
   const vendorPlan = useVendorPlan();
   const vendorBanners = useVendorBanners();
@@ -342,6 +342,7 @@ function MuseumApp({
       onAdd={addCard}
       onRemove={removeCard}
       onUpdateCard={updateCard}
+      onReloadCards={reloadCards}
       autoEditCardId={autoEditCardId ?? undefined}
       onAutoEditConsumed={() => setAutoEditCardId(null)}
       bannerUrl={bannerUrl}

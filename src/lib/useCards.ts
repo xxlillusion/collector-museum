@@ -64,5 +64,8 @@ export function useCards() {
     await provider.updateCard(id, patch);
   }, [provider]);
 
-  return { cards, loading, addCard, removeCard, updateCard };
+  // `reload` is for bulk writers that bypass this hook (the Collectr import
+  // does 500 provider writes and then refreshes once — going through addCard
+  // would re-read the whole collection after every single card).
+  return { cards, loading, addCard, removeCard, updateCard, reload: loadCards };
 }

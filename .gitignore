@@ -16,6 +16,17 @@ dist-ssr
 git_key
 git_key.pub
 .env
+# Saved Collectr session — a working login for the user's account
+tools/collectr-export/.auth/
+
+# Collectr export output (the user's own collection + card images).
+# The leading slash is load-bearing: unanchored, `collectr-export/` matches a
+# directory of that name at ANY depth — including tools/collectr-export/, which
+# silently excluded the export tool itself from the repo.
+/collectr-export/
+
+# Fixture built by tools/verify-collectr-import.mjs
+.collectr-fixture/
 
 # Throwaway debug scripts
 *.tmp.mjs

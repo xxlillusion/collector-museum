@@ -12,6 +12,7 @@ import type { VendorSummary } from '../lib/useVendors';
 import { accountLabel } from '../screens/PageShell';
 import OnboardingChecklist from './OnboardingChecklist';
 import SiteFooter from './SiteFooter';
+import CollectrImportPanel from './CollectrImportPanel';
 import { Ornament, QuickAction, Section, useTheme, withAlpha } from './themeKit';
 import { LCD, PIXEL_FONT, LcdCursor, LcdDialog, lcdImg, lcdMenuBox, lcdMenuRow, lcdScreenFrame, lcdWell } from './lcdKit';
 
@@ -29,6 +30,8 @@ interface HomeScreenProps {
   onRemove: (id: string) => Promise<void>;
   /** Card details editor (name / set / number / year / grade / notes). */
   onUpdateCard: (id: string, patch: CardPatch) => Promise<void>;
+  /** Refresh after a bulk writer (the Collectr import) bypasses useCards. */
+  onReloadCards: () => Promise<void>;
   /** Open this card's details editor on arrival (museum "✎ add details").
    *  Consumed once via onAutoEditConsumed so later visits start clean. */
   autoEditCardId?: string;
@@ -55,7 +58,7 @@ interface HomeScreenProps {
 
 /** The editor's text fields — CardPatch minus the curation flags (those are
  *  boolean/number and belong to the curate-the-walls controls, not inputs). */
-type CardTextKey = 'name' | 'setName' | 'cardNumber' | 'year' | 'grade' | 'notes';
+type CardTextKey = 'name' | 'setName' | 'cardNumber' | 'year' | 'grade' | 'condition' | 'notes';
 
 /** Per-card details editor (museum placard fields). Save-on-blur per field. */
 function CardDetailsEditor({
@@ -86,8 +89,10 @@ function CardDetailsEditor({
     cardNumber: card.cardNumber ?? '',
     year: card.year ?? '',
     grade: card.grade ?? '',
+    condition: card.condition ?? '',
     notes: card.notes ?? '',
   });
+  const [qty, setQty] = useState(String(card.quantity ?? 1));
 
   const commit = (key: CardTextKey) => {
     const next = draft[key].trim();
@@ -118,6 +123,26 @@ function CardDetailsEditor({
       {field('cardNumber', 'Number (e.g. 4/102)')}
       {field('year', 'Year')}
       {field('grade', 'Grade (e.g. PSA 9)')}
+      {field('condition', 'Condition (e.g. NM)')}
+      {/* Copies owned. 1 clears the key rather than storing a redundant 1, so
+          cards that predate the Collectr import keep identical metadata. */}
+      <input
+        type="number"
+        min={1}
+        value={qty}
+        placeholder="Copies"
+        onChange={(e) => setQty(e.target.value)}
+        onBlur={() => {
+          const n = Math.floor(Number(qty));
+          const next = Number.isFinite(n) && n > 1 ? n : undefined;
+          if (next !== (card.quantity && card.quantity > 1 ? card.quantity : undefined)) {
+            onSave(card.id, { quantity: next });
+          }
+          setQty(String(next ?? 1));
+        }}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        style={cardFieldStyle}
+      />
       {field('notes', 'Notes')}
     </div>
   );
@@ -129,6 +154,7 @@ export default function HomeScreen({
   onAdd,
   onRemove,
   onUpdateCard,
+  onReloadCards,
   autoEditCardId,
   onAutoEditConsumed,
   bannerUrl,
@@ -579,6 +605,7 @@ export default function HomeScreen({
               onChange={(e) => handleFiles(e.target.files)}
             />
           </div>
+          <CollectrImportPanel cards={cards} onReloadCards={onReloadCards} />
         </Section>
 
         <Section numeral="II." title="THE COLLECTION">
